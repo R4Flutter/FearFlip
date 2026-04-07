@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "158165984868",
+    "project_id": "fearflip-179cf",
+    "storage_bucket": "fearflip-179cf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:158165984868:android:1b2ca17d58d0b7dae86171",
+        "android_client_info": {
+          "package_name": "com.example.fearflipgame"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "158165984868-7ec8ov2190c4gcsi2h3ifeerq0sev894.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.fearflipgame",
+            "certificate_hash": "14185b6908b37c59edafc36fbc5ef6075b08602d"
+          }
+        },
+        {
+          "client_id": "158165984868-bvqagc5kubdo3cmpkr3ccrhufd2ksl6i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAqBP0XF5hhuCojR_tZHbh9O3VFyJk_UPw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "158165984868-bvqagc5kubdo3cmpkr3ccrhufd2ksl6i.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "158165984868-vjecq33sac1sfvdnr6hpkbpfbak94sqp.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.fearflipgame"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,2026 @@
+{
+  "stages": [
+    {
+      "stage": 1,
+      "name": "Awakening",
+      "goal": "Teach basic movement and introduce the first flip safely.",
+      "core_factors": {
+        "player_speed": "1.0x (baseline, comfortable movement)",
+        "devil_speed": "Not present",
+        "flip_interval": "Every 5 seconds (fixed)",
+        "first_flip_delay": "4 seconds after start",
+        "flip_randomness": "0% (fully predictable)",
+        "warning_time": "1.2 seconds before flip",
+        "maze_complexity": "Very low (straight paths, no confusion)",
+        "dead_ends": "0",
+        "safe_zones": "3 zones, each lasts 3 seconds",
+        "chaos_events": "None",
+        "visual_intensity": "Very low glitch, almost clean screen",
+        "audio_intensity": "Calm ambient sound only"
+      },
+      "twists": [
+        "First ever flip happens slowly and predictably",
+        "Player experiences control inversion without pressure"
+      ],
+      "expected_player_feeling": "Safe, curious, learning"
+    },
+
+    {
+      "stage": 2,
+      "name": "Inversion",
+      "goal": "Make player consciously adapt to inverted controls.",
+      "core_factors": {
+        "player_speed": "1.0x",
+        "devil_speed": "Not present",
+        "flip_interval": "Every 5 seconds",
+        "first_flip_delay": "3 seconds",
+        "flip_randomness": "0%",
+        "warning_time": "1.0 second",
+        "maze_complexity": "Low (one misleading path introduced)",
+        "dead_ends": "1",
+        "safe_zones": "2 zones, 2.5 seconds each",
+        "chaos_events": "None",
+        "visual_intensity": "Low glitch (slightly noticeable)",
+        "audio_intensity": "Calm with slight tension tone"
+      },
+      "twists": [
+        "First misleading path added",
+        "Player must think before moving after flip"
+      ],
+      "expected_player_feeling": "Focused, learning control adaptation"
+    },
+
+    {
+      "stage": 3,
+      "name": "Control",
+      "goal": "Build confidence and introduce slight unpredictability.",
+      "core_factors": {
+        "player_speed": "1.05x (slightly faster for responsiveness)",
+        "devil_speed": "Not present",
+        "flip_interval": "Every 5 seconds",
+        "first_flip_delay": "3 seconds",
+        "flip_randomness": "10–20% variation",
+        "warning_time": "0.9 seconds",
+        "maze_complexity": "Low–medium (more turns, tighter spaces)",
+        "dead_ends": "2",
+        "safe_zones": "2 zones, 2 seconds each",
+        "chaos_events": "None",
+        "visual_intensity": "Moderate glitch during flip",
+        "audio_intensity": "Light tension background"
+      },
+      "twists": [
+        "Flip timing is slightly unpredictable",
+        "Maze requires more precise movement"
+      ],
+      "expected_player_feeling": "Confident but alert"
+    },
+
+    {
+      "stage": 4,
+      "name": "Distortion",
+      "goal": "Introduce pressure and reduce player comfort.",
+      "core_factors": {
+        "player_speed": "1.05x",
+        "devil_speed": "Not present",
+        "flip_interval": "Every 4.5 seconds",
+        "first_flip_delay": "2.5 seconds",
+        "flip_randomness": "20–30%",
+        "warning_time": "0.8 seconds",
+        "maze_complexity": "Medium (tight corridors + misleading paths)",
+        "dead_ends": "3",
+        "safe_zones": "1 zone, 2 seconds duration",
+        "chaos_events": "None",
+        "visual_intensity": "Noticeable glitch + small screen shake",
+        "audio_intensity": "Tension music starts building"
+      },
+      "twists": [
+        "Reduced safe zones increases pressure",
+        "Flip becomes faster and less predictable",
+        "Maze starts forcing quick decisions"
+      ],
+      "expected_player_feeling": "Tense, slightly stressed"
+    },
+
+    {
+      "stage": 5,
+      "name": "First Contact",
+      "goal": "Introduce the devil and create first real danger.",
+      "core_factors": {
+        "player_speed": "1.08x (slightly boosted to escape)",
+        "devil_speed": "0.6x (slow but noticeable)",
+        "devil_spawn_delay": "5 seconds after start",
+        "devil_behavior": "Basic follow (no prediction)",
+        "devil_spawn_distance": "Far from player",
+        "flip_interval": "Every 4 seconds",
+        "first_flip_delay": "2.5 seconds",
+        "flip_randomness": "20–30%",
+        "warning_time": "0.8 seconds",
+        "maze_complexity": "Medium (tight corridors)",
+        "dead_ends": "3",
+        "safe_zones": "1 zone, 1.5 seconds duration",
+        "chaos_events": "None",
+        "visual_intensity": "High glitch during flip",
+        "audio_intensity": "Heartbeat activates when devil is near"
+      },
+      "twists": [
+        "Devil appears for the first time",
+        "Player experiences being chased",
+        "Pressure increases due to reduced safe zones"
+      ],
+      "expected_player_feeling": "Surprised, slightly panicked, excited"
+    }
+  ]
+}
+
+
+STAGE 6-10
+{
+  "stages": [
+    {
+      "stage": 6,
+      "name": "Pursuit",
+      "goal": "Establish consistent chase pressure.",
+      "core_factors": {
+        "player_speed": "1.08x",
+        "devil_speed": "0.7x",
+        "devil_spawn_delay": "3 seconds",
+        "devil_behavior": "Basic follow with smoother tracking",
+        "devil_spawn_distance": "Medium distance",
+        "flip_interval": "Every 4 seconds",
+        "flip_randomness": "25%",
+        "warning_time": "0.8 seconds",
+        "maze_complexity": "Medium with more turns",
+        "dead_ends": "3",
+        "safe_zones": "1 safe zone, lasts 1.2 seconds",
+        "chaos_events": "None",
+        "visual_intensity": "Moderate glitch + light screen shake",
+        "audio_intensity": "Heartbeat stronger"
+      },
+      "twists": [
+        "Devil appears earlier",
+        "Less time to prepare after spawn"
+      ],
+      "expected_player_feeling": "Focused, slightly stressed"
+    },
+
+    {
+      "stage": 7,
+      "name": "Decisions",
+      "goal": "Force quick decision-making under pressure.",
+      "core_factors": {
+        "player_speed": "1.1x",
+        "devil_speed": "0.75x",
+        "devil_spawn_delay": "3 seconds",
+        "devil_behavior": "Basic follow",
+        "devil_spawn_distance": "Medium",
+        "flip_interval": "Every 3.8 seconds",
+        "flip_randomness": "30%",
+        "warning_time": "0.7 seconds",
+        "maze_complexity": "Medium-high with misleading paths",
+        "dead_ends": "4",
+        "safe_zones": "1 safe zone, lasts 1 second",
+        "chaos_events": "None",
+        "visual_intensity": "Stronger glitch pulses",
+        "audio_intensity": "Tension + heartbeat combined"
+      },
+      "twists": [
+        "Misleading routes introduced",
+        "Player must choose paths quickly"
+      ],
+      "expected_player_feeling": "Under pressure, making fast decisions"
+    },
+
+    {
+      "stage": 8,
+      "name": "Acceleration",
+      "goal": "Increase speed and reduce safety margin.",
+      "core_factors": {
+        "player_speed": "1.12x",
+        "devil_speed": "0.8x",
+        "devil_spawn_delay": "2.5 seconds",
+        "devil_behavior": "Follow with slightly faster reaction",
+        "devil_spawn_distance": "Closer than before",
+        "flip_interval": "Every 3.5 seconds",
+        "flip_randomness": "35%",
+        "warning_time": "0.7 seconds",
+        "maze_complexity": "High (tight corridors)",
+        "dead_ends": "4–5",
+        "safe_zones": "1 safe zone, lasts 0.8 seconds",
+        "chaos_events": "None",
+        "visual_intensity": "High glitch + noticeable shake",
+        "audio_intensity": "Fast heartbeat"
+      },
+      "twists": [
+        "Reduced reaction time",
+        "Devil pressure feels closer"
+      ],
+      "expected_player_feeling": "High tension, faster reactions required"
+    },
+
+    {
+      "stage": 9,
+      "name": "Instability",
+      "goal": "Break player rhythm using unpredictability.",
+      "core_factors": {
+        "player_speed": "1.12x",
+        "devil_speed": "0.85x",
+        "devil_spawn_delay": "2.5 seconds",
+        "devil_behavior": "Follow with slight delay variation",
+        "devil_spawn_distance": "Medium-close",
+        "flip_interval": "Between 3.2 to 3.8 seconds (randomized)",
+        "flip_randomness": "40%",
+        "warning_time": "0.6 seconds",
+        "maze_complexity": "High",
+        "dead_ends": "5",
+        "safe_zones": "1 safe zone, lasts 0.7 seconds",
+        "chaos_events": "Very light visual fake cues (not full fake goal)",
+        "visual_intensity": "Strong glitch bursts",
+        "audio_intensity": "Unstable audio pulses"
+      },
+      "twists": [
+        "Unpredictable flip timing",
+        "Subtle visual confusion begins"
+      ],
+      "expected_player_feeling": "Confused but engaged"
+    },
+
+    {
+      "stage": 10,
+      "name": "Trial",
+      "goal": "Test player skill and create first 'almost win' moment.",
+      "core_factors": {
+        "player_speed": "1.15x",
+        "devil_speed": "0.9x",
+        "devil_spawn_delay": "2 seconds",
+        "devil_behavior": "Aggressive follow (no prediction yet)",
+        "devil_spawn_distance": "Closer",
+        "flip_interval": "Between 3.0 to 3.5 seconds",
+        "flip_randomness": "45%",
+        "warning_time": "0.6 seconds",
+        "maze_complexity": "High with tight and tricky paths",
+        "dead_ends": "5–6",
+        "safe_zones": "1 very short safe zone (0.5 seconds)",
+        "chaos_events": "None",
+        "visual_intensity": "High glitch + shake",
+        "audio_intensity": "Fast heartbeat + tension peak"
+      },
+      "twists": [
+        "Near-death situations highly likely",
+        "Player pushed to edge of control"
+      ],
+      "expected_player_feeling": "Intense, almost successful, highly motivated to retry"
+    }
+  ]
+}
+
+STAGE 11-15
+{
+  "stages": [
+    {
+      "stage": 11,
+      "name": "Disturbance",
+      "goal": "Introduce first illusion element without overwhelming the player.",
+      "core_factors": {
+        "player_speed": "1.15x",
+        "devil_speed": "0.92x",
+        "devil_spawn_delay": "2 seconds",
+        "devil_behavior": "Follow with slight smoothing (tracks better)",
+        "devil_spawn_distance": "Medium-close",
+        "flip_interval": "3.0–3.5 seconds",
+        "flip_randomness": "45%",
+        "warning_time": "0.6 seconds",
+        "maze_complexity": "High with tight turns",
+        "dead_ends": "5–6",
+        "safe_zones": "1 very short (0.5 sec)",
+        "chaos_events": "Shadow clone introduced (moves slightly off from player)",
+        "visual_intensity": "High glitch pulses",
+        "audio_intensity": "Unstable + heartbeat"
+      },
+      "twists": [
+        "First shadow clone appears",
+        "Clone does not behave exactly like player",
+        "Player may get confused but can identify real self"
+      ],
+      "expected_player_feeling": "Confused but curious"
+    },
+
+    {
+      "stage": 12,
+      "name": "Split Mind",
+      "goal": "Increase confusion using clone behavior.",
+      "core_factors": {
+        "player_speed": "1.16x",
+        "devil_speed": "0.95x",
+        "devil_spawn_delay": "2 seconds",
+        "devil_behavior": "Follow with slight path tightening",
+        "devil_spawn_distance": "Close",
+        "flip_interval": "3.0–3.4 seconds",
+        "flip_randomness": "50%",
+        "warning_time": "0.6 seconds",
+        "maze_complexity": "High",
+        "dead_ends": "6",
+        "safe_zones": "1 (0.4 sec, almost negligible)",
+        "chaos_events": "Clone mirrors movement direction occasionally",
+        "visual_intensity": "Heavy glitch during flip",
+        "audio_intensity": "Distortion sound added"
+      },
+      "twists": [
+        "Clone becomes more believable",
+        "Player must ignore clone and focus"
+      ],
+      "expected_player_feeling": "Mentally pressured"
+    },
+
+    {
+      "stage": 13,
+      "name": "Deception",
+      "goal": "Introduce first fake objective.",
+      "core_factors": {
+        "player_speed": "1.17x",
+        "devil_speed": "1.0x (same as player base pressure)",
+        "devil_spawn_delay": "1.8 seconds",
+        "devil_behavior": "Follow aggressively",
+        "devil_spawn_distance": "Close",
+        "flip_interval": "2.8–3.3 seconds",
+        "flip_randomness": "50%",
+        "warning_time": "0.5 seconds",
+        "maze_complexity": "High with misleading paths",
+        "dead_ends": "6–7",
+        "safe_zones": "None",
+        "chaos_events": "Fake goal appears (looks real but disappears on contact)",
+        "visual_intensity": "Strong glitch + flicker",
+        "audio_intensity": "Heartbeat fast"
+      },
+      "twists": [
+        "First fake goal introduced",
+        "Player can be tricked into wrong direction"
+      ],
+      "expected_player_feeling": "Tricked but learning"
+    },
+
+    {
+      "stage": 14,
+      "name": "Instability",
+      "goal": "Combine illusion + pressure.",
+      "core_factors": {
+        "player_speed": "1.18x",
+        "devil_speed": "1.05x",
+        "devil_spawn_delay": "1.8 seconds",
+        "devil_behavior": "Follow + slight prediction (cuts small corners)",
+        "devil_spawn_distance": "Close",
+        "flip_interval": "2.7–3.2 seconds",
+        "flip_randomness": "55%",
+        "warning_time": "0.5 seconds",
+        "maze_complexity": "Very high (tight + confusing)",
+        "dead_ends": "7",
+        "safe_zones": "None",
+        "chaos_events": "Clone + fake goal combined occasionally",
+        "visual_intensity": "Heavy glitch + screen shake",
+        "audio_intensity": "Distorted heartbeat"
+      },
+      "twists": [
+        "Multiple confusion elements together",
+        "Devil starts cutting player path slightly"
+      ],
+      "expected_player_feeling": "High stress, focused survival"
+    },
+
+    {
+  "stage": 15,
+  "name": "Instability Peak",
+  "goal": "Push player to high tension without full skill test yet.",
+  "core_factors": {
+    "player_speed": "1.2x",
+    "devil_speed": "1.08x (slightly reduced from previous to keep fairness)",
+    "devil_spawn_delay": "1.5 seconds",
+    "devil_behavior": "Aggressive follow + light prediction",
+    "devil_spawn_distance": "Close",
+    "flip_interval": "2.6–3.0 seconds",
+    "flip_randomness": "55%",
+    "warning_time": "0.5 seconds",
+    "maze_complexity": "Very high",
+    "dead_ends": "7–8",
+    "safe_zones": "None",
+    "chaos_events": "Clone + fake goal appear but not together too frequently",
+    "visual_intensity": "Heavy glitch + shake",
+    "audio_intensity": "Strong heartbeat + tension"
+  },
+  "twists": [
+    "Pressure is high but still manageable",
+    "Illusion elements appear but not fully stacked",
+    "Player is pushed close to failure but still has control"
+  ],
+  "expected_player_feeling": "Intense but fair, close to breaking point"
+}
+  ]
+}
+ 
+STAGE 16-20
+{
+  "stages": [
+    {
+      "stage": 16,
+      "name": "Stabilization",
+      "goal": "Give temporary relief without rewarding checkpoint.",
+      "core_factors": {
+        "player_speed": "1.18x",
+        "devil_speed": "1.0x (reduced from Stage 15)",
+        "devil_spawn_delay": "3 seconds",
+        "devil_behavior": "Basic follow (no prediction)",
+        "devil_spawn_distance": "Far",
+        "flip_interval": "3.0–3.5 seconds",
+        "flip_randomness": "40%",
+        "warning_time": "0.6 seconds",
+        "maze_complexity": "Medium-high (more readable)",
+        "dead_ends": "5–6",
+        "safe_zones": "1 safe zone returns (1.5 sec)",
+        "chaos_events": "Clone appears rarely",
+        "visual_intensity": "Reduced glitch",
+        "audio_intensity": "Tension drops slightly"
+      },
+      "twists": [
+        "Game feels easier after intense stage",
+        "Player regains control but no reward yet",
+        "Creates false sense of safety"
+      ],
+      "expected_player_feeling": "Relief but still engaged"
+    },
+
+    {
+      "stage": 17,
+      "name": "Re-engage",
+      "goal": "Bring player back from relief into controlled pressure.",
+      "core_factors": {
+        "player_speed": "1.2x",
+        "devil_speed": "1.05x",
+        "devil_spawn_delay": "2.5 seconds",
+        "devil_behavior": "Basic follow with smoother tracking",
+        "devil_spawn_distance": "Medium",
+        "flip_interval": "2.8–3.2 seconds",
+        "flip_randomness": "45%",
+        "warning_time": "0.6 seconds",
+        "maze_complexity": "High but readable",
+        "dead_ends": "6",
+        "safe_zones": "1 short (1.0 sec)",
+        "chaos_events": "Clone appears occasionally (low frequency)",
+        "visual_intensity": "Glitch increasing again",
+        "audio_intensity": "Tension rising"
+      },
+      "twists": [
+        "Difficulty returns after relief",
+        "Clone reappears but not overwhelming",
+        "Player regains focus under pressure"
+      ],
+      "expected_player_feeling": "Focused, back in control but alert"
+    },
+
+    {
+      "stage": 18,
+      "name": "Disruption",
+      "goal": "Reintroduce confusion with meaningful impact.",
+      "core_factors": {
+        "player_speed": "1.22x",
+        "devil_speed": "1.08x",
+        "devil_spawn_delay": "2.2 seconds",
+        "devil_behavior": "Follow with slight path tightening",
+        "devil_spawn_distance": "Medium-close",
+        "flip_interval": "2.7–3.0 seconds",
+        "flip_randomness": "50%",
+        "warning_time": "0.5 seconds",
+        "maze_complexity": "High",
+        "dead_ends": "6–7",
+        "safe_zones": "None",
+        "chaos_events": "Fake goal introduced again (low frequency)",
+        "visual_intensity": "Heavy glitch bursts",
+        "audio_intensity": "Unstable pulses"
+      },
+      "twists": [
+        "Fake goal returns",
+        "Player must verify paths quickly",
+        "No safety support available"
+      ],
+      "expected_player_feeling": "Confused, slightly stressed"
+    },
+
+    {
+      "stage": 19,
+      "name": "Compression",
+      "goal": "Reduce reaction time and movement space.",
+      "core_factors": {
+        "player_speed": "1.22x",
+        "devil_speed": "1.12x",
+        "devil_spawn_delay": "2.0 seconds",
+        "devil_behavior": "Follow + light prediction (cuts corners slightly)",
+        "devil_spawn_distance": "Close",
+        "flip_interval": "2.5–2.8 seconds",
+        "flip_randomness": "55%",
+        "warning_time": "0.5 seconds",
+        "maze_complexity": "Very high (tight corridors)",
+        "dead_ends": "7",
+        "safe_zones": "None",
+        "chaos_events": "Clone OR fake goal (not stacked together)",
+        "visual_intensity": "Strong glitch + screen shake",
+        "audio_intensity": "Fast heartbeat"
+      },
+      "twists": [
+        "Less space to escape",
+        "Devil feels closer and more dangerous",
+        "Precision movement required"
+      ],
+      "expected_player_feeling": "High tension, controlled panic"
+    },
+
+    {
+      "stage": 20,
+      "name": "Chaos Entry",
+      "goal": "Prepare player for Stage 21–25 checkpoint pressure.",
+      "core_factors": {
+        "player_speed": "1.25x",
+        "devil_speed": "1.15x",
+        "devil_spawn_delay": "1.8 seconds",
+        "devil_behavior": "Follow + partial prediction (cuts short paths)",
+        "devil_spawn_distance": "Close",
+        "flip_interval": "2.4–2.7 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.5 seconds",
+        "maze_complexity": "Very high",
+        "dead_ends": "7–8",
+        "safe_zones": "None",
+        "chaos_events": "Clone + fake goal appear more frequently (but not constant)",
+        "visual_intensity": "Heavy glitch + flicker",
+        "audio_intensity": "High tension peak"
+      },
+      "twists": [
+        "Multiple mechanics appear more often",
+        "Player starts losing predictability",
+        "Game prepares player mentally for checkpoint grind"
+      ],
+      "expected_player_feeling": "Overwhelmed but determined"
+    }
+  ]
+}
+
+STAGE 21-25 (checkpoint)
+{
+  "stages": [
+    {
+      "stage": 21,
+      "name": "Overload Begins",
+      "goal": "Start stacking mechanics more frequently.",
+      "core_factors": {
+        "player_speed": "1.25x",
+        "devil_speed": "1.18x",
+        "devil_spawn_delay": "1.8 seconds",
+        "devil_behavior": "Follow + partial prediction (cuts corners)",
+        "devil_spawn_distance": "Close",
+        "flip_interval": "2.3–2.6 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.5 seconds",
+        "maze_complexity": "Very high",
+        "dead_ends": "8",
+        "safe_zones": "None",
+        "chaos_events": "Clone + fake goal appear frequently but not simultaneously",
+        "visual_intensity": "Heavy glitch",
+        "audio_intensity": "High tension"
+      },
+      "twists": [
+        "Mechanics appear more often",
+        "Player starts losing rhythm"
+      ],
+      "expected_player_feeling": "Overwhelmed but adapting"
+    },
+
+    {
+      "stage": 22,
+      "name": "Instability Surge",
+      "goal": "Increase unpredictability and reaction pressure.",
+      "core_factors": {
+        "player_speed": "1.27x",
+        "devil_speed": "1.2x",
+        "devil_spawn_delay": "1.6 seconds",
+        "devil_behavior": "Follow + stronger path tightening",
+        "devil_spawn_distance": "Close",
+        "flip_interval": "2.2–2.5 seconds",
+        "flip_randomness": "65%",
+        "warning_time": "0.45 seconds",
+        "maze_complexity": "Very high",
+        "dead_ends": "8–9",
+        "safe_zones": "None",
+        "chaos_events": "Fake goal appears more frequently",
+        "visual_intensity": "Heavy glitch + flicker",
+        "audio_intensity": "Distorted pulses"
+      },
+      "twists": [
+        "Less time to react",
+        "Fake paths more tempting"
+      ],
+      "expected_player_feeling": "Confused and pressured"
+    },
+
+    {
+      "stage": 23,
+      "name": "Mental Break",
+      "goal": "Push player to edge without being unfair.",
+      "core_factors": {
+        "player_speed": "1.28x",
+        "devil_speed": "1.22x",
+        "devil_spawn_delay": "1.5 seconds",
+        "devil_behavior": "Follow + light prediction (cuts routes)",
+        "devil_spawn_distance": "Very close",
+        "flip_interval": "2.1–2.4 seconds",
+        "flip_randomness": "70%",
+        "warning_time": "0.45 seconds",
+        "maze_complexity": "Extreme (tight + confusing)",
+        "dead_ends": "9",
+        "safe_zones": "None",
+        "chaos_events": "Clone OR fake goal (never unfair stacking)",
+        "visual_intensity": "Heavy distortion",
+        "audio_intensity": "Fast heartbeat"
+      },
+      "twists": [
+        "Very tight movement space",
+        "Devil feels constantly near",
+        "Player must stay fully focused"
+      ],
+      "expected_player_feeling": "High panic but still in control"
+    },
+
+    {
+      "stage": 24,
+      "name": "Final Stretch",
+      "goal": "Create near-win moments before checkpoint.",
+      "core_factors": {
+        "player_speed": "1.3x",
+        "devil_speed": "1.25x",
+        "devil_spawn_delay": "1.5 seconds",
+        "devil_behavior": "Follow + partial prediction",
+        "devil_spawn_distance": "Very close",
+        "flip_interval": "2.0–2.3 seconds",
+        "flip_randomness": "75%",
+        "warning_time": "0.4 seconds",
+        "maze_complexity": "Extreme",
+        "dead_ends": "9–10",
+        "safe_zones": "None",
+        "chaos_events": "Clone + fake goal appear frequently (not constant overlap)",
+        "visual_intensity": "Max glitch so far",
+        "audio_intensity": "Peak tension"
+      },
+      "twists": [
+        "Player reaches near goal often but fails",
+        "Maximum pressure before reward"
+      ],
+      "expected_player_feeling": "Frustrated but determined"
+    },
+
+    {
+      "stage": 25,
+      "name": "Checkpoint Break",
+      "goal": "Reward player after extreme pressure.",
+      "core_factors": {
+        "player_speed": "1.28x (slightly reduced for control)",
+        "devil_speed": "1.15x (reduced)",
+        "devil_spawn_delay": "3 seconds",
+        "devil_behavior": "Basic follow (prediction removed)",
+        "devil_spawn_distance": "Far",
+        "flip_interval": "2.5–3.0 seconds",
+        "flip_randomness": "50%",
+        "warning_time": "0.6 seconds",
+        "maze_complexity": "High but readable",
+        "dead_ends": "6–7",
+        "safe_zones": "1 safe zone returns (1.5 sec)",
+        "chaos_events": "Very low frequency",
+        "visual_intensity": "Reduced glitch",
+        "audio_intensity": "Relief tone"
+      },
+      "twists": [
+        "Sudden relief after intense pressure",
+        "Checkpoint unlocked here (25)",
+        "Player regains control and confidence"
+      ],
+      "expected_player_feeling": "Relief, satisfaction, excitement to continue"
+    }
+  ]
+}
+STAGE 26-30
+{
+  "solvability_rules": {
+    "warning_time_min": "0.45 seconds",
+    "flip_randomness_max": "60%",
+    "chaos_stack_limit": "Max 2 mechanics",
+    "spawn_safety": "Devil spawn never blocks all exits",
+    "escape_path": "At least 1 valid escape path always"
+  },
+  "stages": [
+    {
+      "stage": 26,
+      "name": "False Security",
+      "core_factors": {
+        "player_speed": "1.30x",
+        "devil_speed": "1.24x",
+        "devil_spawn_delay": "2.4 seconds",
+        "flip_interval": "2.4-2.7 seconds",
+        "flip_randomness": "50%",
+        "warning_time": "0.55 seconds",
+        "chaos_events": "Devil + Clone",
+        "escape_assist": "Short clear corridor every 12 sec"
+      }
+    },
+    {
+      "stage": 27,
+      "name": "Tracking Shift",
+      "core_factors": {
+        "player_speed": "1.32x",
+        "devil_speed": "1.27x",
+        "devil_spawn_delay": "2.2 seconds",
+        "flip_interval": "2.3-2.6 seconds",
+        "flip_randomness": "55%",
+        "warning_time": "0.52 seconds",
+        "chaos_events": "Devil + Maze shift",
+        "escape_assist": "No-flip window every 12 sec"
+      }
+    },
+    {
+      "stage": 28,
+      "name": "Shifted Reality",
+      "core_factors": {
+        "player_speed": "1.34x",
+        "devil_speed": "1.30x",
+        "devil_spawn_delay": "2.0 seconds",
+        "flip_interval": "2.2-2.5 seconds",
+        "flip_randomness": "58%",
+        "warning_time": "0.50 seconds",
+        "chaos_events": "Devil + Fake goal",
+        "escape_assist": "Clear lane pulse every 11 sec"
+      }
+    },
+    {
+      "stage": 29,
+      "name": "Pressure Loop",
+      "core_factors": {
+        "player_speed": "1.35x",
+        "devil_speed": "1.31x",
+        "devil_spawn_delay": "1.9 seconds",
+        "flip_interval": "2.1-2.4 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.48 seconds",
+        "chaos_events": "Devil + Clone",
+        "escape_assist": "Safe route reveal every 10 sec"
+      }
+    },
+    {
+      "stage": 30,
+      "name": "Collapse Entry",
+      "core_factors": {
+        "player_speed": "1.36x",
+        "devil_speed": "1.33x",
+        "devil_spawn_delay": "1.8 seconds",
+        "flip_interval": "2.0-2.3 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Maze shift",
+        "escape_assist": "No-flip pocket every 10 sec"
+      }
+    }
+  ]
+}
+
+STAGE 31-35
+{
+  "stages": [
+    {
+      "stage": 31,
+      "name": "Unstable Flow",
+      "core_factors": {
+        "player_speed": "1.36x",
+        "devil_speed": "1.34x",
+        "flip_interval": "2.0-2.3 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Fake goal"
+      }
+    },
+    {
+      "stage": 32,
+      "name": "Cut-Off",
+      "core_factors": {
+        "player_speed": "1.38x",
+        "devil_speed": "1.36x",
+        "flip_interval": "1.9-2.2 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Clone"
+      }
+    },
+    {
+      "stage": 33,
+      "name": "Dual Pressure",
+      "core_factors": {
+        "player_speed": "1.39x",
+        "devil_speed": "1.38x",
+        "flip_interval": "1.9-2.2 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Maze shift"
+      }
+    },
+    {
+      "stage": 34,
+      "name": "Distorted Reality",
+      "core_factors": {
+        "player_speed": "1.40x",
+        "devil_speed": "1.40x",
+        "flip_interval": "1.8-2.1 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Fake goal"
+      }
+    },
+    {
+      "stage": 35,
+      "name": "Breaking Point",
+      "core_factors": {
+        "player_speed": "1.41x",
+        "devil_speed": "1.41x",
+        "flip_interval": "1.8-2.1 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Clone"
+      }
+    }
+  ]
+}
+
+STAGE 36-40
+{
+  "stages": [
+    {
+      "stage": 36,
+      "name": "Pressure Continuum",
+      "core_factors": {
+        "player_speed": "1.42x",
+        "devil_speed": "1.42x",
+        "flip_interval": "1.8-2.0 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Maze shift"
+      }
+    },
+    {
+      "stage": 37,
+      "name": "Prediction Lock",
+      "core_factors": {
+        "player_speed": "1.43x",
+        "devil_speed": "1.43x",
+        "flip_interval": "1.8-2.0 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Clone"
+      }
+    },
+    {
+      "stage": 38,
+      "name": "Distortion Stack",
+      "core_factors": {
+        "player_speed": "1.44x",
+        "devil_speed": "1.44x",
+        "flip_interval": "1.7-2.0 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Fake goal"
+      }
+    },
+    {
+      "stage": 39,
+      "name": "False Reality",
+      "core_factors": {
+        "player_speed": "1.45x",
+        "devil_speed": "1.45x",
+        "flip_interval": "1.7-1.9 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Maze shift"
+      }
+    },
+    {
+      "stage": 40,
+      "name": "Control Break",
+      "core_factors": {
+        "player_speed": "1.46x",
+        "devil_speed": "1.46x",
+        "flip_interval": "1.7-1.9 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Clone"
+      }
+    }
+  ]
+}
+
+STAGE 41-45
+{
+  "stages": [
+    {
+      "stage": 41,
+      "name": "Pressure Reloaded",
+      "core_factors": {
+        "player_speed": "1.47x",
+        "devil_speed": "1.47x",
+        "flip_interval": "1.7-1.9 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Fake goal"
+      }
+    },
+    {
+      "stage": 42,
+      "name": "Hunted",
+      "core_factors": {
+        "player_speed": "1.48x",
+        "devil_speed": "1.48x",
+        "flip_interval": "1.6-1.9 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Maze shift"
+      }
+    },
+    {
+      "stage": 43,
+      "name": "Distortion Core",
+      "core_factors": {
+        "player_speed": "1.49x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.6-1.9 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Clone"
+      }
+    },
+    {
+      "stage": 44,
+      "name": "False Signals",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Fake goal"
+      }
+    },
+    {
+      "stage": 45,
+      "name": "Dual Threat",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Maze shift"
+      }
+    }
+  ]
+}
+
+STAGE 46-50
+{
+  "stages": [
+    {
+      "stage": 46,
+      "name": "Collapse Flow",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Clone"
+      }
+    },
+    {
+      "stage": 47,
+      "name": "No Escape",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Fake goal"
+      }
+    },
+    {
+      "stage": 48,
+      "name": "Final Chaos",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Maze shift"
+      }
+    },
+    {
+      "stage": 49,
+      "name": "Last Attempt",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.45 seconds",
+        "chaos_events": "Devil + Clone"
+      },
+      "expected_player_feeling": "BRO I WAS SO CLOSE"
+    },
+    {
+      "stage": 50,
+      "name": "Checkpoint Break",
+      "core_factors": {
+        "player_speed": "1.45x",
+        "devil_speed": "1.35x",
+        "flip_interval": "2.3-2.7 seconds",
+        "flip_randomness": "50%",
+        "warning_time": "0.60 seconds",
+        "chaos_events": "Minimal"
+      },
+      "notes": "Checkpoint unlocked (50)"
+    }
+  ]
+}
+
+STAGE 51-55
+{
+  "master_zone_rules": {
+    "player_speed_range": "1.45x-1.52x",
+    "devil_speed_rule": "Never above player by more than 0.05x",
+    "optional_recovery_bias": "Recommended for Stage 60+: devil_speed <= player_speed - 0.02",
+    "flip_interval_range": "1.6-2.0 seconds",
+    "warning_time_range": "0.40-0.45 seconds",
+    "warning_time_runtime": "warningTime = max(0.40, baseWarning + sin(time * 0.5) * 0.03)",
+    "flip_randomness_range": "60-75%",
+    "chaos_rotation_only": "Use only 2 mechanics at once",
+    "chaos_rotation_engine": {
+      "chaos_pool": ["clone", "fake_goal", "maze_shift"],
+      "selection_rule": "Shuffle chaos_pool and take first 2",
+      "runtime_api": "List<String> getChaos(int stage)"
+    },
+    "breathing_space": "Every 8-12 sec: slight slowdown OR clear corridor OR no-flip window",
+    "spawn_safety": "Spawn never blocks all exits",
+    "escape_path": "At least 1 valid escape path always"
+  },
+  "stages": [
+    {
+      "stage": 51,
+      "name": "False Calm",
+      "core_factors": {
+        "player_speed": "1.45x",
+        "devil_speed": "1.43x",
+        "flip_interval": "1.9-2.0 seconds",
+        "flip_randomness": "60%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear corridor every 12 sec"
+      }
+    },
+    {
+      "stage": 52,
+      "name": "Rebuild Threat",
+      "core_factors": {
+        "player_speed": "1.46x",
+        "devil_speed": "1.44x",
+        "flip_interval": "1.8-1.9 seconds",
+        "flip_randomness": "62%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "No-flip window every 11 sec"
+      }
+    },
+    {
+      "stage": 53,
+      "name": "Route Control",
+      "core_factors": {
+        "player_speed": "1.47x",
+        "devil_speed": "1.45x",
+        "flip_interval": "1.8-1.9 seconds",
+        "flip_randomness": "65%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Slight slowdown every 10 sec"
+      }
+    },
+    {
+      "stage": 54,
+      "name": "Perception Break",
+      "core_factors": {
+        "player_speed": "1.48x",
+        "devil_speed": "1.46x",
+        "flip_interval": "1.7-1.8 seconds",
+        "flip_randomness": "67%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear lane flash every 10 sec"
+      }
+    },
+    {
+      "stage": 55,
+      "name": "Master Entry",
+      "core_factors": {
+        "player_speed": "1.48x",
+        "devil_speed": "1.47x",
+        "flip_interval": "1.7-1.8 seconds",
+        "flip_randomness": "68%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "No-flip pocket every 9 sec"
+      }
+    }
+  ]
+}
+
+STAGE 56-60
+{
+  "stages": [
+    {
+      "stage": 56,
+      "name": "Controlled Chaos",
+      "core_factors": {
+        "player_speed": "1.49x",
+        "devil_speed": "1.47x",
+        "flip_interval": "1.7-1.8 seconds",
+        "flip_randomness": "68%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Slight slowdown every 10 sec"
+      }
+    },
+    {
+      "stage": 57,
+      "name": "Trap Routes",
+      "core_factors": {
+        "player_speed": "1.49x",
+        "devil_speed": "1.48x",
+        "flip_interval": "1.7-1.8 seconds",
+        "flip_randomness": "70%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear corridor every 9 sec"
+      }
+    },
+    {
+      "stage": 58,
+      "name": "Mind Loop",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.7-1.8 seconds",
+        "flip_randomness": "70%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "No-flip window every 9 sec"
+      }
+    },
+    {
+      "stage": 59,
+      "name": "Precision Lock",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "72%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear lane pulse every 9 sec"
+      }
+    },
+    {
+      "stage": 60,
+      "name": "Master Pressure",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "72%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Slight slowdown every 8 sec"
+      }
+    }
+  ]
+}
+
+STAGE 61-65
+{
+  "stages": [
+    {
+      "stage": 61,
+      "name": "Endurance Start",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "72%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "No-flip pocket every 10 sec"
+      }
+    },
+    {
+      "stage": 62,
+      "name": "Pattern Break",
+      "core_factors": {
+        "player_speed": "1.51x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "73%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear corridor every 10 sec"
+      }
+    },
+    {
+      "stage": 63,
+      "name": "Mental Load",
+      "core_factors": {
+        "player_speed": "1.51x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "74%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Slight slowdown every 9 sec"
+      }
+    },
+    {
+      "stage": 64,
+      "name": "Fatigue Zone",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.51x",
+        "flip_interval": "1.6-1.6 seconds",
+        "flip_randomness": "74%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear lane pulse every 9 sec"
+      }
+    },
+    {
+      "stage": 65,
+      "name": "Consistency Test",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.52x",
+        "flip_interval": "1.6-1.6 seconds",
+        "flip_randomness": "75%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "No-flip window every 8 sec"
+      }
+    }
+  ]
+}
+
+STAGE 66-70
+{
+  "stages": [
+    {
+      "stage": 66,
+      "name": "Pressure Sustain",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.51x",
+        "flip_interval": "1.6-1.6 seconds",
+        "flip_randomness": "75%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear corridor every 10 sec"
+      }
+    },
+    {
+      "stage": 67,
+      "name": "Trap Memory",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.51x",
+        "flip_interval": "1.6-1.6 seconds",
+        "flip_randomness": "75%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Slight slowdown every 10 sec"
+      }
+    },
+    {
+      "stage": 68,
+      "name": "Dual Panic",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.52x",
+        "flip_interval": "1.6-1.6 seconds",
+        "flip_randomness": "75%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "No-flip pocket every 9 sec"
+      }
+    },
+    {
+      "stage": 69,
+      "name": "Near Collapse",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.52x",
+        "flip_interval": "1.6-1.6 seconds",
+        "flip_randomness": "75%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear lane pulse every 9 sec"
+      },
+      "expected_player_feeling": "BRO I WAS SO CLOSE"
+    },
+    {
+      "stage": 70,
+      "name": "Pre-Breakpoint",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.52x",
+        "flip_interval": "1.6-1.6 seconds",
+        "flip_randomness": "75%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "No-flip window every 8 sec"
+      }
+    }
+  ]
+}
+
+STAGE 71-75(Checkpoint)
+{
+  "stages": [
+    {
+      "stage": 71,
+      "name": "Checkpoint Grind I",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.51x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "72%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear corridor every 10 sec"
+      }
+    },
+    {
+      "stage": 72,
+      "name": "Checkpoint Grind II",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.51x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "72%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Slight slowdown every 10 sec"
+      }
+    },
+    {
+      "stage": 73,
+      "name": "Checkpoint Grind III",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.52x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "73%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "No-flip pocket every 9 sec"
+      }
+    },
+    {
+      "stage": 74,
+      "name": "Checkpoint Grind IV",
+      "core_factors": {
+        "player_speed": "1.52x",
+        "devil_speed": "1.52x",
+        "flip_interval": "1.6-1.8 seconds",
+        "flip_randomness": "74%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Clear lane pulse every 9 sec"
+      }
+    },
+    {
+      "stage": 75,
+      "name": "Checkpoint Break",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.40x",
+        "flip_interval": "2.2-2.5 seconds",
+        "flip_randomness": "55%",
+        "warning_time": "0.50 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "breathing_window": "Long no-flip window every 8 sec"
+      },
+      "notes": "Checkpoint unlocked (75)"
+    }
+  ]
+}
+
+STAGE 76-80
+{
+  "hard_mode_rules": {
+    "player_speed_cap": "1.50x",
+    "devil_speed_range": "1.48x-1.50x",
+    "optional_recovery_bias": "Outside burst windows, target devil_speed <= player_speed - 0.02",
+    "flip_interval_range": "1.4-1.8 seconds",
+    "warning_time_min": "0.40 seconds",
+    "warning_time_runtime": "warningTime = max(0.40, baseWarning + sin(time * 0.5) * 0.03)",
+    "flip_randomness_range": "70-80%",
+    "chaos_stack_limit": "Max 2 mechanics",
+    "chaos_rotation_engine": {
+      "chaos_pool": ["clone", "fake_goal", "maze_shift"],
+      "selection_rule": "Shuffle chaos_pool and take first 2",
+      "runtime_api": "List<String> getChaos(int stage)"
+    },
+    "spawn_safety": "Spawn never blocks all exits",
+    "escape_path": "At least 1 valid escape path always"
+  },
+  "stages": [
+    {
+      "stage": 76,
+      "name": "Extreme Skill I",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.48x",
+        "flip_interval": "1.7-1.8 seconds",
+        "flip_randomness": "70%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 77,
+      "name": "Extreme Skill II",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.7-1.8 seconds",
+        "flip_randomness": "72%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 78,
+      "name": "Pattern Hunt",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "74%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 79,
+      "name": "Route Pressure",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "75%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 80,
+      "name": "End Of Certainty",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "76%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    }
+  ]
+}
+
+STAGE 81-85
+{
+  "stages": [
+    {
+      "stage": 81,
+      "name": "Mental Pressure I",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "76%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 82,
+      "name": "Mental Pressure II",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6-1.7 seconds",
+        "flip_randomness": "77%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 83,
+      "name": "Loop Trap",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.5-1.6 seconds",
+        "flip_randomness": "78%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 84,
+      "name": "Do Not Panic",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.5-1.6 seconds",
+        "flip_randomness": "78%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 85,
+      "name": "Mental Wall",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.5-1.6 seconds",
+        "flip_randomness": "79%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    }
+  ]
+}
+
+STAGE 86-90
+{
+  "stages": [
+    {
+      "stage": 86,
+      "name": "Precision Hell I",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.5-1.6 seconds",
+        "flip_randomness": "79%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 87,
+      "name": "Precision Hell II",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.5-1.6 seconds",
+        "flip_randomness": "79%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 88,
+      "name": "Accuracy Tax",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.5-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 89,
+      "name": "Needle Run",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 90,
+      "name": "Precision Crown",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    }
+  ]
+}
+
+STAGE 91-95
+{
+  "stages": [
+    {
+      "stage": 91,
+      "name": "Mind Break I",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 92,
+      "name": "Mind Break II",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 93,
+      "name": "Instinct Route",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 94,
+      "name": "Blind Discipline",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    },
+    {
+      "stage": 95,
+      "name": "Nerve Lock",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)"
+      }
+    }
+  ]
+}
+
+STAGE 96-99
+{
+  "stages": [
+    {
+      "stage": 96,
+      "name": "Final Trial I",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.49x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "rotation_rule": "Mechanics rotate, never stack beyond 2"
+      }
+    },
+    {
+      "stage": 97,
+      "name": "Final Trial II",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "rotation_rule": "Mechanics rotate, never stack beyond 2"
+      }
+    },
+    {
+      "stage": 98,
+      "name": "Final Trial III",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "rotation_rule": "Mechanics rotate, never stack beyond 2"
+      }
+    },
+    {
+      "stage": 99,
+      "name": "Final Trial IV",
+      "core_factors": {
+        "player_speed": "1.50x",
+        "devil_speed": "1.50x",
+        "flip_interval": "1.4-1.5 seconds",
+        "flip_randomness": "80%",
+        "warning_time": "0.40 seconds",
+        "chaos_events": "Dynamic rotation engine (pick 2: clone, fake_goal, maze_shift)",
+        "rotation_rule": "Mechanics rotate, never stack beyond 2"
+      },
+      "expected_player_feeling": "BRO I WAS SO CLOSE"
+    }
+  ]
+}
+
+STAGE 100(BOSS LEVEL)
+{
+  "stage": 100,
+  "name": "THE BREAKER",
+  "type": "Multi-phase boss level",
+  "global_rules": {
+    "player_speed": "1.50x",
+    "devil_speed": "1.48x baseline, 1.50x only during burst windows",
+    "devil_burst_cooldown": {
+      "logic": "if (devilBurstActive) { devilSpeed = 1.50; } else { devilSpeed = 1.48; }",
+      "intent": "Burst pressure without constant unfair speed",
+      "burst_pattern": "short burst, then cooldown"
+    },
+    "flip_interval": "1.8 sec start -> 1.4 sec final",
+    "flip_randomness": "70-80%",
+    "warning_time_floor": "0.40 seconds",
+    "warning_time_runtime": "warningTime = max(0.40, baseWarning + sin(time * 0.5) * 0.03)",
+    "chaos_stack_limit": "Max 2 mechanics",
+    "chaos_rotation_engine": {
+      "chaos_pool": ["clone", "fake_goal", "maze_shift"],
+      "selection_rule": "Shuffle chaos_pool and take first 2",
+      "runtime_api": "List<String> getChaos(int stage)"
+    },
+    "spawn_safety": "Devil spawn never blocks all exits",
+    "escape_path": "At least 1 valid path at all times",
+    "checkpoint": "75 only"
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Confidence",
+      "duration": "0-12 sec",
+      "details": {
+        "devil_speed": "1.48x",
+        "flip_interval": "1.8 sec",
+        "warning_time": "0.40 sec",
+        "chaos_events": "Devil + light maze shift"
+      }
+    },
+    {
+      "phase": 2,
+      "name": "Ramp",
+      "duration": "12-28 sec",
+      "details": {
+        "devil_speed": "1.50x",
+        "flip_interval": "1.6 sec",
+        "warning_time": "0.40 sec",
+        "chaos_events": "Devil + Clone"
+      }
+    },
+    {
+      "phase": 3,
+      "name": "Last Ten Seconds",
+      "duration": "Final 10 sec",
+      "details": {
+        "devil_speed": "1.50x burst",
+        "flip_interval": "1.4 sec",
+        "warning_time": "0.40 sec",
+        "chaos_events": "Devil + Fake goal",
+        "final_path_rule": "Final route remains clear but high pressure"
+      }
+    }
+  ],
+  "win_feeling": "Pure dopamine"
+}
+
+
+
+DESIGN_REFINEMENT_V3
+{
+  "goal": "10/10 difficulty experience: brutal but fair, skill-first, highly replayable.",
+
+  "1_improved_system_rules": {
+    "warning_time_floor": "warning_time >= 0.40 always",
+    "warning_time_runtime": "warningTime = max(0.40, baseWarning + sin(time * 0.5) * 0.03)",
+    "devil_speed_cap": "devil_speed <= player_speed",
+    "late_game_recovery_rule": "recommended for stage 60+: devil_speed <= player_speed - 0.02 (except short boss burst windows)",
+    "chaos_limit": "max 2 chaos mechanics active at once",
+    "spawn_safety": "devil spawn can never block all escape paths",
+    "escape_guarantee": "at least 1 valid escape route always exists",
+    "relief_window_rule": "every 8-12 sec trigger one relief window",
+    "explainable_death_rule": "every death must map to a readable player mistake",
+    "fairness_validators": {
+      "route_check": "Run pathfinding after every spawn and maze-shift event",
+      "route_fallback": "If no route, rollback event and regenerate safe variant",
+      "telegraph_check": "No lethal event without readable warning window",
+      "chaos_overlap_check": "Reject events that would activate 3rd chaos mechanic"
+    }
+  },
+
+  "2_pattern_rotation_system": {
+    "patterns": [
+      "tight_corridors",
+      "open_arenas",
+      "loop_traps",
+      "zig_zag_escape_paths"
+    ],
+    "rotation_engine": {
+      "selection": "weighted shuffle with memory",
+      "no_repeat_rule": "same pattern cannot repeat more than 2 times consecutively",
+      "impact_rule": "patterns must change lane density, corner pressure, and route timing"
+    },
+    "pattern_effects": {
+      "tight_corridors": "precision movement challenge, lower camera noise",
+      "open_arenas": "chase pressure and spacing reads",
+      "loop_traps": "mind-game routing and anti-greed decisions",
+      "zig_zag_escape_paths": "movement rhythm and inversion recovery test"
+    }
+  },
+
+  "3_devil_behavior_system": {
+    "modes": [
+      "basic_follow",
+      "smooth_tracking",
+      "corner_cutting",
+      "bait_and_trap",
+      "pressure_control"
+    ],
+    "mode_progression": {
+      "early": "basic_follow -> smooth_tracking",
+      "mid": "smooth_tracking + occasional corner_cutting",
+      "late": "corner_cutting + bait_and_trap",
+      "endgame": "pressure_control with short readable bursts"
+    },
+    "readability_rules": {
+      "telegraph": "each behavior switch has a readable cue",
+      "no_unfair_prediction": "forbid instant intercepts without setup frames",
+      "outplay_rule": "player wins by better decisions, not raw speed race"
+    }
+  },
+
+  "4_intensity_wave_system": {
+    "cycle": "high -> medium -> high -> relief -> repeat",
+    "timing": {
+      "tension_ramp": "22-36 sec",
+      "peak_hold": "4-8 sec",
+      "relief_window": "2-4 sec"
+    },
+    "sync_channels": {
+      "gameplay": "chaos frequency and devil aggression",
+      "visual": "distortion/flicker scale by wave phase",
+      "audio": "heartbeat and pulse layers match intensity"
+    },
+    "anti_fatigue": "never sustain maximum intensity for more than one wave peak"
+  },
+
+  "5_late_game_improvements_75_100": {
+    "design_principle": "increase precision and decision complexity, not randomness spikes",
+    "upgrades": [
+      "controlled unpredictability through rotating patterns and behavior modes",
+      "chaos rotation instead of chaos stacking",
+      "more route traps, fewer raw stat jumps",
+      "near-win setups that are recoverable with correct reads"
+    ],
+    "anti_luck_constraints": [
+      "no frame-perfect unavoidable chain",
+      "no spawn-lock scenarios",
+      "no unreadable triple-overlap"
+    ]
+  },
+
+  "6_stage_100_boss_refinement": {
+    "phase_1_confidence": {
+      "purpose": "build rhythm and trust",
+      "design": "simpler route language, readable chase, low chaos density"
+    },
+    "phase_2_pressure_ramp": {
+      "purpose": "stress skill stack",
+      "design": "faster decision checks, dynamic chaos rotation, smarter devil mode"
+    },
+    "phase_3_final_push": {
+      "purpose": "final mastery check",
+      "design": "maximum tension with one clear but narrow winning route"
+    },
+    "burst_logic": "if (devilBurstActive) { devilSpeed = 1.52; } else { devilSpeed = 1.48; }",
+    "burst_schedule": "short burst windows separated by cooldown windows",
+    "win_emotion_target": "I mastered the game"
+  },
+
+  "7_infinite_scalability": {
+    "architecture": "fully parameter-driven, no hardcoded stage-specific branching",
+    "stage_parameters": [
+      "pattern_weights",
+      "behavior_weights",
+      "chaos_frequency",
+      "relief_frequency",
+      "telegraph_budget"
+    ],
+    "scaling_model": {
+      "for_stage_n": "derive parameters from curves, not manual stage tables",
+      "extends_to": "stage 200+ without redesign",
+      "stability_rule": "all strict fairness constraints remain clamped"
+    }
+  },
+
+  "8_addictive_loop_system": {
+    "death_recap": {
+      "enabled": true,
+      "show_time": "1.2 seconds",
+      "tag_pool": [
+        "mistimed_flip",
+        "bad_lane_choice",
+        "overcommit",
+        "baited_by_fake_goal",
+        "panic_reversal"
+      ],
+      "rule": "exactly one primary mistake tag is shown after each death"
+    },
+    "ghost_hint": {
+      "enabled": true,
+      "duration": "1.0-1.5 seconds",
+      "source": "last valid escape path before death",
+      "goal": "teach recovery route without solving the stage for player"
+    },
+    "near_win_memory": {
+      "rule": "if player dies within 2.0 seconds of goal, queue motivational line + quick retry prompt",
+      "intent": "convert frustration into immediate re-attempt"
+    },
+    "retry_friction": {
+      "instant_restart": "<0.6 sec from death to control return",
+      "no_extra_menus": true,
+      "music_carryover": "keep rhythm layer active on retry"
+    }
+  },
+
+  "9_live_balance_telemetry": {
+    "run_archetype_seed": {
+      "format": "patternSet-behaviorSet-chaosSet",
+      "display": "show compact seed on death screen",
+      "use_case": "players can replay or share difficult-but-fair runs"
+    },
+    "fail_heatmap": {
+      "track": [
+        "stage",
+        "pattern",
+        "devil_mode",
+        "chaos_pair",
+        "time_to_death"
+      ],
+      "review_window": "every 200 runs",
+      "auto_adjust": "reduce only the dominant unfair spike, never global difficulty"
+    },
+    "fairness_alarm": {
+      "trigger": "same archetype causes >38% deaths in first 6 seconds",
+      "action": "increase telegraph by +0.03 sec or widen one lane by small margin"
+    }
+  },
+
+  "10_perfect_run_contract": {
+    "target_experience": "hardcore, readable, addictive retry loop",
+    "must_hold": [
+      "all strict fairness rules remain active",
+      "player can explain every death in one sentence",
+      "retry desire remains high after failure"
+    ],
+    "quality_bar": "if any stage violates explainable-death or route guarantee, stage is invalid"
+  }
+}
+
