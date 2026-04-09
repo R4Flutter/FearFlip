@@ -32,6 +32,7 @@ enum RoundResult { playing, won, lost }
 
 class HudState {
   const HudState({
+    required this.level,
     required this.secondsAlive,
     required this.secondsUntilFlip,
     required this.warningActive,
@@ -40,8 +41,10 @@ class HudState {
     required this.roundResult,
     required this.canRevive,
     required this.memoryHidden,
+    required this.mazeShiftActive,
   });
 
+  final int level;
   final int secondsAlive;
   final double secondsUntilFlip;
   final bool warningActive;
@@ -50,8 +53,10 @@ class HudState {
   final RoundResult roundResult;
   final bool canRevive;
   final bool memoryHidden;
+  final bool mazeShiftActive;
 
   HudState copyWith({
+    int? level,
     int? secondsAlive,
     double? secondsUntilFlip,
     bool? warningActive,
@@ -60,8 +65,10 @@ class HudState {
     RoundResult? roundResult,
     bool? canRevive,
     bool? memoryHidden,
+    bool? mazeShiftActive,
   }) {
     return HudState(
+      level: level ?? this.level,
       secondsAlive: secondsAlive ?? this.secondsAlive,
       secondsUntilFlip: secondsUntilFlip ?? this.secondsUntilFlip,
       warningActive: warningActive ?? this.warningActive,
@@ -70,6 +77,7 @@ class HudState {
       roundResult: roundResult ?? this.roundResult,
       canRevive: canRevive ?? this.canRevive,
       memoryHidden: memoryHidden ?? this.memoryHidden,
+      mazeShiftActive: mazeShiftActive ?? this.mazeShiftActive,
     );
   }
 }
@@ -110,6 +118,7 @@ class FearFlipGame extends FlameGame {
   int _nextBreathingEventIndex = 0;
   final ValueNotifier<HudState> hud = ValueNotifier<HudState>(
     const HudState(
+      level: 1,
       secondsAlive: 0,
       secondsUntilFlip: GameBalanceConfig.flipInterval,
       warningActive: false,
@@ -118,6 +127,7 @@ class FearFlipGame extends FlameGame {
       roundResult: RoundResult.playing,
       canRevive: true,
       memoryHidden: false,
+      mazeShiftActive: false,
     ),
   );
 
@@ -583,7 +593,11 @@ class FearFlipGame extends FlameGame {
   }
 
   void _updateHud({RoundResult? roundResult, bool? canRevive}) {
+    final mazeShiftActive =
+        _activeLevelConfig?.chaosEvents.contains(ChaosEventType.mazeShift) ??
+        false;
     hud.value = hud.value.copyWith(
+      level: _levelIndex + 1,
       secondsAlive: _roundElapsed.floor(),
       secondsUntilFlip: _flipSystem.secondsUntilFlip,
       warningActive: _warningActive,
@@ -594,6 +608,7 @@ class FearFlipGame extends FlameGame {
           (_isRunningRound ? RoundResult.playing : hud.value.roundResult),
       canRevive: canRevive ?? hud.value.canRevive,
       memoryHidden: _memoryHidden,
+      mazeShiftActive: mazeShiftActive,
     );
   }
 

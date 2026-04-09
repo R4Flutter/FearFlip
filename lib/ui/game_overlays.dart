@@ -213,6 +213,10 @@ class HudOverlay extends StatelessWidget {
                     spacing: 10,
                     children: [
                       _HudPill(
+                        label: 'LEVEL ${hud.level.toString().padLeft(2, '0')}',
+                        color: const Color(0xFF76FF03),
+                      ),
+                      _HudPill(
                         label: 'TIME ${hud.secondsAlive}s',
                         color: const Color(0xFF00E5FF),
                       ),
@@ -236,6 +240,11 @@ class HudOverlay extends StatelessWidget {
                             ? const Color(0xFFFF1744)
                             : const Color(0xFF00E5FF),
                       ),
+                      if (hud.mazeShiftActive)
+                        const _HudPill(
+                          label: 'MAZE SHIFT',
+                          color: Color(0xFFFFAB40),
+                        ),
                     ],
                   ),
                 ),

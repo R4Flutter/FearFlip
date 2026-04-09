@@ -11,6 +11,7 @@ class PlayerController extends ChangeNotifier {
     this.onWin,
     this.animationFrameCount = 8,
     this.animationFrameStepMs = 100,
+    this.baseMoveDurationMs = 120,
   }) {
     resetForMaze(maze);
   }
@@ -19,6 +20,7 @@ class PlayerController extends ChangeNotifier {
   final VoidCallback? onWin;
   final int animationFrameCount;
   final int animationFrameStepMs;
+  final int baseMoveDurationMs;
 
   late Point<int> _position;
   final List<Offset> _pathPoints = <Offset>[];
@@ -30,7 +32,8 @@ class PlayerController extends ChangeNotifier {
   double _segmentProgress = 0;
   double _frameElapsedMs = 0;
 
-  static const int moveDurationMs = 120;
+  int _moveDurationMs = 120;
+  bool _controlsInverted = false;
 
   Direction4 _direction = Direction4.right;
   int _currentFrame = 0;
@@ -72,6 +75,17 @@ class PlayerController extends ChangeNotifier {
 
   bool get hasWon => _position == maze.end;
 
+  bool get controlsInverted => _controlsInverted;
+
+  void setControlsInverted(bool value) {
+    _controlsInverted = value;
+  }
+
+  void setSpeedMultiplier(double multiplier) {
+    final safe = multiplier <= 0 ? 1.0 : multiplier;
+    _moveDurationMs = (baseMoveDurationMs / safe).round().clamp(60, 260);
+  }
+
   void holdDirection(Direction4? direction) {
     _heldDirection = direction;
     _ensureTicking();
@@ -110,7 +124,7 @@ class PlayerController extends ChangeNotifier {
     var changed = false;
 
     if (_segmentTo != null) {
-      _segmentProgress += dt / (moveDurationMs / 1000.0);
+      _segmentProgress += dt / (_moveDurationMs / 1000.0);
       if (_segmentProgress >= 1) {
         final arrived = _segmentTo!;
         _position = arrived;

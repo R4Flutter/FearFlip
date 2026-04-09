@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/database/local_session_database.dart';
 import '../../domain/usecases/start_survival_use_case.dart';
 import '../../game/game.dart';
+import '../controllers/game_controller.dart';
 import '../../services/ads_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/audio_service.dart';
@@ -16,38 +17,58 @@ import '../../services/leaderboard_service.dart';
 class AppFlowProvider extends ChangeNotifier {
   static const String _joystickSizePrefKey = 'ui.joystick.size';
   static const String _selectedCharacterPrefKey = 'ui.character.index';
+  static const String _arrowControllerPrefKey = 'ui.controller.arrow';
+  static const String _totalTrophiesPrefKey = 'progress.total_trophies';
+  static const String _maxStageReachedPrefKey = 'progress.max_stage_reached';
   static const double minJoystickSize = 90;
   static const double maxJoystickSize = 170;
-  static const int characterCount = 3;
-  static const int defaultCharacterIndex = 2;
+  static const int characterCount = 2;
+  static const int defaultCharacterIndex = 0;
 
   AppFlowProvider({
     required LocalSessionDatabase sessionDatabase,
     required StartSurvivalUseCase startSurvivalUseCase,
     AuthService? authService,
+    bool enableAuthBootstrap = true,
+    LeaderboardService? leaderboardService,
   }) : _sessionDatabase = sessionDatabase,
        _startSurvivalUseCase = startSurvivalUseCase,
-       _authService = authService ?? AuthService() {
+       _authService =
+           authService ?? (enableAuthBootstrap ? AuthService() : null) {
     _sessionDatabase.markAppLaunch();
     game = FearFlipGame(
       adsService: AdsService(),
       audioService: AudioService(),
-      leaderboardService: StubLeaderboardService(),
+      leaderboardService:
+          leaderboardService ??
+          (enableAuthBootstrap
+              ? FirestoreLeaderboardService()
+              : StubLeaderboardService()),
     );
-    _currentUser = _authService.currentUser;
-    _authSubscription = _authService.authStateChanges.listen((user) {
-      _currentUser = user;
-      notifyListeners();
-    });
+    gameController = GameController();
+    _currentUser = _authService?.currentUser;
+    final authService = _authService;
+    if (authService != null) {
+      _authSubscription = authService.authStateChanges.listen((user) {
+        _currentUser = user;
+        if (user == null) {
+          _globalPanicRank = null;
+        } else {
+          unawaited(_syncGlobalPanicProgress());
+        }
+        notifyListeners();
+      });
+    }
     _loadUiSettings();
   }
 
   final LocalSessionDatabase _sessionDatabase;
   final StartSurvivalUseCase _startSurvivalUseCase;
-  final AuthService _authService;
+  final AuthService? _authService;
   StreamSubscription<User?>? _authSubscription;
 
   late final FearFlipGame game;
+  late final GameController gameController;
 
   User? _currentUser;
   bool _offlineGuestMode = false;
@@ -58,6 +79,10 @@ class AppFlowProvider extends ChangeNotifier {
   bool _isStarting = false;
   double _joystickSize = 110;
   int _selectedCharacterIndex = defaultCharacterIndex;
+  bool _useArrowController = false;
+  int _totalTrophies = 0;
+  int _maxStageReached = 1;
+  int? _globalPanicRank;
 
   bool get showAuthGate => _currentUser == null && !_offlineGuestMode;
   bool get isAuthenticating => _isAuthenticating;
@@ -84,12 +109,19 @@ class AppFlowProvider extends ChangeNotifier {
   bool get isStarting => _isStarting;
   double get joystickSize => _joystickSize;
   int get selectedCharacterIndex => _selectedCharacterIndex;
+  bool get useArrowController => _useArrowController;
+  int get totalTrophies => _totalTrophies;
+  int get maxStageReached => _maxStageReached;
+  int? get globalPanicRank => _globalPanicRank;
 
   Future<void> _loadUiSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedJoystick = prefs.getDouble(_joystickSizePrefKey);
       final savedCharacter = prefs.getInt(_selectedCharacterPrefKey);
+      final savedArrowController = prefs.getBool(_arrowControllerPrefKey);
+      final savedTrophies = prefs.getInt(_totalTrophiesPrefKey);
+      final savedMaxStage = prefs.getInt(_maxStageReachedPrefKey);
 
       var hasChanges = false;
       if (savedJoystick != null) {
@@ -100,10 +132,24 @@ class AppFlowProvider extends ChangeNotifier {
         _selectedCharacterIndex = savedCharacter.clamp(0, characterCount - 1);
         hasChanges = true;
       }
+      if (savedArrowController != null) {
+        _useArrowController = savedArrowController;
+        hasChanges = true;
+      }
+      if (savedTrophies != null) {
+        _totalTrophies = savedTrophies.clamp(0, 9999999);
+        hasChanges = true;
+      }
+      if (savedMaxStage != null) {
+        _maxStageReached = savedMaxStage.clamp(1, 9999);
+        hasChanges = true;
+      }
 
       if (hasChanges) {
         notifyListeners();
       }
+
+      unawaited(_syncGlobalPanicProgress());
     } catch (_) {
       // Keep default size when local preferences are unavailable.
     }
@@ -143,7 +189,29 @@ class AppFlowProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> updateUseArrowController(bool useArrowController) async {
+    if (_useArrowController == useArrowController) {
+      return;
+    }
+
+    _useArrowController = useArrowController;
+    notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_arrowControllerPrefKey, _useArrowController);
+    } catch (_) {
+      // Keep selected control mode for this session even if persistence fails.
+    }
+  }
+
   Future<void> signInWithGoogle() async {
+    final authService = _authService;
+    if (authService == null) {
+      _authError = 'Authentication is unavailable in this environment.';
+      notifyListeners();
+      return;
+    }
     if (_isAuthenticating) {
       return;
     }
@@ -152,7 +220,7 @@ class AppFlowProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _authService.signInWithGoogle();
+      await authService.signInWithGoogle();
     } on AuthCancelledException {
       _authError = null;
     } on AuthConfigurationException catch (error) {
@@ -168,6 +236,16 @@ class AppFlowProvider extends ChangeNotifier {
   }
 
   Future<void> playAsGuest() async {
+    final authService = _authService;
+    if (authService == null) {
+      _offlineGuestMode = true;
+      _offlineGuestName = _generateOfflineGuestName();
+      _currentUser = null;
+      _authError = null;
+      await startSurvival();
+      notifyListeners();
+      return;
+    }
     if (_isAuthenticating) {
       return;
     }
@@ -176,10 +254,10 @@ class AppFlowProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _authService.signInAsGuest();
+      await authService.signInAsGuest();
       _offlineGuestMode = false;
       _offlineGuestName = null;
-      _currentUser = _authService.currentUser;
+      _currentUser = authService.currentUser;
       if (_currentUser != null) {
         await startSurvival();
       }
@@ -206,11 +284,23 @@ class AppFlowProvider extends ChangeNotifier {
   String _generateOfflineGuestName() {
     final now = DateTime.now().millisecondsSinceEpoch;
     final shortTime = now.toRadixString(36).toUpperCase();
-    final rand = Random.secure().nextInt(0xFFFF).toRadixString(36).toUpperCase();
+    final rand = Random.secure()
+        .nextInt(0xFFFF)
+        .toRadixString(36)
+        .toUpperCase();
     return 'GUEST-${shortTime.substring(max(0, shortTime.length - 4))}$rand';
   }
 
   Future<void> signOut() async {
+    final authService = _authService;
+    if (authService == null) {
+      _offlineGuestMode = false;
+      _offlineGuestName = null;
+      _currentUser = null;
+      _showLanding = true;
+      notifyListeners();
+      return;
+    }
     if (_isAuthenticating) {
       return;
     }
@@ -220,7 +310,7 @@ class AppFlowProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _authService.signOut();
+      await authService.signOut();
       _offlineGuestMode = false;
       _offlineGuestName = null;
       _currentUser = null;
@@ -250,6 +340,51 @@ class AppFlowProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> onStageCleared(int clearedStage) async {
+    final reward = _trophiesForClearedStage(clearedStage);
+    if (reward > 0) {
+      _totalTrophies += reward;
+    }
+    if (clearedStage > _maxStageReached) {
+      _maxStageReached = clearedStage;
+    }
+    notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_totalTrophiesPrefKey, _totalTrophies);
+      await prefs.setInt(_maxStageReachedPrefKey, _maxStageReached);
+    } catch (_) {
+      // Trophy update remains in-memory for this session if persistence fails.
+    }
+
+    await _syncGlobalPanicProgress();
+  }
+
+  Future<void> _syncGlobalPanicProgress() async {
+    try {
+      await game.leaderboardService.upsertGlobalPanicProgress(
+        maxStage: _maxStageReached,
+        totalTrophies: _totalTrophies,
+      );
+
+      final rank = await game.leaderboardService.getGlobalPanicRank();
+      if (_globalPanicRank != rank) {
+        _globalPanicRank = rank;
+        notifyListeners();
+      }
+    } catch (_) {
+      // Keep UI responsive if leaderboard sync fails.
+    }
+  }
+
+  int _trophiesForClearedStage(int stage) {
+    if (stage <= 0) {
+      return 0;
+    }
+    return ((stage - 1) ~/ 10) + 1;
+  }
+
   void returnToDashboard() {
     if (_showLanding) {
       return;
@@ -260,6 +395,7 @@ class AppFlowProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    gameController.dispose();
     _authSubscription?.cancel();
     super.dispose();
   }

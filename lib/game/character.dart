@@ -17,8 +17,8 @@ class FearFlipCharacter {
 
   static final List<FearFlipCharacter> catalog = <FearFlipCharacter>[
     FearFlipCharacter(
-      id: 'blonde_guardian',
-      name: 'Blonde Guardian',
+      id: 'devil',
+      name: 'Devil',
       sourcePosition: Vector2(0, 0),
       sourceSize: Vector2(256, 256),
     ),

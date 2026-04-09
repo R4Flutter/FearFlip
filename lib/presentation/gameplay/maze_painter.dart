@@ -18,6 +18,12 @@ class MazePainter extends CustomPainter {
     this.spriteFrameCount = 8,
     this.spriteRows = 1,
     this.spriteRowIndex = 0,
+    this.devilCell,
+    this.devilSprite,
+    this.devilSpriteRowIndex = 0,
+    this.safeZones = const <Point<int>, double>{},
+    this.playerSafe = false,
+    this.isFlippedMode = false,
   });
 
   final MazeGrid maze;
@@ -31,13 +37,23 @@ class MazePainter extends CustomPainter {
   final int spriteFrameCount;
   final int spriteRows;
   final int spriteRowIndex;
+  final Point<int>? devilCell;
+  final ui.Image? devilSprite;
+  final int devilSpriteRowIndex;
+  final Map<Point<int>, double> safeZones;
+  final bool playerSafe;
+  final bool isFlippedMode;
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = const Color(0xFF0D0D0D),
-    );
+    final pathColor = isFlippedMode
+        ? const Color(0xFFFFFFFF)
+        : const Color(0xFF0D0D0D);
+    final wallColor = isFlippedMode
+        ? const Color(0xFF000000)
+        : const Color(0xFFFFFFFF);
+
+    canvas.drawRect(Offset.zero & size, Paint()..color = pathColor);
 
     final cellSize = min(size.width / maze.cols, size.height / maze.rows);
     final mazeWidth = cellSize * maze.cols;
@@ -48,7 +64,7 @@ class MazePainter extends CustomPainter {
     );
 
     final wallPaint = Paint()
-      ..color = const Color(0xFFFFFFFF)
+      ..color = wallColor
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.square
       ..isAntiAlias = false;
@@ -78,35 +94,6 @@ class MazePainter extends CustomPainter {
       }
     }
 
-    if (pathPoints.length > 1) {
-      final path = Path();
-      final first = _cellCenterFromPosition(origin, cellSize, pathPoints.first);
-      path.moveTo(first.dx, first.dy);
-
-      for (var i = 1; i < pathPoints.length; i++) {
-        final prev = _cellCenterFromPosition(
-          origin,
-          cellSize,
-          pathPoints[i - 1],
-        );
-        final curr = _cellCenterFromPosition(origin, cellSize, pathPoints[i]);
-        final mid = Offset(
-          (prev.dx + curr.dx) * 0.5,
-          (prev.dy + curr.dy) * 0.5,
-        );
-        path.quadraticBezierTo(prev.dx, prev.dy, mid.dx, mid.dy);
-      }
-
-      final trailPaint = Paint()
-        ..color = const Color(0xFFFF3B3B)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 5
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..isAntiAlias = true;
-      canvas.drawPath(path, trailPaint);
-    }
-
     final startCenter = _cellCenter(origin, cellSize, maze.start);
     final startGlow = Paint()
       ..color = const Color(0xAA00FFAA)
@@ -116,19 +103,49 @@ class MazePainter extends CustomPainter {
     canvas.drawCircle(startCenter, cellSize * 0.22 + pulse * 2.5, startGlow);
     canvas.drawCircle(startCenter, startRadius, startCore);
 
-    final endCenter = _cellCenter(origin, cellSize, maze.end);
-    final endSide = cellSize * 0.28;
-    final endRect = Rect.fromCenter(
-      center: endCenter,
-      width: endSide,
-      height: endSide,
-    );
+    final endTileRect = _cellRect(
+      origin,
+      cellSize,
+      maze.end,
+    ).deflate(cellSize * 0.14);
     final endGlow = Paint()
       ..color = const Color(0xAAFFD700)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9);
     final endCore = Paint()..color = const Color(0xFFFFD700);
-    canvas.drawRect(endRect.inflate(2), endGlow);
-    canvas.drawRect(endRect, endCore);
+    final endBorder = Paint()
+      ..color = const Color(0xFF7A5A00)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(1.6, cellSize * 0.06);
+    canvas.drawRect(endTileRect.inflate(cellSize * 0.06), endGlow);
+    canvas.drawRect(endTileRect, endCore);
+    canvas.drawRect(endTileRect, endBorder);
+
+    if (safeZones.isNotEmpty) {
+      for (final entry in safeZones.entries) {
+        final zoneRect = _cellRect(
+          origin,
+          cellSize,
+          entry.key,
+        ).deflate(cellSize * 0.14);
+        final strength = entry.value.clamp(0.0, 1.0);
+        final glow = Paint()
+          ..color = const Color(
+            0x9900FF9D,
+          ).withValues(alpha: 0.2 + strength * 0.45)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
+        final core = Paint()
+          ..color = const Color(
+            0xFF00FF9D,
+          ).withValues(alpha: 0.30 + strength * 0.70);
+        final border = Paint()
+          ..color = const Color(0xFF00A86B)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = max(1.6, cellSize * 0.06);
+        canvas.drawRect(zoneRect.inflate(cellSize * 0.06), glow);
+        canvas.drawRect(zoneRect, core);
+        canvas.drawRect(zoneRect, border);
+      }
+    }
 
     final playerCenter = _cellCenterFromPosition(
       origin,
@@ -147,14 +164,61 @@ class MazePainter extends CustomPainter {
       canvas.drawCircle(playerCenter, playerSide * 0.35, playerGlow);
       canvas.drawCircle(playerCenter, playerSide * 0.28, playerCore);
     }
+
+    if (playerSafe) {
+      final ring = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..color = const Color(0xFF00FF9D);
+      canvas.drawCircle(playerCenter, playerSide * 0.42, ring);
+    }
+
+    final devil = devilCell;
+    if (devil != null) {
+      final devilCenter = _cellCenter(origin, cellSize, devil);
+      final image = devilSprite;
+      if (image != null) {
+        _drawCharacterSprite(
+          canvas: canvas,
+          image: image,
+          center: devilCenter,
+          side: cellSize * 0.82,
+          rowIndex: devilSpriteRowIndex,
+          facing: direction,
+          frame: (currentFrame + 2) % spriteFrameCount,
+        );
+      } else {
+        final silhouette = Paint()..color = const Color(0xFF1B1B1B);
+        canvas.drawCircle(devilCenter, cellSize * 0.24, silhouette);
+      }
+    }
   }
 
   void _drawSpriteCharacter(Canvas canvas, Offset center, double side) {
     final image = playerSprite!;
+    _drawCharacterSprite(
+      canvas: canvas,
+      image: image,
+      center: center,
+      side: side,
+      rowIndex: spriteRowIndex,
+      facing: direction,
+      frame: isMoving ? currentFrame.clamp(0, spriteFrameCount - 1) : 0,
+    );
+  }
+
+  void _drawCharacterSprite({
+    required Canvas canvas,
+    required ui.Image image,
+    required Offset center,
+    required double side,
+    required int rowIndex,
+    required Direction4 facing,
+    required int frame,
+  }) {
     final frameW = image.width / spriteFrameCount;
     final frameH = image.height / spriteRows;
-    final row = spriteRowIndex.clamp(0, spriteRows - 1);
-    final frame = isMoving ? currentFrame.clamp(0, spriteFrameCount - 1) : 0;
+    final row = rowIndex.clamp(0, spriteRows - 1);
 
     final src = Rect.fromLTWH(frame * frameW, row * frameH, frameW, frameH);
     final dst = Rect.fromCenter(center: Offset.zero, width: side, height: side);
@@ -163,7 +227,7 @@ class MazePainter extends CustomPainter {
     canvas.save();
     canvas.translate(center.dx, center.dy);
 
-    switch (direction) {
+    switch (facing) {
       case Direction4.right:
         break;
       case Direction4.left:
@@ -188,6 +252,15 @@ class MazePainter extends CustomPainter {
     );
   }
 
+  Rect _cellRect(Offset origin, double cellSize, Point<int> cell) {
+    return Rect.fromLTWH(
+      origin.dx + cell.x * cellSize,
+      origin.dy + cell.y * cellSize,
+      cellSize,
+      cellSize,
+    );
+  }
+
   Offset _cellCenterFromPosition(Offset origin, double cellSize, Offset pos) {
     return Offset(
       origin.dx + (pos.dx + 0.5) * cellSize,
@@ -204,9 +277,15 @@ class MazePainter extends CustomPainter {
         oldDelegate.currentFrame != currentFrame ||
         oldDelegate.isMoving != isMoving ||
         oldDelegate.playerSprite != playerSprite ||
+        oldDelegate.devilSprite != devilSprite ||
+        oldDelegate.devilSpriteRowIndex != devilSpriteRowIndex ||
         oldDelegate.spriteFrameCount != spriteFrameCount ||
         oldDelegate.spriteRows != spriteRows ||
         oldDelegate.spriteRowIndex != spriteRowIndex ||
+        oldDelegate.devilCell != devilCell ||
+        oldDelegate.playerSafe != playerSafe ||
+        oldDelegate.isFlippedMode != isFlippedMode ||
+        oldDelegate.safeZones != safeZones ||
         oldDelegate.pulse != pulse;
   }
 }

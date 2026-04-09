@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function validScore() {
+      return request.resource.data.scoreSeconds is int
+          && request.resource.data.scoreSeconds >= 0
+          && request.resource.data.scoreSeconds <= 86400;
+    }
+
+    function validMode() {
+      return request.resource.data.mode is string
+          && request.resource.data.mode.size() > 0
+          && request.resource.data.mode.size() <= 40;
+    }
+
+    match /leaderboards/{mode}/scores/{scoreId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+          && validScore()
+          && validMode()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /runs/{uid}/sessions/{sessionId} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn()
+          && request.auth.uid == uid
+          && validScore()
+          && validMode()
+          && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}
