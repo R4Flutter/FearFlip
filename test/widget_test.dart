@@ -74,11 +74,10 @@ void main() {
       ),
     );
     await tester.pump();
+    final game = tester.widget<GameScreen>(find.byType(GameScreen));
+    final allowed = await game.onRestartWithAd();
 
-    await tester.tap(find.byIcon(Icons.refresh));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-
+    expect(allowed, isTrue);
     expect(restartCalls, 1);
   });
 

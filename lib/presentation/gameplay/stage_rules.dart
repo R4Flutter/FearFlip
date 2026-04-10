@@ -38,6 +38,7 @@ class StageRule {
 
 class StageRules {
   static const int maxDefinedStage = 100;
+  static const double _devilPlayerSpeedDelta = 0.01;
 
   static const Map<int, StageRule> _rules = <int, StageRule>{
     1: StageRule(
@@ -50,11 +51,11 @@ class StageRules {
       firstFlipDelay: 4.0,
       warningTime: 1.2,
       mazeSize: 10,
-      devilEnabled: false,
-      devilSpeedMultiplier: 0.0,
-      devilSpawnDelay: 999,
-      devilStepsPerSecond: 0.0,
-      devilSpawnDistanceCells: 0,
+      devilEnabled: true,
+      devilSpeedMultiplier: 0.99,
+      devilSpawnDelay: 8.0,
+      devilStepsPerSecond: 0.35,
+      devilSpawnDistanceCells: 9,
       safeZoneCount: 2,
       safeZoneDurationSeconds: 3.0,
     ),
@@ -68,11 +69,11 @@ class StageRules {
       firstFlipDelay: 3.0,
       warningTime: 1.0,
       mazeSize: 11,
-      devilEnabled: false,
-      devilSpeedMultiplier: 0.0,
-      devilSpawnDelay: 999,
-      devilStepsPerSecond: 0.0,
-      devilSpawnDistanceCells: 0,
+      devilEnabled: true,
+      devilSpeedMultiplier: 0.99,
+      devilSpawnDelay: 7.0,
+      devilStepsPerSecond: 0.45,
+      devilSpawnDistanceCells: 8,
       safeZoneCount: 2,
       safeZoneDurationSeconds: 2.5,
     ),
@@ -86,11 +87,11 @@ class StageRules {
       firstFlipDelay: 3.0,
       warningTime: 0.9,
       mazeSize: 12,
-      devilEnabled: false,
-      devilSpeedMultiplier: 0.0,
-      devilSpawnDelay: 999,
-      devilStepsPerSecond: 0.0,
-      devilSpawnDistanceCells: 0,
+      devilEnabled: true,
+      devilSpeedMultiplier: 1.04,
+      devilSpawnDelay: 6.0,
+      devilStepsPerSecond: 0.55,
+      devilSpawnDistanceCells: 8,
       safeZoneCount: 2,
       safeZoneDurationSeconds: 2.0,
     ),
@@ -104,11 +105,11 @@ class StageRules {
       firstFlipDelay: 2.5,
       warningTime: 0.8,
       mazeSize: 13,
-      devilEnabled: false,
-      devilSpeedMultiplier: 0.0,
-      devilSpawnDelay: 999,
-      devilStepsPerSecond: 0.0,
-      devilSpawnDistanceCells: 0,
+      devilEnabled: true,
+      devilSpeedMultiplier: 1.04,
+      devilSpawnDelay: 5.5,
+      devilStepsPerSecond: 0.65,
+      devilSpawnDistanceCells: 7,
       safeZoneCount: 2,
       safeZoneDurationSeconds: 2.0,
     ),
@@ -1843,10 +1844,39 @@ class StageRules {
   };
 
   static StageRule forStage(int stage) {
-    if (_rules.containsKey(stage)) {
-      return _rules[stage]!;
-    }
     final clamped = stage.clamp(1, maxDefinedStage);
-    return _rules[clamped]!;
+    final baseRule = _rules[clamped]!;
+    if (!baseRule.devilEnabled) {
+      return baseRule;
+    }
+
+    final targetDevilMultiplier =
+        (baseRule.playerSpeedMultiplier - _devilPlayerSpeedDelta).clamp(
+          0.01,
+          baseRule.playerSpeedMultiplier,
+        );
+    if ((baseRule.devilSpeedMultiplier - targetDevilMultiplier).abs() <
+        0.000001) {
+      return baseRule;
+    }
+
+    return StageRule(
+      stage: baseRule.stage,
+      name: baseRule.name,
+      playerSpeedMultiplier: baseRule.playerSpeedMultiplier,
+      baseFlipInterval: baseRule.baseFlipInterval,
+      flipRandomnessMin: baseRule.flipRandomnessMin,
+      flipRandomnessMax: baseRule.flipRandomnessMax,
+      firstFlipDelay: baseRule.firstFlipDelay,
+      warningTime: baseRule.warningTime,
+      mazeSize: baseRule.mazeSize,
+      devilEnabled: baseRule.devilEnabled,
+      devilSpeedMultiplier: targetDevilMultiplier,
+      devilSpawnDelay: baseRule.devilSpawnDelay,
+      devilStepsPerSecond: baseRule.devilStepsPerSecond,
+      devilSpawnDistanceCells: baseRule.devilSpawnDistanceCells,
+      safeZoneCount: baseRule.safeZoneCount,
+      safeZoneDurationSeconds: baseRule.safeZoneDurationSeconds,
+    );
   }
 }

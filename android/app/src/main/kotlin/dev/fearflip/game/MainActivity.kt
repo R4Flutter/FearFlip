@@ -1,4 +1,4 @@
-package com.example.fearflipgame
+package dev.fearflip.game
 
 import io.flutter.embedding.android.FlutterActivity
 

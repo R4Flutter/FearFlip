@@ -1,0 +1,4 @@
+storeFile=../keystore/fearflip-release.jks
+storePassword=replace-me
+keyAlias=fearflip
+keyPassword=replace-me

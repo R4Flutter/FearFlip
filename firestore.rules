@@ -12,10 +12,29 @@ service cloud.firestore {
           && request.resource.data.scoreSeconds <= 86400;
     }
 
+    function validStage() {
+      return request.resource.data.maxStage is int
+          && request.resource.data.maxStage >= 1
+          && request.resource.data.maxStage <= 9999;
+    }
+
+    function validTrophies() {
+      return request.resource.data.totalTrophies is int
+          && request.resource.data.totalTrophies >= 0
+          && request.resource.data.totalTrophies <= 9999999;
+    }
+
     function validMode() {
       return request.resource.data.mode is string
           && request.resource.data.mode.size() > 0
-          && request.resource.data.mode.size() <= 40;
+          && request.resource.data.mode.size() <= 40
+          && request.resource.data.mode.matches('^[a-z0-9_-]+$');
+        }
+
+        function validDisplayName() {
+      return request.resource.data.displayName is string
+          && request.resource.data.displayName.size() > 0
+          && request.resource.data.displayName.size() <= 32;
     }
 
     match /leaderboards/{mode}/scores/{scoreId} {
@@ -23,9 +42,63 @@ service cloud.firestore {
       allow create: if isSignedIn()
           && validScore()
           && validMode()
+          && validDisplayName()
           && request.resource.data.uid == request.auth.uid
+          && request.resource.data.mode == mode
           && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
+    }
+
+    match /leaderboards/{mode}/best/{uid} {
+      allow read: if true;
+
+      allow create: if isSignedIn()
+          && request.auth.uid == uid
+          && validScore()
+          && validMode()
+          && validDisplayName()
+          && request.resource.data.uid == uid
+          && request.resource.data.mode == mode
+          && request.resource.data.updatedAt == request.time;
+
+      allow update: if isSignedIn()
+          && request.auth.uid == uid
+          && validScore()
+          && validMode()
+          && validDisplayName()
+          && request.resource.data.uid == uid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.mode == mode
+          && request.resource.data.mode == resource.data.mode
+          && request.resource.data.scoreSeconds >= resource.data.scoreSeconds
+          && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
+    }
+
+    match /leaderboards/{mode}/profiles/{uid} {
+      allow read: if true;
+
+      allow create: if isSignedIn()
+          && request.auth.uid == uid
+          && validStage()
+          && validTrophies()
+          && validDisplayName()
+          && request.resource.data.uid == uid
+          && request.resource.data.updatedAt == request.time;
+
+      allow update: if isSignedIn()
+          && request.auth.uid == uid
+          && validStage()
+          && validTrophies()
+          && validDisplayName()
+          && request.resource.data.uid == uid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.maxStage >= resource.data.maxStage
+          && request.resource.data.totalTrophies >= resource.data.totalTrophies
+          && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
     }
 
     match /runs/{uid}/sessions/{sessionId} {
@@ -34,6 +107,7 @@ service cloud.firestore {
           && request.auth.uid == uid
           && validScore()
           && validMode()
+          && validDisplayName()
           && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
     }

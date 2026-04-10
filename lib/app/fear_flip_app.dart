@@ -78,6 +78,323 @@ class _CharacterSpritePreview extends StatelessWidget {
   }
 }
 
+class _DialogGridPainter extends CustomPainter {
+  const _DialogGridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final gridPaint = Paint()
+      ..color = AppPalette.neonGreen.withAlpha(30)
+      ..strokeWidth = 1;
+
+    const spacing = 30.0;
+    for (var x = 0.0; x <= size.width; x += spacing) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+    }
+    for (var y = 0.0; y <= size.height; y += spacing) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    final accentPaint = Paint()..color = AppPalette.accentPurple.withAlpha(70);
+    for (var i = 0; i < 5; i++) {
+      final top = size.height * (0.14 + i * 0.16);
+      final left = size.width * (0.08 + i * 0.05);
+      final width = (size.width * (0.25 + i * 0.04)).clamp(80.0, size.width);
+      canvas.drawRect(Rect.fromLTWH(left, top, width, 2), accentPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _CharacterOptionTile extends StatelessWidget {
+  const _CharacterOptionTile({
+    required this.option,
+    required this.isSelected,
+    required this.isDefault,
+    required this.onTap,
+  });
+
+  final _CharacterOption option;
+  final bool isSelected;
+  final bool isDefault;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = isSelected ? Colors.black : AppPalette.textPrimary;
+    final mutedFg = isSelected
+        ? Colors.black.withAlpha(200)
+        : AppPalette.textMuted;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? option.color.withAlpha(230)
+              : AppPalette.surfaceAlt,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? Colors.white : AppPalette.borderSoft,
+            width: isSelected ? 1.8 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: option.color.withAlpha(95),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          children: [
+            _CharacterSpritePreview(
+              rowIndex: option.spriteRowIndex,
+              accentColor: isSelected ? Colors.white : option.color,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    option.title,
+                    style: TextStyle(
+                      color: fg,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Tap to activate this runner for gameplay.',
+                    style: TextStyle(
+                      color: mutedFg,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isDefault)
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? Colors.black.withAlpha(40)
+                      : AppPalette.neonGreen.withAlpha(34),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: isSelected
+                        ? Colors.black.withAlpha(120)
+                        : AppPalette.neonGreen.withAlpha(120),
+                  ),
+                ),
+                child: Text(
+                  'DEFAULT',
+                  style: TextStyle(
+                    color: isSelected ? Colors.black : AppPalette.neonGreen,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+            Icon(
+              isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+              color: isSelected ? Colors.black : AppPalette.textMuted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsMetricChip extends StatelessWidget {
+  const _SettingsMetricChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withAlpha(28),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withAlpha(150)),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+          children: [
+            TextSpan(
+              text: '$label  ',
+              style: TextStyle(color: color),
+            ),
+            TextSpan(
+              text: value,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsSectionCard extends StatelessWidget {
+  const _SettingsSectionCard({
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.child,
+  });
+
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        color: AppPalette.surfaceAlt,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withAlpha(140), width: 1.2),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [accent.withAlpha(20), AppPalette.surfaceAlt],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppPalette.textPrimary,
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              color: AppPalette.textMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsModeTile extends StatelessWidget {
+  const _SettingsModeTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppPalette.accentPink.withAlpha(220)
+              : AppPalette.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? Colors.white : AppPalette.borderSoft,
+            width: selected ? 1.6 : 1,
+          ),
+          boxShadow: selected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x66E85BDA),
+                    blurRadius: 12,
+                    offset: Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: selected ? Colors.black : AppPalette.textPrimary,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              title,
+              style: TextStyle(
+                color: selected ? Colors.black : AppPalette.textPrimary,
+                fontWeight: FontWeight.w900,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: selected
+                    ? Colors.black.withAlpha(180)
+                    : AppPalette.textMuted,
+                fontWeight: FontWeight.w600,
+                fontSize: 11,
+                height: 1.2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class FearFlipApp extends StatefulWidget {
   const FearFlipApp({super.key});
 
@@ -108,133 +425,184 @@ class _FearFlipAppState extends State<FearFlipApp> {
       builder: (context) {
         var selected = _flow.selectedCharacterIndex;
         return Dialog(
-          backgroundColor: AppPalette.surface,
+          backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 22,
           ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: AppPalette.borderSoft, width: 1.2),
-          ),
           child: StatefulBuilder(
             builder: (context, setLocalState) {
-              return SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text(
-                        'Choose Character',
-                        style: TextStyle(
-                          color: AppPalette.textPrimary,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.4,
-                        ),
+              final screenHeight = MediaQuery.sizeOf(context).height;
+              return ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 640,
+                  maxHeight: (screenHeight * 0.84).clamp(460.0, 760.0),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppPalette.surface,
+                      border: Border.all(
+                        color: AppPalette.accentPurple.withAlpha(170),
+                        width: 1.4,
                       ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Your choice is saved and used every time until you change it.',
-                        style: TextStyle(
-                          color: AppPalette.textMuted,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x4A000000),
+                          blurRadius: 20,
+                          offset: Offset(0, 8),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      for (var i = 0; i < _characterOptions.length; i++)
-                        Padding(
-                          padding: EdgeInsets.only(
-                            bottom: i == _characterOptions.length - 1 ? 0 : 10,
-                          ),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () {
-                              setLocalState(() {
-                                selected = i;
-                              });
-                              _flow.updateSelectedCharacter(i);
-                            },
+                      ],
+                    ),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        const CustomPaint(painter: _DialogGridPainter()),
+                        IgnorePointer(
+                          child: Align(
+                            alignment: const Alignment(0, -0.9),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                color: selected == i
-                                    ? AppPalette.surfaceAlt
-                                    : AppPalette.surface,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: selected == i
-                                      ? AppPalette.accentPink
-                                      : AppPalette.borderSoft,
-                                  width: selected == i ? 1.4 : 1,
+                              width: 420,
+                              height: 180,
+                              decoration: const BoxDecoration(
+                                gradient: RadialGradient(
+                                  colors: [
+                                    Color(0x55E26AE6),
+                                    Color(0x4433FF2B),
+                                    Color(0x00FFFFFF),
+                                  ],
                                 ),
                               ),
-                              child: Row(
-                                children: [
-                                  _CharacterSpritePreview(
-                                    rowIndex:
-                                        _characterOptions[i].spriteRowIndex,
-                                    accentColor: _characterOptions[i].color,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      _characterOptions[i].title,
-                                      style: const TextStyle(
-                                        color: AppPalette.textPrimary,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Text(
+                                  'CHOOSE CHARACTER',
+                                  style: TextStyle(
+                                    color: AppPalette.textPrimary,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.9,
+                                    shadows: [
+                                      Shadow(
+                                        color: Color(0x9033FF2B),
+                                        blurRadius: 10,
+                                        offset: Offset(0, 2),
                                       ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Select your runner. The selection is saved and used in every run until you change it.',
+                                  style: TextStyle(
+                                    color: AppPalette.textMuted,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.25,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      children: [
+                                        for (
+                                          var i = 0;
+                                          i < _characterOptions.length;
+                                          i++
+                                        )
+                                          Padding(
+                                            padding: EdgeInsets.only(
+                                              bottom:
+                                                  i ==
+                                                      _characterOptions.length -
+                                                          1
+                                                  ? 0
+                                                  : 12,
+                                            ),
+                                            child: _CharacterOptionTile(
+                                              option: _characterOptions[i],
+                                              isSelected: selected == i,
+                                              isDefault:
+                                                  i ==
+                                                  AppFlowProvider
+                                                      .defaultCharacterIndex,
+                                              onTap: () {
+                                                setLocalState(() {
+                                                  selected = i;
+                                                });
+                                                _flow.updateSelectedCharacter(
+                                                  i,
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                   ),
-                                  if (i ==
-                                      AppFlowProvider.defaultCharacterIndex)
-                                    const Padding(
-                                      padding: EdgeInsets.only(right: 10),
-                                      child: Text(
-                                        'DEFAULT',
-                                        style: TextStyle(
-                                          color: AppPalette.neonGreen,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 0.5,
+                                ),
+                                const SizedBox(height: 16),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(),
+                                        style: OutlinedButton.styleFrom(
+                                          minimumSize: const Size.fromHeight(
+                                            48,
+                                          ),
+                                          side: const BorderSide(
+                                            color: AppPalette.borderSoft,
+                                          ),
+                                          foregroundColor:
+                                              AppPalette.textPrimary,
+                                        ),
+                                        child: const Text(
+                                          'Cancel',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  Icon(
-                                    selected == i
-                                        ? Icons.check_circle
-                                        : Icons.radio_button_unchecked,
-                                    color: selected == i
-                                        ? AppPalette.accentPink
-                                        : AppPalette.textMuted,
-                                  ),
-                                ],
-                              ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: FilledButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(),
+                                        style: FilledButton.styleFrom(
+                                          minimumSize: const Size.fromHeight(
+                                            48,
+                                          ),
+                                          backgroundColor:
+                                              AppPalette.accentPink,
+                                          foregroundColor: Colors.black,
+                                        ),
+                                        child: const Text(
+                                          'Done',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      const SizedBox(height: 14),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: const Text(
-                            'Done',
-                            style: TextStyle(
-                              color: AppPalette.accentPink,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -251,218 +619,464 @@ class _FearFlipAppState extends State<FearFlipApp> {
       barrierDismissible: true,
       builder: (context) {
         var joystickSize = _flow.joystickSize;
+        var soundVolume = _flow.soundVolume;
+        var isSoundMuted = _flow.isSoundMuted;
         var useArrowController = _flow.useArrowController;
         return Dialog(
-          backgroundColor: AppPalette.surface,
+          backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 18,
           ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: AppPalette.borderSoft, width: 1.2),
-          ),
           child: StatefulBuilder(
             builder: (context, setLocalState) {
-              return SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      mainAxisSize: MainAxisSize.min,
+              final screenHeight = MediaQuery.sizeOf(context).height;
+              final inputLabel = useArrowController ? 'ARROW PAD' : 'JOYSTICK';
+              final volumeLabel = '${(soundVolume * 100).round()}%';
+
+              return ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 720,
+                  maxHeight: (screenHeight * 0.9).clamp(560.0, 860.0),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppPalette.surface,
+                      border: Border.all(
+                        color: AppPalette.accentPurple.withAlpha(180),
+                        width: 1.5,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x4A000000),
+                          blurRadius: 20,
+                          offset: Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        const Text(
-                          'Settings',
-                          style: TextStyle(
-                            color: AppPalette.textPrimary,
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.4,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Customize controls and account options.',
-                          style: TextStyle(
-                            color: AppPalette.textMuted,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppPalette.surfaceAlt,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppPalette.borderSoft),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Controller Type',
-                                style: TextStyle(
-                                  color: AppPalette.textPrimary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
+                        const CustomPaint(painter: _DialogGridPainter()),
+                        IgnorePointer(
+                          child: Align(
+                            alignment: const Alignment(0, -0.9),
+                            child: Container(
+                              width: 460,
+                              height: 190,
+                              decoration: const BoxDecoration(
+                                gradient: RadialGradient(
+                                  colors: [
+                                    Color(0x55E26AE6),
+                                    Color(0x4433FF2B),
+                                    Color(0x00FFFFFF),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 10),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  ChoiceChip(
-                                    label: const Text('Joystick'),
-                                    selected: !useArrowController,
-                                    selectedColor: AppPalette.accentPink,
-                                    labelStyle: TextStyle(
-                                      color: !useArrowController
-                                          ? Colors.black
-                                          : AppPalette.textPrimary,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                    onSelected: (_) {
-                                      setLocalState(() {
-                                        useArrowController = false;
-                                      });
-                                      _flow.updateUseArrowController(false);
-                                    },
+                            ),
+                          ),
+                        ),
+                        SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Text(
+                                  'SYSTEM SETTINGS',
+                                  style: TextStyle(
+                                    color: AppPalette.textPrimary,
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1.0,
+                                    shadows: [
+                                      Shadow(
+                                        color: Color(0x9033FF2B),
+                                        blurRadius: 10,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
                                   ),
-                                  ChoiceChip(
-                                    label: const Text('Arrow Pad'),
-                                    selected: useArrowController,
-                                    selectedColor: AppPalette.accentPink,
-                                    labelStyle: TextStyle(
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Everything updates live so you can tune controls instantly.',
+                                  style: TextStyle(
+                                    color: AppPalette.textMuted,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _SettingsMetricChip(
+                                      label: 'INPUT',
+                                      value: inputLabel,
                                       color: useArrowController
-                                          ? Colors.black
-                                          : AppPalette.textPrimary,
-                                      fontWeight: FontWeight.w700,
+                                          ? AppPalette.accentPink
+                                          : AppPalette.neonGreen,
                                     ),
-                                    onSelected: (_) {
-                                      setLocalState(() {
-                                        useArrowController = true;
-                                      });
-                                      _flow.updateUseArrowController(true);
-                                    },
+                                    _SettingsMetricChip(
+                                      label: 'VOLUME',
+                                      value: volumeLabel,
+                                      color: isSoundMuted
+                                          ? AppPalette.textMuted
+                                          : AppPalette.accentPurple,
+                                    ),
+                                    _SettingsMetricChip(
+                                      label: 'SOUND',
+                                      value: isSoundMuted ? 'MUTED' : 'ACTIVE',
+                                      color: isSoundMuted
+                                          ? AppPalette.danger
+                                          : AppPalette.neonGreen,
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        _SettingsSectionCard(
+                                          title: 'Control Scheme',
+                                          subtitle:
+                                              'Choose your preferred input mode for gameplay.',
+                                          accent: AppPalette.accentPurple,
+                                          child: Row(
+                                            children: [
+                                              Expanded(
+                                                child: _SettingsModeTile(
+                                                  icon: Icons.sports_esports,
+                                                  title: 'Joystick',
+                                                  subtitle:
+                                                      'Analog movement control',
+                                                  selected: !useArrowController,
+                                                  onTap: () {
+                                                    setLocalState(() {
+                                                      useArrowController =
+                                                          false;
+                                                    });
+                                                    _flow
+                                                        .updateUseArrowController(
+                                                          false,
+                                                        );
+                                                  },
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: _SettingsModeTile(
+                                                  icon: Icons.gamepad,
+                                                  title: 'Arrow Pad',
+                                                  subtitle:
+                                                      'Directional button control',
+                                                  selected: useArrowController,
+                                                  onTap: () {
+                                                    setLocalState(() {
+                                                      useArrowController = true;
+                                                    });
+                                                    _flow
+                                                        .updateUseArrowController(
+                                                          true,
+                                                        );
+                                                  },
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _SettingsSectionCard(
+                                          title: useArrowController
+                                              ? 'Arrow Pad Size'
+                                              : 'Joystick Size',
+                                          subtitle:
+                                              'Adjust control footprint for comfort and precision.',
+                                          accent: AppPalette.neonGreen,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '${joystickSize.round()} px',
+                                                style: const TextStyle(
+                                                  color: AppPalette.neonGreen,
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 18,
+                                                ),
+                                              ),
+                                              SliderTheme(
+                                                data: SliderTheme.of(context)
+                                                    .copyWith(
+                                                      activeTrackColor:
+                                                          AppPalette.neonGreen,
+                                                      inactiveTrackColor:
+                                                          AppPalette.surface,
+                                                      thumbColor:
+                                                          AppPalette.neonGreen,
+                                                      trackHeight: 4,
+                                                    ),
+                                                child: Slider(
+                                                  min: AppFlowProvider
+                                                      .minJoystickSize,
+                                                  max: AppFlowProvider
+                                                      .maxJoystickSize,
+                                                  divisions: 16,
+                                                  value: joystickSize,
+                                                  label:
+                                                      '${joystickSize.round()} px',
+                                                  onChanged: (value) {
+                                                    setLocalState(() {
+                                                      joystickSize = value;
+                                                    });
+                                                    _flow.updateJoystickSize(
+                                                      value,
+                                                    );
+                                                  },
+                                                ),
+                                              ),
+                                              const Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  Text(
+                                                    'Compact',
+                                                    style: TextStyle(
+                                                      color:
+                                                          AppPalette.textMuted,
+                                                      fontSize: 11,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    'Large',
+                                                    style: TextStyle(
+                                                      color:
+                                                          AppPalette.textMuted,
+                                                      fontSize: 11,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _SettingsSectionCard(
+                                          title: 'Audio',
+                                          subtitle:
+                                              'Toggle mute and fine tune the master output level.',
+                                          accent: AppPalette.accentPink,
+                                          child: Column(
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 8,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: AppPalette.surface,
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                  border: Border.all(
+                                                    color:
+                                                        AppPalette.borderSoft,
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    Icon(
+                                                      isSoundMuted
+                                                          ? Icons.volume_off
+                                                          : Icons.volume_up,
+                                                      color: isSoundMuted
+                                                          ? AppPalette.danger
+                                                          : AppPalette
+                                                                .accentPink,
+                                                    ),
+                                                    const SizedBox(width: 10),
+                                                    const Expanded(
+                                                      child: Text(
+                                                        'Mute all gameplay and UI sound',
+                                                        style: TextStyle(
+                                                          color: AppPalette
+                                                              .textPrimary,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          fontSize: 13,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    Switch.adaptive(
+                                                      value: isSoundMuted,
+                                                      activeThumbColor:
+                                                          AppPalette.accentPink,
+                                                      activeTrackColor:
+                                                          AppPalette.accentPink
+                                                              .withAlpha(100),
+                                                      onChanged: (value) {
+                                                        setLocalState(() {
+                                                          isSoundMuted = value;
+                                                        });
+                                                        unawaited(
+                                                          _flow
+                                                              .updateSoundMuted(
+                                                                value,
+                                                              ),
+                                                        );
+                                                      },
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Opacity(
+                                                opacity: isSoundMuted
+                                                    ? 0.55
+                                                    : 1,
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      'Master Volume: $volumeLabel',
+                                                      style: TextStyle(
+                                                        color: isSoundMuted
+                                                            ? AppPalette
+                                                                  .textMuted
+                                                            : AppPalette
+                                                                  .accentPink,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
+                                                    ),
+                                                    SliderTheme(
+                                                      data:
+                                                          SliderTheme.of(
+                                                            context,
+                                                          ).copyWith(
+                                                            activeTrackColor:
+                                                                AppPalette
+                                                                    .accentPink,
+                                                            inactiveTrackColor:
+                                                                AppPalette
+                                                                    .surface,
+                                                            thumbColor:
+                                                                AppPalette
+                                                                    .accentPink,
+                                                            trackHeight: 4,
+                                                          ),
+                                                      child: Slider(
+                                                        min: 0,
+                                                        max: 1,
+                                                        divisions: 20,
+                                                        value: soundVolume,
+                                                        label: volumeLabel,
+                                                        onChanged: (value) {
+                                                          setLocalState(() {
+                                                            soundVolume = value;
+                                                          });
+                                                          unawaited(
+                                                            _flow
+                                                                .updateSoundVolume(
+                                                                  value,
+                                                                ),
+                                                          );
+                                                        },
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _SettingsSectionCard(
+                                          title: 'Account',
+                                          subtitle:
+                                              'Sign out from this profile on this device.',
+                                          accent: AppPalette.danger,
+                                          child: FilledButton.icon(
+                                            icon: const Icon(Icons.logout),
+                                            label: const Text('Sign Out'),
+                                            style: FilledButton.styleFrom(
+                                              minimumSize:
+                                                  const Size.fromHeight(48),
+                                              backgroundColor:
+                                                  AppPalette.danger,
+                                              foregroundColor: Colors.black,
+                                              textStyle: const TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                            onPressed: () async {
+                                              Navigator.of(context).pop();
+                                              await _flow.signOut();
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppPalette.surfaceAlt,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppPalette.borderSoft),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                useArrowController
-                                    ? 'Arrow Pad Size'
-                                    : 'Joystick Size',
-                                style: const TextStyle(
-                                  color: AppPalette.textPrimary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                useArrowController
-                                    ? 'Adjust the Arrow Pad size used in gameplay.'
-                                    : 'Adjust the Joystick size used in gameplay.',
-                                style: const TextStyle(
-                                  color: AppPalette.textMuted,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(),
+                                        style: OutlinedButton.styleFrom(
+                                          minimumSize: const Size.fromHeight(
+                                            46,
+                                          ),
+                                          side: const BorderSide(
+                                            color: AppPalette.borderSoft,
+                                          ),
+                                          foregroundColor:
+                                              AppPalette.textPrimary,
+                                        ),
+                                        child: const Text(
+                                          'Cancel',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: FilledButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(),
+                                        style: FilledButton.styleFrom(
+                                          minimumSize: const Size.fromHeight(
+                                            46,
+                                          ),
+                                          backgroundColor:
+                                              AppPalette.accentPink,
+                                          foregroundColor: Colors.black,
+                                        ),
+                                        child: const Text(
+                                          'Done',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '${joystickSize.round()} px',
-                                style: const TextStyle(
-                                  color: AppPalette.accentPink,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              Slider(
-                                min: AppFlowProvider.minJoystickSize,
-                                max: AppFlowProvider.maxJoystickSize,
-                                divisions: 16,
-                                value: joystickSize,
-                                activeColor: AppPalette.accentPink,
-                                inactiveColor: AppPalette.surface,
-                                label: '${joystickSize.round()} px',
-                                onChanged: (value) {
-                                  setLocalState(() {
-                                    joystickSize = value;
-                                  });
-                                  _flow.updateJoystickSize(value);
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppPalette.surfaceAlt,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppPalette.borderSoft),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const Text(
-                                'Account',
-                                style: TextStyle(
-                                  color: AppPalette.textPrimary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              ElevatedButton.icon(
-                                icon: const Icon(Icons.logout),
-                                label: const Text('Sign Out'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppPalette.accentPink,
-                                  foregroundColor: Colors.black,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                                onPressed: () async {
-                                  Navigator.of(context).pop();
-                                  await _flow.signOut();
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text(
-                              'Close',
-                              style: TextStyle(
-                                color: AppPalette.accentPink,
-                                fontWeight: FontWeight.w600,
-                              ),
+                              ],
                             ),
                           ),
                         ),
@@ -560,8 +1174,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
     if (rewarded) {
       return true;
     }
-    await _restartAdsService.showInterstitialAfterGameOver();
-    return true;
+    return false;
   }
 
   @override
@@ -582,6 +1195,8 @@ class _FearFlipAppState extends State<FearFlipApp> {
                     joystickSize: _flow.joystickSize,
                     useArrowController: _flow.useArrowController,
                     selectedCharacterIndex: _flow.selectedCharacterIndex,
+                    totalTrophies: _flow.totalTrophies,
+                    isActive: !_flow.showAuthGate && !_flow.showLanding,
                     onExitToDashboard: _flow.returnToDashboard,
                     onStageCleared: _flow.onStageCleared,
                     onRestartWithAd: _showRestartAd,
@@ -638,235 +1253,654 @@ class _LeaderboardScreenState extends State<_LeaderboardScreen> {
     return widget.service.getGlobalPanicLeaderboard(limit: 20);
   }
 
+  Future<void> _refresh() async {
+    setState(() {
+      _future = _load();
+    });
+    await _future;
+  }
+
+  String _formatClock(DateTime value) {
+    final local = value.toLocal();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppPalette.backgroundDark,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        title: const Text(
-          'GLOBAL PANIC LEADERBOARD',
-          style: TextStyle(
-            color: AppPalette.neonGreen,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0.9,
-          ),
-        ),
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF070707), Color(0xFF111111)],
-          ),
-        ),
-        child: FutureBuilder<LeaderboardSnapshot>(
-          future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            if (snapshot.hasError) {
-              return const Center(
-                child: Text(
-                  'Unable to load leaderboard right now.',
-                  style: TextStyle(color: AppPalette.danger),
-                ),
-              );
-            }
-
-            final data = snapshot.data;
-            if (data == null || data.entries.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'No leaderboard entries yet.',
-                        style: TextStyle(
+      backgroundColor: const Color(0xFF0B0B0B),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Material(
+                    color: AppPalette.surfaceAlt,
+                    borderRadius: BorderRadius.circular(10),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () {
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppPalette.borderSoft),
+                        ),
+                        child: const Icon(
+                          Icons.arrow_back_rounded,
                           color: AppPalette.textPrimary,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 18,
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Play and clear stages to appear here.',
-                        style: TextStyle(color: AppPalette.textMuted),
-                      ),
-                      const SizedBox(height: 14),
-                      FilledButton(
-                        onPressed: () {
-                          setState(() {
-                            _future = _load();
-                          });
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppPalette.neonGreen,
-                          foregroundColor: Colors.black,
-                        ),
-                        child: const Text('Refresh'),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
-
-            return RefreshIndicator(
-              onRefresh: () async {
-                setState(() {
-                  _future = _load();
-                });
-                await _future;
-              },
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-                itemCount: data.entries.length + 1,
-                itemBuilder: (context, index) {
-                  if (index == 0) {
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF151515),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: AppPalette.borderSoft),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Players: ${data.totalPlayers}',
-                            style: const TextStyle(
-                              color: AppPalette.textMuted,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            data.myRank == null ||
-                                    data.myMaxStage == null ||
-                                    data.myTotalTrophies == null
-                                ? 'Your rank: N/A'
-                                : 'Your rank: #${data.myRank}  •  Stage ${data.myMaxStage}  •  Trophies ${data.myTotalTrophies}',
-                            style: const TextStyle(
-                              color: AppPalette.neonGreen,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  final row = data.entries[index - 1];
-                  final rank = row.rank;
-                  final rankColor = rank == 1
-                      ? const Color(0xFFFFD54F)
-                      : rank == 2
-                      ? const Color(0xFFE0E0E0)
-                      : rank == 3
-                      ? const Color(0xFFFFAB91)
-                      : AppPalette.accentPurple;
-                  final name = (row.displayName ?? 'Player').trim();
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1A1A1A),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppPalette.borderSoft),
                     ),
-                    child: Row(
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: rankColor.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: rankColor.withValues(alpha: 0.6),
-                            ),
-                          ),
-                          child: Text(
-                            '#$rank',
-                            style: TextStyle(
-                              color: rankColor,
-                              fontWeight: FontWeight.w900,
-                            ),
+                        Text(
+                          'GLOBAL PANIC',
+                          style: TextStyle(
+                            color: AppPalette.textPrimary,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.9,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                name.isEmpty ? 'Player' : name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppPalette.textPrimary,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 15,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 6,
-                                children: [
-                                  _StatChip(
-                                    label: 'Stage ${row.maxStage ?? 1}',
-                                  ),
-                                  _StatChip(
-                                    label: 'Trophies ${row.totalTrophies ?? 0}',
-                                  ),
-                                ],
-                              ),
-                            ],
+                        SizedBox(height: 2),
+                        Text(
+                          'Solid Leaderboard',
+                          style: TextStyle(
+                            color: AppPalette.textMuted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],
                     ),
-                  );
-                },
+                  ),
+                  FilledButton(
+                    onPressed: () {
+                      unawaited(_refresh());
+                    },
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(44, 44),
+                      maximumSize: const Size(44, 44),
+                      padding: EdgeInsets.zero,
+                      backgroundColor: AppPalette.accentPink,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Icon(Icons.refresh_rounded),
+                  ),
+                ],
               ),
-            );
-          },
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                decoration: BoxDecoration(
+                  color: AppPalette.surface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppPalette.borderSoft),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Dashboard style ranking with solid cards and strong contrast.',
+                      style: TextStyle(
+                        color: AppPalette.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        height: 1.25,
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      'Pull down to refresh live standings.',
+                      style: TextStyle(
+                        color: AppPalette.textMuted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: FutureBuilder<LeaderboardSnapshot>(
+                  future: _future,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const _LeaderboardStateCard(
+                        icon: Icons.bolt,
+                        title: 'Loading Leaderboard',
+                        message: 'Syncing global panic standings...',
+                        showLoader: true,
+                        accent: AppPalette.accentPurple,
+                      );
+                    }
+
+                    if (snapshot.hasError) {
+                      return _LeaderboardStateCard(
+                        icon: Icons.wifi_off_rounded,
+                        title: 'Connection Interrupted',
+                        message:
+                            'Unable to load leaderboard right now. Try refreshing.',
+                        accent: AppPalette.danger,
+                        action: FilledButton.icon(
+                          onPressed: () {
+                            unawaited(_refresh());
+                          },
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Retry'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppPalette.accentPink,
+                            foregroundColor: Colors.black,
+                          ),
+                        ),
+                      );
+                    }
+
+                    final data = snapshot.data;
+                    if (data == null || data.entries.isEmpty) {
+                      return _LeaderboardStateCard(
+                        icon: Icons.flag_circle_outlined,
+                        title: 'No Leaders Yet',
+                        message:
+                            'Play and clear stages to become the first ranked player.',
+                        accent: AppPalette.neonGreen,
+                        action: FilledButton.icon(
+                          onPressed: () {
+                            unawaited(_refresh());
+                          },
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Refresh'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppPalette.neonGreen,
+                            foregroundColor: Colors.black,
+                          ),
+                        ),
+                      );
+                    }
+
+                    return RefreshIndicator(
+                      color: AppPalette.neonGreen,
+                      backgroundColor: AppPalette.surfaceAlt,
+                      onRefresh: _refresh,
+                      child: ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.only(bottom: 22),
+                        itemCount: data.entries.length + 1,
+                        itemBuilder: (context, index) {
+                          if (index == 0) {
+                            final myRankLabel = data.myRank == null
+                                ? 'N/A'
+                                : '#${data.myRank}';
+                            final myStageLabel = (data.myMaxStage ?? 0)
+                                .toString();
+                            final myTrophyLabel = (data.myTotalTrophies ?? 0)
+                                .toString();
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppPalette.surface,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: AppPalette.neonGreen),
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _LeaderboardMetricTile(
+                                          title: 'PLAYERS',
+                                          value: '${data.totalPlayers}',
+                                          color: AppPalette.neonGreen,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: _LeaderboardMetricTile(
+                                          title: 'YOUR RANK',
+                                          value: myRankLabel,
+                                          color: AppPalette.accentPurple,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _LeaderboardMetricTile(
+                                          title: 'STAGE',
+                                          value: myStageLabel,
+                                          color: AppPalette.accentPink,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: _LeaderboardMetricTile(
+                                          title: 'TROPHIES',
+                                          value: myTrophyLabel,
+                                          color: const Color(0xFFFFD54F),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        'Updated ${_formatClock(data.fetchedAt)}',
+                                        style: const TextStyle(
+                                          color: AppPalette.textMuted,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          final entry = data.entries[index - 1];
+                          final isCurrentUser =
+                              data.myRank != null && entry.rank == data.myRank;
+
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _LeaderboardEntryCard(
+                              entry: entry,
+                              isCurrentUser: isCurrentUser,
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
+class _LeaderboardMetricTile extends StatelessWidget {
+  const _LeaderboardMetricTile({
+    required this.title,
+    required this.value,
+    required this.color,
+  });
+
+  final String title;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final darkText = color.computeLuminance() > 0.45;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: darkText ? Colors.black.withAlpha(170) : Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 10,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              color: darkText ? Colors.black : Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 17,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LeaderboardStateCard extends StatelessWidget {
+  const _LeaderboardStateCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.action,
+    this.showLoader = false,
+    this.accent = AppPalette.accentPurple,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Widget? action;
+  final bool showLoader;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 420,
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+        decoration: BoxDecoration(
+          color: AppPalette.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: accent, width: 1.4),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showLoader)
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  color: accent,
+                ),
+              )
+            else
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, color: Colors.black, size: 22),
+              ),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppPalette.textPrimary,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppPalette.textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (action != null) ...[const SizedBox(height: 14), action!],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LeaderboardEntryCard extends StatelessWidget {
+  const _LeaderboardEntryCard({
+    required this.entry,
+    required this.isCurrentUser,
+  });
+
+  final LeaderboardEntry entry;
+  final bool isCurrentUser;
+
+  @override
+  Widget build(BuildContext context) {
+    final rankColor = _rankColor(entry.rank);
+    final cardColor = _cardColor();
+    final cardBorder = _cardBorderColor();
+    final useDarkText = cardColor.computeLuminance() > 0.45;
+    final primaryText = useDarkText ? Colors.black : AppPalette.textPrimary;
+    final mutedText = useDarkText
+        ? Colors.black.withAlpha(170)
+        : AppPalette.textMuted;
+    final trimmedName = (entry.displayName ?? 'Player').trim();
+    final displayName = trimmedName.isEmpty ? 'Player' : trimmedName;
+
+    final stageChipColor = useDarkText ? Colors.black : AppPalette.neonGreen;
+    final trophyChipColor = useDarkText ? Colors.black : AppPalette.accentPink;
+    final scoreChipColor = useDarkText ? Colors.black : AppPalette.accentPurple;
+    final chipTextColor = useDarkText ? Colors.white : Colors.black;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cardBorder, width: isCurrentUser ? 1.6 : 1.2),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: rankColor.withAlpha(24),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: rankColor.withAlpha(150)),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(_rankIcon(entry.rank), color: rankColor, size: 17),
+                const SizedBox(height: 1),
+                Text(
+                  '#${entry.rank}',
+                  style: TextStyle(
+                    color: rankColor,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: primaryText,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                    if (isCurrentUser)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: useDarkText
+                              ? Colors.black.withAlpha(28)
+                              : AppPalette.neonGreen,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: useDarkText
+                                ? Colors.black.withAlpha(120)
+                                : AppPalette.neonGreen,
+                          ),
+                        ),
+                        child: Text(
+                          'YOU',
+                          style: TextStyle(
+                            color: useDarkText ? Colors.black : Colors.black,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Stage ${entry.maxStage ?? 1}  •  Trophies ${entry.totalTrophies ?? 0}',
+                  style: TextStyle(
+                    color: mutedText,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _StatChip(
+                      label: 'Stage ${entry.maxStage ?? 1}',
+                      color: stageChipColor,
+                      textColor: chipTextColor,
+                    ),
+                    _StatChip(
+                      label: 'Trophies ${entry.totalTrophies ?? 0}',
+                      color: trophyChipColor,
+                      textColor: chipTextColor,
+                    ),
+                    if (entry.scoreSeconds > 0)
+                      _StatChip(
+                        label: '${entry.scoreSeconds}s',
+                        color: scoreChipColor,
+                        textColor: chipTextColor,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _rankColor(int rank) {
+    if (rank == 1) {
+      return const Color(0xFFFFD54F);
+    }
+    if (rank == 2) {
+      return const Color(0xFFE0E0E0);
+    }
+    if (rank == 3) {
+      return const Color(0xFFFFAB91);
+    }
+    return AppPalette.accentPurple;
+  }
+
+  Color _cardColor() {
+    if (isCurrentUser) {
+      return AppPalette.neonGreen;
+    }
+    if (entry.rank == 1) {
+      return const Color(0xFFFFD54F);
+    }
+    if (entry.rank == 2) {
+      return const Color(0xFFE0E0E0);
+    }
+    if (entry.rank == 3) {
+      return const Color(0xFFFFAB91);
+    }
+    return AppPalette.surfaceAlt;
+  }
+
+  Color _cardBorderColor() {
+    if (isCurrentUser) {
+      return Colors.white;
+    }
+    if (entry.rank <= 3) {
+      return Colors.black.withAlpha(120);
+    }
+    return AppPalette.borderSoft;
+  }
+
+  IconData _rankIcon(int rank) {
+    if (rank == 1) {
+      return Icons.workspace_premium;
+    }
+    if (rank == 2) {
+      return Icons.military_tech;
+    }
+    if (rank == 3) {
+      return Icons.emoji_events;
+    }
+    return Icons.flash_on;
+  }
+}
+
 class _StatChip extends StatelessWidget {
-  const _StatChip({required this.label});
+  const _StatChip({
+    required this.label,
+    this.color = AppPalette.neonGreen,
+    this.textColor,
+  });
 
   final String label;
+  final Color color;
+  final Color? textColor;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF222222),
+        color: color,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppPalette.borderSoft),
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          color: AppPalette.neonGreen,
+        style: TextStyle(
+          color:
+              textColor ??
+              (color.computeLuminance() > 0.45 ? Colors.black : Colors.white),
           fontWeight: FontWeight.w700,
           fontSize: 12,
         ),

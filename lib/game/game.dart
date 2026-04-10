@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 
@@ -146,6 +147,7 @@ class FearFlipGame extends FlameGame {
   bool _isRunningRound = false;
   bool _warningActive = false;
   bool _memoryHidden = false;
+  bool _wasInSafeZone = false;
 
   double _roundElapsed = 0;
   double _warningCountdown = 0;
@@ -216,9 +218,13 @@ class FearFlipGame extends FlameGame {
     FearFlipMode mode, {
     FearFlipCharacter? character,
   }) async {
+    await audioService.setCriticalGameplayAudioOnly(true);
+    await audioService.stopAll();
+
     _selectedCharacter = character ?? _selectedCharacter;
     _mode = mode;
     _isRunningRound = true;
+    _wasInSafeZone = false;
     _warningActive = false;
     _memoryHidden = false;
     _roundElapsed = 0;
@@ -393,7 +399,10 @@ class FearFlipGame extends FlameGame {
       _goalHintLeft = 0;
     }
 
-    await audioService.playIntense();
+    await Future.wait<void>([
+      audioService.playFlipCue(),
+      audioService.playIntense(),
+    ]);
     _updateHud();
   }
 
@@ -510,6 +519,11 @@ class FearFlipGame extends FlameGame {
       zone.consume(dt, inside);
     }
 
+    if (inSafeZone && !_wasInSafeZone) {
+      unawaited(audioService.playSafeZoneCue());
+    }
+    _wasInSafeZone = inSafeZone;
+
     final distToDevil = _devil?.position.distanceTo(_player.position);
     if (distToDevil != null) {
       final intensity = (1 - (distToDevil / (GameBalanceConfig.tileSize * 10)))
@@ -545,22 +559,27 @@ class FearFlipGame extends FlameGame {
 
     _isRunningRound = false;
     _inputDirection = Vector2.zero();
+    _wasInSafeZone = false;
+    await audioService.setHeartbeatIntensity(0);
 
     if (won) {
+      await audioService.stopGameLostCue();
       _levelIndex++;
       overlays.remove('hud');
       overlays.add('win');
+      await audioService.startWinningTransitionLoop();
       await leaderboardService.submitRun(
         scoreSeconds: _roundElapsed.floor(),
         mode: _mode.name,
       );
     } else {
+      await audioService.stopWinningTransitionLoop();
       overlays.remove('hud');
       overlays.add('gameOver');
+      await audioService.playGameLostCue();
       await adsService.showInterstitialAfterGameOver();
     }
 
-    await audioService.stopAll();
     _updateHud(roundResult: won ? RoundResult.won : RoundResult.lost);
   }
 
@@ -588,6 +607,8 @@ class FearFlipGame extends FlameGame {
     _devil?.resetChase();
     _mazeComponent.devilPresent = _devil != null;
 
+    await audioService.stopGameLostCue();
+    await audioService.stopWinningTransitionLoop();
     _updateHud(roundResult: RoundResult.playing, canRevive: false);
     await audioService.playCalm();
   }

@@ -1,0 +1,33 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "profiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "maxStage",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "totalTrophies",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "profiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "maxStage",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "totalTrophies",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

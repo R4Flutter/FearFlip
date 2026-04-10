@@ -1,5 +1,78 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
+
+class _DummyGlobalPanicEntry {
+  const _DummyGlobalPanicEntry({
+    required this.displayName,
+    required this.maxStage,
+    required this.totalTrophies,
+  });
+
+  final String displayName;
+  final int maxStage;
+  final int totalTrophies;
+}
+
+const List<_DummyGlobalPanicEntry> _kDummyGlobalPanicEntries =
+    <_DummyGlobalPanicEntry>[
+      _DummyGlobalPanicEntry(
+        displayName: 'NightRunner',
+        maxStage: 19,
+        totalTrophies: 84,
+      ),
+      _DummyGlobalPanicEntry(
+        displayName: 'ZeroPulse',
+        maxStage: 18,
+        totalTrophies: 91,
+      ),
+      _DummyGlobalPanicEntry(
+        displayName: 'EchoDash',
+        maxStage: 17,
+        totalTrophies: 98,
+      ),
+      _DummyGlobalPanicEntry(
+        displayName: 'GhostLane',
+        maxStage: 16,
+        totalTrophies: 102,
+      ),
+      _DummyGlobalPanicEntry(
+        displayName: 'NeonWisp',
+        maxStage: 15,
+        totalTrophies: 110,
+      ),
+      _DummyGlobalPanicEntry(
+        displayName: 'DarkShift',
+        maxStage: 14,
+        totalTrophies: 117,
+      ),
+      _DummyGlobalPanicEntry(
+        displayName: 'PanicFox',
+        maxStage: 12,
+        totalTrophies: 130,
+      ),
+      _DummyGlobalPanicEntry(
+        displayName: 'TrailByte',
+        maxStage: 10,
+        totalTrophies: 145,
+      ),
+    ];
+
+List<LeaderboardEntry> _buildDummyGlobalPanicLeaderboardEntries(int limit) {
+  final safeLimit = limit.clamp(1, _kDummyGlobalPanicEntries.length).toInt();
+  return List<LeaderboardEntry>.generate(safeLimit, (index) {
+    final profile = _kDummyGlobalPanicEntries[index];
+    return LeaderboardEntry(
+      rank: index + 1,
+      scoreSeconds: 0,
+      maxStage: profile.maxStage,
+      totalTrophies: profile.totalTrophies,
+      uid: 'dummy_${index + 1}',
+      displayName: profile.displayName,
+    );
+  });
+}
 
 class LeaderboardEntry {
   const LeaderboardEntry({
@@ -80,10 +153,11 @@ class StubLeaderboardService implements LeaderboardService {
   Future<LeaderboardSnapshot> getGlobalPanicLeaderboard({
     int limit = 20,
   }) async {
+    final entries = _buildDummyGlobalPanicLeaderboardEntries(limit);
     return LeaderboardSnapshot(
       mode: 'global_panic',
-      entries: const <LeaderboardEntry>[],
-      totalPlayers: 0,
+      entries: entries,
+      totalPlayers: entries.length,
       fetchedAt: DateTime.now(),
     );
   }
@@ -165,20 +239,18 @@ class FirestoreLeaderboardService implements LeaderboardService {
             .collection('best')
             .doc(uid);
 
-        await _firestore.runTransaction((txn) async {
-          final existing = await txn.get(bestRef);
-          final previous = existing.data()?['scoreSeconds'];
-          final previousScore = previous is num ? previous.toInt() : -1;
-          if (!existing.exists || safeScore > previousScore) {
-            txn.set(bestRef, <String, Object?>{
-              'uid': uid,
-              'displayName': displayName,
-              'scoreSeconds': safeScore,
-              'mode': safeMode,
-              'updatedAt': now,
-            }, SetOptions(merge: true));
-          }
-        });
+        final existing = await bestRef.get();
+        final previous = existing.data()?['scoreSeconds'];
+        final previousScore = previous is num ? previous.toInt() : -1;
+        if (!existing.exists || safeScore > previousScore) {
+          await bestRef.set(<String, Object?>{
+            'uid': uid,
+            'displayName': displayName,
+            'scoreSeconds': safeScore,
+            'mode': safeMode,
+            'updatedAt': now,
+          }, SetOptions(merge: true));
+        }
 
         await _firestore
             .collection('runs')
@@ -192,7 +264,17 @@ class FirestoreLeaderboardService implements LeaderboardService {
               'clientTimestampMs': DateTime.now().millisecondsSinceEpoch,
             });
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _reportFailure(
+        reason: 'leaderboard_submit_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{
+          'mode': safeMode,
+          'score_seconds': safeScore,
+          'has_uid': uid != null,
+        },
+      );
       // Keep gameplay crash-safe if backend is unavailable.
     }
   }
@@ -259,7 +341,17 @@ class FirestoreLeaderboardService implements LeaderboardService {
         myBestScoreSeconds: myBestScore,
         fetchedAt: DateTime.now(),
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _reportFailure(
+        reason: 'leaderboard_fetch_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{
+          'mode': safeMode,
+          'limit': safeLimit,
+          'has_uid': uid != null,
+        },
+      );
       return LeaderboardSnapshot(
         mode: safeMode,
         entries: const <LeaderboardEntry>[],
@@ -287,29 +379,37 @@ class FirestoreLeaderboardService implements LeaderboardService {
     final profileRef = _globalPanicProfiles().doc(uid);
 
     try {
-      await _firestore.runTransaction((txn) async {
-        final existing = await txn.get(profileRef);
-        final previous = existing.data();
-        final previousStage = (previous?['maxStage'] as num?)?.toInt() ?? 1;
-        final previousTrophies =
-            (previous?['totalTrophies'] as num?)?.toInt() ?? 0;
+      final existing = await profileRef.get();
+      final previous = existing.data();
+      final previousStage = (previous?['maxStage'] as num?)?.toInt() ?? 1;
+      final previousTrophies =
+          (previous?['totalTrophies'] as num?)?.toInt() ?? 0;
 
-        final resolvedStage = previousStage > safeStage
-            ? previousStage
-            : safeStage;
-        final resolvedTrophies = previousTrophies > safeTrophies
-            ? previousTrophies
-            : safeTrophies;
+      final resolvedStage = previousStage > safeStage
+          ? previousStage
+          : safeStage;
+      final resolvedTrophies = previousTrophies > safeTrophies
+          ? previousTrophies
+          : safeTrophies;
 
-        txn.set(profileRef, <String, Object?>{
+      await profileRef.set(<String, Object?>{
+        'uid': uid,
+        'displayName': displayName,
+        'maxStage': resolvedStage,
+        'totalTrophies': resolvedTrophies,
+        'updatedAt': now,
+      }, SetOptions(merge: true));
+    } catch (error, stackTrace) {
+      await _reportFailure(
+        reason: 'global_panic_upsert_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{
+          'max_stage': safeStage,
+          'total_trophies': safeTrophies,
           'uid': uid,
-          'displayName': displayName,
-          'maxStage': resolvedStage,
-          'totalTrophies': resolvedTrophies,
-          'updatedAt': now,
-        }, SetOptions(merge: true));
-      });
-    } catch (_) {
+        },
+      );
       // Keep gameplay crash-safe if backend is unavailable.
     }
   }
@@ -330,7 +430,13 @@ class FirestoreLeaderboardService implements LeaderboardService {
           .orderBy('totalTrophies', descending: false)
           .limit(safeLimit)
           .get();
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _reportFailure(
+        reason: 'global_panic_index_missing',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'limit': safeLimit},
+      );
       // Fallback when composite index is missing: query by stage only, then
       // apply trophies tie-breaker client-side.
       try {
@@ -338,7 +444,13 @@ class FirestoreLeaderboardService implements LeaderboardService {
             .orderBy('maxStage', descending: true)
             .limit(safeLimit * 3)
             .get();
-      } catch (_) {
+      } catch (fallbackError, fallbackStackTrace) {
+        await _reportFailure(
+          reason: 'global_panic_fallback_query_failed',
+          error: fallbackError,
+          stackTrace: fallbackStackTrace,
+          context: <String, Object?>{'limit': safeLimit},
+        );
         topQuery = null;
       }
     }
@@ -374,6 +486,18 @@ class FirestoreLeaderboardService implements LeaderboardService {
       }
 
       final totalPlayers = (await profiles.count().get()).count ?? 0;
+
+      if (!kReleaseMode && entries.isEmpty && totalPlayers == 0) {
+        final dummyEntries = _buildDummyGlobalPanicLeaderboardEntries(
+          safeLimit,
+        );
+        return LeaderboardSnapshot(
+          mode: 'global_panic',
+          entries: dummyEntries,
+          totalPlayers: dummyEntries.length,
+          fetchedAt: DateTime.now(),
+        );
+      }
 
       int? myRank;
       int? myStage;
@@ -420,11 +544,22 @@ class FirestoreLeaderboardService implements LeaderboardService {
         myTotalTrophies: myTrophies,
         fetchedAt: DateTime.now(),
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _reportFailure(
+        reason: 'global_panic_fetch_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'limit': safeLimit, 'has_uid': uid != null},
+      );
+
+      final fallbackEntries = !kReleaseMode
+          ? _buildDummyGlobalPanicLeaderboardEntries(safeLimit)
+          : const <LeaderboardEntry>[];
+
       return LeaderboardSnapshot(
         mode: 'global_panic',
-        entries: const <LeaderboardEntry>[],
-        totalPlayers: 0,
+        entries: fallbackEntries,
+        totalPlayers: fallbackEntries.length,
         fetchedAt: DateTime.now(),
       );
     }
@@ -464,7 +599,13 @@ class FirestoreLeaderboardService implements LeaderboardService {
                     .get())
                 .count ??
             0;
-      } catch (_) {
+      } catch (error, stackTrace) {
+        await _reportFailure(
+          reason: 'global_panic_rank_stage_query_failed',
+          error: error,
+          stackTrace: stackTrace,
+          context: <String, Object?>{'uid': uid},
+        );
         return 1;
       }
 
@@ -478,11 +619,27 @@ class FirestoreLeaderboardService implements LeaderboardService {
                 .count ??
             0;
         return higherStageCount + sameStageLowerTrophyCount + 1;
-      } catch (_) {
+      } catch (error, stackTrace) {
+        await _reportFailure(
+          reason: 'global_panic_rank_trophy_query_failed',
+          error: error,
+          stackTrace: stackTrace,
+          context: <String, Object?>{
+            'uid': uid,
+            'max_stage': myStage,
+            'total_trophies': myTrophies,
+          },
+        );
         // If this indexed query is unavailable, fall back to stage-only rank.
         return higherStageCount + 1;
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _reportFailure(
+        reason: 'global_panic_rank_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'uid': uid},
+      );
       return null;
     }
   }
@@ -499,17 +656,47 @@ class FirestoreLeaderboardService implements LeaderboardService {
     if (user == null) {
       return 'Guest';
     }
-    final email = user.email?.trim();
-    if (email != null && email.isNotEmpty) {
-      return email;
-    }
     final display = user.displayName?.trim();
     if (display != null && display.isNotEmpty) {
       return display;
+    }
+    final uid = user.uid.trim();
+    if (uid.isNotEmpty) {
+      final suffix = uid.length > 6 ? uid.substring(uid.length - 6) : uid;
+      return 'Player-$suffix';
     }
     if (user.isAnonymous) {
       return 'Guest';
     }
     return 'Player';
+  }
+
+  Future<void> _reportFailure({
+    required String reason,
+    required Object error,
+    required StackTrace stackTrace,
+    Map<String, Object?> context = const <String, Object?>{},
+  }) async {
+    final message = StringBuffer(reason);
+    if (context.isNotEmpty) {
+      final details = context.entries
+          .map((entry) => '${entry.key}=${entry.value}')
+          .join(', ');
+      message.write(' | $details');
+    }
+
+    try {
+      await FirebaseCrashlytics.instance.log(message.toString());
+      await FirebaseCrashlytics.instance.recordError(
+        error,
+        stackTrace,
+        reason: reason,
+        fatal: false,
+      );
+    } catch (_) {
+      if (kDebugMode) {
+        debugPrint(message.toString());
+      }
+    }
   }
 }

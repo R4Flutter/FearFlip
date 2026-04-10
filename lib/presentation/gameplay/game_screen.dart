@@ -6,8 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_palette.dart';
+import '../../services/audio_service.dart';
+import 'glitch_effect_controller.dart';
 import 'maze_generator.dart';
 import 'maze_painter.dart';
+import 'maze_shift_manager.dart';
 import 'player_controller.dart';
 import 'stage_rules.dart';
 
@@ -16,6 +19,8 @@ class GameScreen extends StatefulWidget {
     this.joystickSize = 110,
     this.useArrowController = false,
     this.selectedCharacterIndex = 0,
+    this.totalTrophies = 0,
+    this.isActive = true,
     this.onExitToDashboard = _noop,
     this.onStageCleared = _noopStageCleared,
     this.onRestartWithAd = _alwaysAllow,
@@ -30,6 +35,8 @@ class GameScreen extends StatefulWidget {
   final double joystickSize;
   final bool useArrowController;
   final int selectedCharacterIndex;
+  final int totalTrophies;
+  final bool isActive;
   final VoidCallback onExitToDashboard;
   final Future<void> Function(int clearedStage) onStageCleared;
   final Future<bool> Function() onRestartWithAd;
@@ -46,6 +53,10 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   final MazeGenerator _generator = MazeGenerator();
+  final AudioService _audioService = AudioService();
+  final MazeShiftManager _mazeShiftManager = MazeShiftManager();
+  final GlitchEffectController _glitchEffectController =
+      GlitchEffectController();
   late PlayerController _playerController;
   late AnimationController _pulseController;
   late AnimationController _stageClearController;
@@ -58,6 +69,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   static const int _safeZonesPerStage = 2;
   static const int _persistentSafeZonesUntilStage = 75;
   static const double _devilMinPathClearance = 0.30;
+  static const int _devilAudioTriggerDistanceTiles = 10;
   static const int _defaultStageDurationSeconds = 120;
   static const double _stageTickSeconds = 0.05;
 
@@ -91,6 +103,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   bool _adActionInProgress = false;
   bool _lostByTime = false;
   bool _isPaused = false;
+  bool _isExternallyInactive = false;
+  bool _lowTimeAlarmPlayed = false;
+  bool _devilProximityLoopStarted = false;
 
   @override
   void initState() {
@@ -118,10 +133,52 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 850),
     );
 
+    unawaited(_audioService.setCriticalGameplayAudioOnly(true));
+    unawaited(_audioService.warmUp());
+    _isExternallyInactive = !widget.isActive;
     _applyStageRule(resetMaze: false);
     _startCountdown();
     _startStageLoop();
     _loadCharactersSprite();
+  }
+
+  @override
+  void didUpdateWidget(covariant GameScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) {
+      _handleExternalActivityChange(widget.isActive);
+    }
+  }
+
+  void _handleExternalActivityChange(bool isActive) {
+    final shouldBeInactive = !isActive;
+    if (_isExternallyInactive == shouldBeInactive) {
+      return;
+    }
+
+    _isExternallyInactive = shouldBeInactive;
+    if (_isExternallyInactive) {
+      _playerController.stop();
+      _devilProximityLoopStarted = false;
+      _lowTimeAlarmPlayed = false;
+      unawaited(_stopDangerAudio());
+    } else {
+      final canResumeLowTimeAlarm =
+          _remainingSeconds <= 10 &&
+          !_showLossOverlay &&
+          !_isStageTransition &&
+          !_isTimeUpHandling &&
+          !_isPaused &&
+          !_lowTimeAlarmPlayed;
+      if (canResumeLowTimeAlarm) {
+        _lowTimeAlarmPlayed = true;
+        unawaited(_audioService.startLowTimeAlarmLoop());
+      }
+    }
+
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadNextMaze() async {
@@ -131,11 +188,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _playerController.stop();
     _countdownTimer?.cancel();
+    await _stopDangerAudio();
+    await _stopOutcomeAudio();
 
     setState(() {
       _isStageTransition = true;
       _completedStage = _stage;
     });
+
+    await _audioService.startWinningTransitionLoop();
 
     try {
       await widget.onStageCleared(_stage);
@@ -147,8 +208,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     await Future.delayed(const Duration(seconds: 2));
 
     if (!mounted) {
+      await _audioService.stopWinningTransitionLoop();
       return;
     }
+
+    await _audioService.stopWinningTransitionLoop();
 
     setState(() {
       _stage = min(_stage + 1, _maxStage);
@@ -175,6 +239,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     final targetStage = stage.clamp(1, _maxStage);
     _playerController.stop();
+    await _stopDangerAudio();
+    await _stopOutcomeAudio();
 
     setState(() {
       _stage = targetStage;
@@ -195,10 +261,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   String get _modeLabel {
     return _controlsInverted ? 'FLIPPED' : 'NORMAL';
-  }
-
-  Color get _modeColor {
-    return _controlsInverted ? Colors.red : AppPalette.neonGreen;
   }
 
   int get _checkpoint {
@@ -230,6 +292,21 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   int get _stageDurationSeconds => _stageDurationFor(_stage);
 
+  Future<void> _stopDangerAudio() async {
+    await Future.wait<void>([
+      _audioService.stopDevilProximityLoop(),
+      _audioService.stopLowTimeAlarmLoop(),
+    ]);
+  }
+
+  Future<void> _stopOutcomeAudio() async {
+    await Future.wait<void>([
+      _audioService.stopWinningTransitionLoop(),
+      _audioService.stopGameLostCue(),
+      _audioService.stopSafeZoneCue(),
+    ]);
+  }
+
   bool get _isPanic => _remainingSeconds <= 10;
 
   String get _timeLabel {
@@ -244,19 +321,30 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       if (!mounted) {
         return;
       }
-      if (_showLossOverlay || _isPaused) {
+      if (_showLossOverlay) {
+        unawaited(_audioService.stopLowTimeAlarmLoop());
+        return;
+      }
+      if (_isExternallyInactive || _isPaused) {
         return;
       }
       if (_remainingSeconds <= 0) {
         _countdownTimer?.cancel();
+        unawaited(_audioService.stopLowTimeAlarmLoop());
         return;
       }
       setState(() {
         _remainingSeconds -= 1;
       });
 
+      if (_remainingSeconds <= 10 && !_lowTimeAlarmPlayed) {
+        _lowTimeAlarmPlayed = true;
+        unawaited(_audioService.startLowTimeAlarmLoop());
+      }
+
       if (_remainingSeconds <= 0) {
         _countdownTimer?.cancel();
+        unawaited(_audioService.stopLowTimeAlarmLoop());
         unawaited(_onTimeExpired());
       }
     });
@@ -275,12 +363,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         _isStageTransition ||
         _isTimeUpHandling ||
         _showLossOverlay ||
+        _isExternallyInactive ||
         _isPaused) {
       return;
     }
 
     final dt = _stageTickSeconds;
     _stageElapsedSeconds += dt;
+    _mazeShiftManager.tick(dt);
+    _glitchEffectController.update(dt);
 
     final timeToFlip = _nextFlipAtSeconds - _stageElapsedSeconds;
     if (timeToFlip <= _stageRule.warningTime && timeToFlip > 0) {
@@ -291,6 +382,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (_stageElapsedSeconds >= _nextFlipAtSeconds) {
       _controlsInverted = !_controlsInverted;
       _playerController.setControlsInverted(_controlsInverted);
+      unawaited(_audioService.playFlipCue());
       _flipWarningActive = false;
       _flipWarningTimeLeft = 0;
       _nextFlipAtSeconds = _stageElapsedSeconds + _nextFlipInterval();
@@ -303,20 +395,48 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
 
     _trackPlayerSteps();
+    _maybeTriggerMazeShift();
+
+    final hazardGraceActive = _mazeShiftManager.hazardGraceActive;
 
     if (_canSpawnDevilNow()) {
       _devilSpawned = true;
       _devilCell = _spawnDevilCell();
+      _devilProximityLoopStarted = false;
     }
 
     if (_devilSpawned && _devilCell != null) {
-      _devilMoveAccumulator += dt;
-      final stepInterval = 1.0 / _stageRule.devilStepsPerSecond.clamp(0.2, 3.0);
-      while (_devilMoveAccumulator >= stepInterval) {
-        _devilMoveAccumulator -= stepInterval;
-        _devilCell = _nextDevilStep(_devilCell!, _playerController.position);
+      if (!hazardGraceActive) {
+        _devilMoveAccumulator += dt;
+        final playerSpeed = _stageRule.playerSpeedMultiplier <= 0
+            ? 1.0
+            : _stageRule.playerSpeedMultiplier;
+        final speedRatio = (_stageRule.devilSpeedMultiplier / playerSpeed)
+            .clamp(0.0, 1.0);
+        final devilStepsPerSecond =
+            (_stageRule.devilStepsPerSecond * speedRatio).clamp(0.2, 3.0);
+        final stepInterval = 1.0 / devilStepsPerSecond;
+        while (_devilMoveAccumulator >= stepInterval) {
+          _devilMoveAccumulator -= stepInterval;
+          _devilCell = _nextDevilStep(_devilCell!, _playerController.position);
+        }
+      } else {
+        _devilMoveAccumulator = 0;
       }
-      if (_devilCell == _playerController.position && !_playerSafe) {
+
+      final distanceCells =
+          (_devilCell!.x - _playerController.position.x).abs() +
+          (_devilCell!.y - _playerController.position.y).abs();
+      final shouldStartDevilLoop =
+          distanceCells <= _devilAudioTriggerDistanceTiles;
+      if (shouldStartDevilLoop && !_devilProximityLoopStarted) {
+        _devilProximityLoopStarted = true;
+        unawaited(_audioService.startDevilProximityLoop());
+      }
+
+      if (_devilCell == _playerController.position &&
+          !_playerSafe &&
+          !hazardGraceActive) {
         unawaited(_onDevilCaught());
       }
     }
@@ -335,7 +455,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
     _isTimeUpHandling = true;
     _isPaused = false;
+    unawaited(_audioService.stopLowTimeAlarmLoop());
     _playerController.stop();
+    await _stopDangerAudio();
+    await _stopOutcomeAudio();
+    _devilProximityLoopStarted = false;
+    await _audioService.playGameLostCue();
     setState(() {
       _showLossOverlay = true;
       _lostByTime = false;
@@ -364,11 +489,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _awaitingDevilRespawnSteps = false;
     _playerSafe = false;
     _rebuildPathMetrics();
+    _mazeShiftManager.startStage(
+      stage: _stage,
+      totalSteps: _mazeShiftTotalSteps,
+    );
     _resetSafeZones();
     _showLossOverlay = false;
     _adActionInProgress = false;
     _lostByTime = false;
     _isPaused = false;
+    _lowTimeAlarmPlayed = false;
+    _devilProximityLoopStarted = false;
+    _glitchEffectController.clear();
+    unawaited(_stopDangerAudio());
+    unawaited(_stopOutcomeAudio());
   }
 
   double _nextFlipInterval() {
@@ -399,6 +533,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _onSafeZoneEntered() {
+    unawaited(_audioService.playSafeZoneCue());
+
     if (!_stageRule.devilEnabled) {
       return;
     }
@@ -407,6 +543,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _devilMoveAccumulator = 0;
     _stepsSinceSafeZone = 0;
     _awaitingDevilRespawnSteps = true;
+    _devilProximityLoopStarted = false;
+    unawaited(_audioService.stopDevilProximityLoop());
   }
 
   int _devilRespawnStepsForStage() {
@@ -420,8 +558,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void _trackPlayerSteps() {
     final current = _playerController.position;
     final previous = _lastPlayerCell;
-    if (previous != null && current != previous && _awaitingDevilRespawnSteps) {
-      _stepsSinceSafeZone += 1;
+    if (previous != null && current != previous) {
+      _mazeShiftManager.onPlayerStep();
+      if (_awaitingDevilRespawnSteps) {
+        _stepsSinceSafeZone += 1;
+      }
     }
     _lastPlayerCell = current;
   }
@@ -435,6 +576,39 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       return 0.0;
     }
     return (dist / _startToGoalDistance).clamp(0.0, 1.0);
+  }
+
+  int get _mazeShiftTotalSteps {
+    final fallback = max(8, _maze.rows + _maze.cols);
+    if (_startToGoalDistance <= 0) {
+      return fallback;
+    }
+    return max(8, _startToGoalDistance);
+  }
+
+  void _maybeTriggerMazeShift() {
+    final phase = _mazeShiftManager.pendingPhase;
+    if (phase == MazeShiftPhase.none) {
+      return;
+    }
+
+    _mazeShiftManager.markPhaseTriggered(phase);
+    _glitchEffectController.trigger();
+
+    final outcome = _mazeShiftManager.triggerMazeShift(
+      phase: phase,
+      maze: _maze,
+      playerPosition: _playerController.position,
+      exitPosition: _maze.end,
+    );
+    if (!outcome.applied) {
+      return;
+    }
+
+    _rebuildPathMetrics();
+    _mazeShiftManager.updateTotalSteps(_mazeShiftTotalSteps);
+    _devilMoveAccumulator = 0;
+    unawaited(_audioService.playGlitchScreenCue());
   }
 
   void _rebuildPathMetrics() {
@@ -669,6 +843,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void _restartCountdown() {
     _remainingSeconds = _stageDurationSeconds;
+    _lowTimeAlarmPlayed = false;
+    unawaited(_audioService.stopLowTimeAlarmLoop());
     _startCountdown();
   }
 
@@ -682,7 +858,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _isTimeUpHandling = true;
     _isPaused = false;
+    unawaited(_audioService.stopLowTimeAlarmLoop());
     _playerController.stop();
+    await _stopDangerAudio();
+    await _stopOutcomeAudio();
+    _devilProximityLoopStarted = false;
+    await _audioService.playGameLostCue();
     setState(() {
       _showLossOverlay = true;
       _lostByTime = true;
@@ -695,29 +876,194 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       context: context,
       barrierDismissible: true,
       builder: (context) {
-        return AlertDialog(
-          backgroundColor: AppPalette.surface,
-          title: const Text(
-            'Exit Game?',
-            style: TextStyle(
-              color: AppPalette.textPrimary,
-              fontWeight: FontWeight.w800,
+        final escaped = _escapePercent();
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 20,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+              decoration: BoxDecoration(
+                color: AppPalette.surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: AppPalette.accentPurple.withAlpha(170),
+                  width: 1.3,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x40000000),
+                    blurRadius: 16,
+                    offset: Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: AppPalette.accentPurple,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(
+                          Icons.exit_to_app_rounded,
+                          color: Colors.black,
+                          size: 23,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'LEAVE THIS RUN?',
+                              style: TextStyle(
+                                color: AppPalette.textPrimary,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 20,
+                                letterSpacing: 0.9,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'You can continue now or return to dashboard.',
+                              style: TextStyle(
+                                color: AppPalette.textMuted,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'One more push could change this run.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppPalette.neonGreen,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 20,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                    decoration: BoxDecoration(
+                      color: AppPalette.surfaceAlt,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppPalette.borderSoft),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              'CURRENT PROGRESS',
+                              style: TextStyle(
+                                color: AppPalette.textPrimary,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                                letterSpacing: 0.55,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '$escaped%',
+                              style: const TextStyle(
+                                color: AppPalette.accentPink,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: (escaped / 100).clamp(0.0, 1.0),
+                            minHeight: 9,
+                            backgroundColor: const Color(0xFF252525),
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                              AppPalette.accentPink,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Stage $_stage / $_maxStage  •  ${_checkpointPushText()}',
+                          style: const TextStyle(
+                            color: AppPalette.textMuted,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            side: BorderSide(
+                              color: AppPalette.neonGreen.withAlpha(170),
+                            ),
+                            foregroundColor: AppPalette.neonGreen,
+                          ),
+                          child: const Text(
+                            'KEEP PLAYING',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            backgroundColor: AppPalette.danger,
+                            foregroundColor: Colors.black,
+                          ),
+                          child: const Text(
+                            'EXIT RUN',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-          content: const Text(
-            'Do you want to exit this game and go back to dashboard?',
-            style: TextStyle(color: AppPalette.textMuted),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Yes, Exit'),
-            ),
-          ],
         );
       },
     );
@@ -732,6 +1078,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         !_isStageTransition &&
         !_isTimeUpHandling &&
         !_showLossOverlay &&
+        !_isExternallyInactive &&
         !_adActionInProgress;
     if (!canToggle) {
       return;
@@ -743,6 +1090,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     if (_isPaused) {
       _playerController.stop();
+      _devilProximityLoopStarted = false;
+      if (_remainingSeconds <= 10) {
+        _lowTimeAlarmPlayed = false;
+      }
+      unawaited(_stopDangerAudio());
     }
   }
 
@@ -770,6 +1122,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _pulseController.dispose();
     _stageClearController.dispose();
     _playerController.dispose();
+    unawaited(_audioService.stopAll());
     super.dispose();
   }
 
@@ -784,15 +1137,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final controlsBottomPadding = (6 * uiScale).clamp(4.0, 12.0);
     final topButtonSize = (42 * uiScale).clamp(38.0, 52.0);
     final topButtonIconSize = (20 * uiScale).clamp(18.0, 24.0);
-    final statusBarTopGap = (topButtonSize + (8 * uiScale).clamp(6.0, 14.0))
+    final hudTopGap = (topButtonSize + (8 * uiScale).clamp(6.0, 14.0))
         .toDouble();
-    final statusBarHeight = (54 * uiScale).clamp(48.0, 64.0);
-    final statusBarFont = (15 * uiScale).clamp(12.0, 17.0);
-    final statusBarSmallFont = (12 * uiScale).clamp(10.0, 14.0);
-    final timeChipTopGap = (8 * uiScale).clamp(6.0, 12.0);
-    final timeChipHorizontalPadding = (14 * uiScale).clamp(10.0, 18.0);
-    final timeChipVerticalPadding = (6 * uiScale).clamp(4.0, 8.0);
-    final timeChipFontSize = (13 * uiScale).clamp(11.0, 15.0);
+    final hudLabelFont = (10 * uiScale).clamp(9.0, 12.0);
+    final hudValueFont = (13 * uiScale).clamp(11.0, 15.0);
+    final timerFont = (13 * uiScale).clamp(11.0, 15.0);
+    final mazeFramePadding = (6 * uiScale).clamp(4.0, 10.0);
     final stageClearTextSize = (42 * uiScale).clamp(26.0, 50.0);
 
     final stageClearSlide =
@@ -822,169 +1172,119 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             children: [
               Column(
                 children: [
-                  SizedBox(height: statusBarTopGap),
+                  SizedBox(height: hudTopGap),
                   Container(
-                    height: statusBarHeight,
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFFFFFF), Color(0xFFF0F0F0)],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.black, width: 1.8),
+                      color: AppPalette.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppPalette.borderSoft),
                       boxShadow: const [
                         BoxShadow(
-                          color: Color(0x40000000),
-                          blurRadius: 10,
-                          offset: Offset(0, 3),
+                          color: Color(0x33000000),
+                          blurRadius: 12,
+                          offset: Offset(0, 4),
                         ),
                       ],
                     ),
-                    padding: EdgeInsets.symmetric(
-                      horizontal: (12 * uiScale).clamp(10.0, 16.0),
-                      vertical: (6 * uiScale).clamp(4.0, 8.0),
+                    padding: EdgeInsets.fromLTRB(
+                      (10 * uiScale).clamp(8.0, 14.0),
+                      (10 * uiScale).clamp(8.0, 14.0),
+                      (10 * uiScale).clamp(8.0, 14.0),
+                      (10 * uiScale).clamp(8.0, 14.0),
                     ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: (10 * uiScale).clamp(8.0, 12.0),
-                            vertical: (6 * uiScale).clamp(4.0, 7.0),
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black,
-                            borderRadius: BorderRadius.circular(9),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int>(
-                              value: _stage,
-                              dropdownColor: const Color(0xFF101010),
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: (statusBarSmallFont + 0.6),
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.6,
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Container(
+                              height: (42 * uiScale).clamp(38.0, 48.0),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: (12 * uiScale).clamp(9.0, 14.0),
                               ),
-                              selectedItemBuilder: (context) {
-                                return List<Widget>.generate(_maxStage, (
-                                  index,
-                                ) {
-                                  final stageNumber = index + 1;
-                                  return Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text('STAGE $stageNumber'),
-                                  );
-                                });
-                              },
-                              items: List<DropdownMenuItem<int>>.generate(
-                                _maxStage,
-                                (index) {
-                                  final stageNumber = index + 1;
-                                  return DropdownMenuItem<int>(
-                                    value: stageNumber,
-                                    child: Text('STAGE $stageNumber'),
-                                  );
-                                },
+                              decoration: BoxDecoration(
+                                color: _isPanic
+                                    ? const Color(0xFFFF8A80)
+                                    : AppPalette.neonGreen,
+                                borderRadius: BorderRadius.circular(10),
                               ),
-                              onChanged:
-                                  (_isStageTransition ||
-                                      _isTimeUpHandling ||
-                                      _isPaused ||
-                                      _showLossOverlay ||
-                                      _adActionInProgress)
-                                  ? null
-                                  : (value) {
-                                      if (value == null || value == _stage) {
-                                        return;
-                                      }
-                                      unawaited(_jumpToStage(value));
-                                    },
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Center(
-                            child: Text.rich(
-                              TextSpan(
-                                style: TextStyle(
-                                  color: Colors.black,
-                                  fontSize: statusBarFont,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  TextSpan(
-                                    text: _modeLabel,
-                                    style: TextStyle(color: _modeColor),
+                                  Icon(
+                                    Icons.schedule_rounded,
+                                    color: Colors.black,
+                                    size: (16 * uiScale).clamp(14.0, 18.0),
                                   ),
-                                  const TextSpan(text: '   |   '),
-                                  TextSpan(text: 'CHECKPOINT $_checkpoint'),
-                                  const TextSpan(text: '   |   '),
-                                  TextSpan(
-                                    text: _playerSafe ? 'SAFE' : 'EXPOSED',
-                                    style: TextStyle(
-                                      color: _playerSafe
-                                          ? const Color(0xFF00AA55)
-                                          : Colors.black,
-                                    ),
+                                  SizedBox(
+                                    width: (6 * uiScale).clamp(4.0, 8.0),
                                   ),
-                                  const TextSpan(text: '   |   '),
-                                  TextSpan(
-                                    text: _flipWarningActive
-                                        ? 'FLIP ${_flipWarningTimeLeft.toStringAsFixed(1)}s'
-                                        : 'STABLE',
+                                  Text(
+                                    _timeLabel,
                                     style: TextStyle(
-                                      color: _flipWarningActive
-                                          ? Colors.red
-                                          : Colors.black,
+                                      color: Colors.black,
+                                      fontSize: timerFont,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.5,
                                     ),
                                   ),
                                 ],
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
                             ),
-                          ),
+                          ],
+                        ),
+                        SizedBox(height: (8 * uiScale).clamp(6.0, 12.0)),
+                        Wrap(
+                          spacing: (8 * uiScale).clamp(6.0, 12.0),
+                          runSpacing: (8 * uiScale).clamp(6.0, 12.0),
+                          children: [
+                            _GameHudBadge(
+                              label: 'STAGE',
+                              value: '$_stage',
+                              color: AppPalette.accentPink,
+                              labelFontSize: hudLabelFont,
+                              valueFontSize: hudValueFont,
+                            ),
+                            _GameHudBadge(
+                              label: 'MODE',
+                              value: _modeLabel,
+                              color: _controlsInverted
+                                  ? AppPalette.danger
+                                  : AppPalette.neonGreen,
+                              labelFontSize: hudLabelFont,
+                              valueFontSize: hudValueFont,
+                            ),
+                            _GameHudBadge(
+                              label: 'CHECKPOINT',
+                              value: '$_checkpoint',
+                              color: AppPalette.accentPurple,
+                              labelFontSize: hudLabelFont,
+                              valueFontSize: hudValueFont,
+                            ),
+                            _GameHudBadge(
+                              label: 'STATE',
+                              value: _playerSafe ? 'SAFE' : 'EXPOSED',
+                              color: _playerSafe
+                                  ? const Color(0xFF5EDB87)
+                                  : const Color(0xFFFFA39A),
+                              labelFontSize: hudLabelFont,
+                              valueFontSize: hudValueFont,
+                            ),
+                            _GameHudBadge(
+                              label: 'FLIP',
+                              value: _flipWarningActive
+                                  ? '${_flipWarningTimeLeft.toStringAsFixed(1)}s'
+                                  : 'STABLE',
+                              color: _flipWarningActive
+                                  ? AppPalette.danger
+                                  : const Color(0xFFB4F76B),
+                              labelFontSize: hudLabelFont,
+                              valueFontSize: hudValueFont,
+                            ),
+                          ],
                         ),
                       ],
-                    ),
-                  ),
-                  SizedBox(height: timeChipTopGap),
-                  Align(
-                    alignment: Alignment.center,
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: timeChipHorizontalPadding,
-                        vertical: timeChipVerticalPadding,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: _isPanic ? Colors.red : Colors.white,
-                          width: 1.3,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _isPanic
-                                ? const Color(0x66FF0000)
-                                : const Color(0x33000000),
-                            blurRadius: _isPanic ? 14 : 8,
-                            spreadRadius: _isPanic ? 1 : 0,
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        _timeLabel,
-                        style: TextStyle(
-                          color: _isPanic ? Colors.red : Colors.white,
-                          fontSize: timeChipFontSize,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.6,
-                        ),
-                      ),
                     ),
                   ),
                   SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
@@ -992,7 +1292,35 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     child: Center(
                       child: AspectRatio(
                         aspectRatio: 1,
-                        child: _buildGameSurface(),
+                        child: Container(
+                          padding: EdgeInsets.all(mazeFramePadding),
+                          decoration: BoxDecoration(
+                            color: AppPalette.surface,
+                            borderRadius: BorderRadius.circular(
+                              (18 * uiScale).clamp(14.0, 22.0),
+                            ),
+                            border: Border.all(
+                              color: AppPalette.accentPurple.withAlpha(160),
+                              width: 1.3,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x33000000),
+                                blurRadius: 12,
+                                offset: Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(
+                              (12 * uiScale).clamp(10.0, 16.0),
+                            ),
+                            child: GlitchEffectOverlay(
+                              controller: _glitchEffectController,
+                              child: _buildGameSurface(),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1005,7 +1333,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         child: widget.useArrowController
                             ? _ArrowPad(
                                 size: widget.joystickSize,
-                                onDirection: (_isStageTransition || _isPaused)
+                                onDirection:
+                                    (_isStageTransition ||
+                                        _isExternallyInactive ||
+                                        _isPaused)
                                     ? (_) {}
                                     : (direction) {
                                         final effective = _controlsInverted
@@ -1015,13 +1346,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                           effective,
                                         );
                                       },
-                                onEnd: (_isStageTransition || _isPaused)
+                                onEnd:
+                                    (_isStageTransition ||
+                                        _isExternallyInactive ||
+                                        _isPaused)
                                     ? () {}
                                     : _playerController.stop,
                               )
                             : _Joystick(
                                 size: widget.joystickSize,
-                                onDirection: (_isStageTransition || _isPaused)
+                                onDirection:
+                                    (_isStageTransition ||
+                                        _isExternallyInactive ||
+                                        _isPaused)
                                     ? (_) {}
                                     : (direction) {
                                         final effective = _controlsInverted
@@ -1031,7 +1368,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                           effective,
                                         );
                                       },
-                                onEnd: (_isStageTransition || _isPaused)
+                                onEnd:
+                                    (_isStageTransition ||
+                                        _isExternallyInactive ||
+                                        _isPaused)
                                     ? () {}
                                     : _playerController.stop,
                               ),
@@ -1039,6 +1379,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     ),
                   ),
                 ],
+              ),
+              Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: EdgeInsets.only(top: (2 * uiScale).clamp(1.0, 4.0)),
+                  child: _ArcadeTrophyBadge(
+                    trophies: widget.totalTrophies,
+                    scale: uiScale,
+                  ),
+                ),
               ),
               Align(
                 alignment: Alignment.topRight,
@@ -1053,8 +1403,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         child: FilledButton(
                           onPressed: _togglePause,
                           style: FilledButton.styleFrom(
-                            backgroundColor: AppPalette.neonGreen,
-                            foregroundColor: Colors.black,
+                            backgroundColor: AppPalette.surfaceAlt,
+                            foregroundColor: AppPalette.neonGreen,
+                            side: BorderSide(
+                              color: AppPalette.neonGreen.withAlpha(170),
+                            ),
                             padding: EdgeInsets.zero,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -1073,8 +1426,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         child: FilledButton(
                           onPressed: _onExitPressed,
                           style: FilledButton.styleFrom(
-                            backgroundColor: AppPalette.accentPurple,
-                            foregroundColor: Colors.black,
+                            backgroundColor: AppPalette.surfaceAlt,
+                            foregroundColor: AppPalette.danger,
+                            side: BorderSide(
+                              color: AppPalette.danger.withAlpha(170),
+                            ),
                             padding: EdgeInsets.zero,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -1092,47 +1448,200 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   child: IgnorePointer(
                     ignoring: false,
                     child: Container(
-                      color: const Color(0x8F000000),
-                      child: Center(
-                        child: Container(
-                          constraints: const BoxConstraints(maxWidth: 360),
-                          margin: const EdgeInsets.symmetric(horizontal: 18),
-                          padding: const EdgeInsets.all(18),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF141414),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFF2A2A2A)),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const Text(
-                                'PAUSED',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 24,
-                                  letterSpacing: 1,
-                                ),
+                      color: const Color(0xC0000000),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 440),
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                18,
+                                20,
+                                18,
                               ),
-                              const SizedBox(height: 14),
-                              FilledButton(
-                                onPressed: _togglePause,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppPalette.neonGreen,
-                                  foregroundColor: Colors.black,
+                              decoration: BoxDecoration(
+                                color: AppPalette.surface,
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(
+                                  color: AppPalette.accentPurple.withAlpha(180),
+                                  width: 1.3,
                                 ),
-                                child: const Text(
-                                  'RESUME',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 1.2,
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x44000000),
+                                    blurRadius: 18,
+                                    offset: Offset(0, 6),
                                   ),
-                                ),
+                                ],
                               ),
-                            ],
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 42,
+                                        height: 42,
+                                        decoration: BoxDecoration(
+                                          color: AppPalette.accentPurple,
+                                          borderRadius: BorderRadius.circular(
+                                            11,
+                                          ),
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: const Icon(
+                                          Icons.pause_circle_filled_rounded,
+                                          color: Colors.black,
+                                          size: 24,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'RUN PAUSED',
+                                              style: TextStyle(
+                                                color: AppPalette.textPrimary,
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 20,
+                                                letterSpacing: 0.9,
+                                              ),
+                                            ),
+                                            SizedBox(height: 2),
+                                            Text(
+                                              'Take a breath. Your progress is safe.',
+                                              style: TextStyle(
+                                                color: AppPalette.textMuted,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'Ready for the next move?',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: AppPalette.neonGreen,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 22,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Stage $_stage  •  ${_timeLabel.replaceFirst('TIME: ', '')} remaining  •  ${_modeLabel.toLowerCase()} mode',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: AppPalette.textPrimary,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Container(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      10,
+                                      12,
+                                      10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppPalette.surfaceAlt,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: AppPalette.borderSoft,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Text(
+                                              'CHECKPOINT STATUS',
+                                              style: TextStyle(
+                                                color: AppPalette.textPrimary,
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 11,
+                                                letterSpacing: 0.6,
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            Text(
+                                              '$_checkpoint',
+                                              style: const TextStyle(
+                                                color: AppPalette.accentPink,
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 16,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          _checkpointPushText(),
+                                          style: const TextStyle(
+                                            color: AppPalette.textMuted,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  FilledButton.icon(
+                                    onPressed: _togglePause,
+                                    style: FilledButton.styleFrom(
+                                      minimumSize: const Size.fromHeight(50),
+                                      backgroundColor: AppPalette.neonGreen,
+                                      foregroundColor: Colors.black,
+                                    ),
+                                    icon: const Icon(Icons.play_arrow_rounded),
+                                    label: const Text(
+                                      'RESUME RUN',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      Navigator.of(context).pop();
+                                      unawaited(_onExitPressed());
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      minimumSize: const Size.fromHeight(48),
+                                      side: BorderSide(
+                                        color: AppPalette.danger.withAlpha(170),
+                                      ),
+                                      foregroundColor: AppPalette.danger,
+                                    ),
+                                    icon: const Icon(Icons.exit_to_app_rounded),
+                                    label: const Text(
+                                      'EXIT THIS RUN',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -1172,78 +1681,227 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   child: IgnorePointer(
                     ignoring: false,
                     child: Container(
-                      color: const Color(0xC8000000),
+                      color: const Color(0xD9000000),
                       child: Center(
-                        child: Container(
-                          constraints: const BoxConstraints(maxWidth: 420),
-                          margin: const EdgeInsets.symmetric(horizontal: 18),
-                          padding: const EdgeInsets.all(18),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF141414),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFF2A2A2A)),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                _lostByTime ? 'TIME UP' : 'CAUGHT BY DEVIL',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Color(0xFFFF5252),
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 24,
-                                  letterSpacing: 1,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 460),
+                              child: Container(
+                                padding: const EdgeInsets.fromLTRB(
+                                  20,
+                                  18,
+                                  20,
+                                  18,
                                 ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                'You escaped ${_escapePercent()}%',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              FilledButton(
-                                onPressed: _adActionInProgress
-                                    ? null
-                                    : _onRestartFromLoss,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppPalette.accentPink,
-                                  foregroundColor: Colors.black,
-                                ),
-                                child: Text(
-                                  _adActionInProgress
-                                      ? 'LOADING AD...'
-                                      : 'RESTART (AD)',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 1.2,
+                                decoration: BoxDecoration(
+                                  color: AppPalette.surface,
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(
+                                    color: AppPalette.danger.withAlpha(175),
+                                    width: 1.3,
                                   ),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x40000000),
+                                      blurRadius: 16,
+                                      offset: Offset(0, 6),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          width: 42,
+                                          height: 42,
+                                          decoration: BoxDecoration(
+                                            color: AppPalette.danger,
+                                            borderRadius: BorderRadius.circular(
+                                              11,
+                                            ),
+                                          ),
+                                          alignment: Alignment.center,
+                                          child: const Icon(
+                                            Icons.replay_circle_filled,
+                                            color: Colors.black,
+                                            size: 24,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                'RUN FAILED',
+                                                style: TextStyle(
+                                                  color: AppPalette.textPrimary,
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 20,
+                                                  letterSpacing: 0.9,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                _lossReasonText(),
+                                                style: const TextStyle(
+                                                  color: AppPalette.textMuted,
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 14),
+                                    const Text(
+                                      'Let\'s play one more.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: AppPalette.neonGreen,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 24,
+                                        letterSpacing: 0.3,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _comebackHookText(),
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: AppPalette.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    Container(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        10,
+                                        12,
+                                        10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppPalette.surfaceAlt,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: AppPalette.borderSoft,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              const Text(
+                                                'COMPLETION LINE',
+                                                style: TextStyle(
+                                                  color: AppPalette.textPrimary,
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 11,
+                                                  letterSpacing: 0.6,
+                                                ),
+                                              ),
+                                              const Spacer(),
+                                              Text(
+                                                '${_escapePercent()}%',
+                                                style: const TextStyle(
+                                                  color: AppPalette.accentPink,
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 16,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            child: LinearProgressIndicator(
+                                              value: (_escapePercent() / 100)
+                                                  .clamp(0.0, 1.0),
+                                              minHeight: 10,
+                                              backgroundColor: const Color(
+                                                0xFF252525,
+                                              ),
+                                              valueColor:
+                                                  const AlwaysStoppedAnimation<
+                                                    Color
+                                                  >(AppPalette.accentPink),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            'Stage $_stage / $_maxStage  •  ${_checkpointPushText()}',
+                                            style: const TextStyle(
+                                              color: AppPalette.textMuted,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    FilledButton.icon(
+                                      onPressed: _adActionInProgress
+                                          ? null
+                                          : _onReviveFromLoss,
+                                      icon: const Icon(Icons.flash_on_rounded),
+                                      label: Text(
+                                        _adActionInProgress
+                                            ? 'LOADING AD...'
+                                            : 'REVIVE NOW (AD)',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 1,
+                                        ),
+                                      ),
+                                      style: FilledButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(50),
+                                        backgroundColor: AppPalette.neonGreen,
+                                        foregroundColor: Colors.black,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    FilledButton.icon(
+                                      onPressed: _adActionInProgress
+                                          ? null
+                                          : _onRestartFromLoss,
+                                      icon: const Icon(
+                                        Icons.restart_alt_rounded,
+                                      ),
+                                      label: Text(
+                                        _adActionInProgress
+                                            ? 'LOADING AD...'
+                                            : 'RESTART FROM CHECKPOINT (AD)',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 0.8,
+                                        ),
+                                      ),
+                                      style: FilledButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(50),
+                                        backgroundColor: AppPalette.accentPink,
+                                        foregroundColor: Colors.black,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 10),
-                              FilledButton(
-                                onPressed: _adActionInProgress
-                                    ? null
-                                    : _onReviveFromLoss,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppPalette.neonGreen,
-                                  foregroundColor: Colors.black,
-                                ),
-                                child: const Text(
-                                  'REVIVE (AD)',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -1259,6 +1917,49 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   int _escapePercent() {
     return ((_stage.clamp(1, _maxStage) / _maxStage) * 100).round();
+  }
+
+  int _nextMilestoneStage() {
+    if (_stage < 25) {
+      return 25;
+    }
+    if (_stage < 50) {
+      return 50;
+    }
+    if (_stage < 75) {
+      return 75;
+    }
+    return _maxStage;
+  }
+
+  String _lossReasonText() {
+    return _lostByTime
+        ? 'Clock hit zero before extraction.'
+        : 'Devil intercepted your route.';
+  }
+
+  String _comebackHookText() {
+    final percent = _escapePercent();
+    if (percent >= 90) {
+      return 'You are inches away from the finish. Lock in and close it.';
+    }
+    if (percent >= 70) {
+      return 'Strong run. One cleaner path and this stage is yours.';
+    }
+    if (percent >= 40) {
+      return 'You already broke through the hard part. Push again.';
+    }
+    return 'Warm-up complete. Build momentum and surge forward.';
+  }
+
+  String _checkpointPushText() {
+    final milestone = _nextMilestoneStage();
+    if (_stage >= milestone) {
+      return 'Checkpoint secured';
+    }
+    final remaining = milestone - _stage;
+    final suffix = remaining == 1 ? '' : 's';
+    return '$remaining stage$suffix to checkpoint $milestone';
   }
 
   Future<void> _onRestartFromLoss() async {
@@ -1292,32 +1993,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       return;
     }
     if (shown) {
-      _showLossOverlay = false;
-      _adActionInProgress = false;
-      if (_lostByTime) {
-        _remainingSeconds = max(20, _stageDurationSeconds ~/ 6);
-      }
-      _lostByTime = false;
-      if (_stageRule.devilEnabled &&
-          _pathClearanceProgress() >= _devilMinPathClearance) {
-        _devilSpawned = true;
-        _devilCell = _spawnDevilCell();
-        _awaitingDevilRespawnSteps = false;
-        _stepsSinceSafeZone = 0;
-      } else {
-        _devilSpawned = false;
-        _devilCell = null;
-        _awaitingDevilRespawnSteps = true;
-        _stepsSinceSafeZone = 0;
-      }
-      _playerSafe = true;
-      _lastPlayerCell = _playerController.position;
-      setState(() {});
+      _restartCurrentStageFromStart();
       return;
     }
     setState(() {
       _adActionInProgress = false;
     });
+  }
+
+  void _restartCurrentStageFromStart() {
+    _showLossOverlay = false;
+    _lostByTime = false;
+    _adActionInProgress = false;
+
+    _playerController.resetForMaze(_maze);
+    _applyStageRule(resetMaze: false);
+    _restartCountdown();
+    setState(() {});
   }
 
   void _resetToCheckpoint() {
@@ -1385,6 +2077,160 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _ArcadeTrophyBadge extends StatelessWidget {
+  const _ArcadeTrophyBadge({required this.trophies, required this.scale});
+
+  final int trophies;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeTrophies = trophies < 0 ? 0 : trophies;
+    final titleSize = (9 * scale).clamp(8.0, 11.0);
+    final valueSize = (16 * scale).clamp(13.0, 20.0);
+    final iconSize = (16 * scale).clamp(13.0, 19.0);
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        (10 * scale).clamp(8.0, 12.0),
+        (7 * scale).clamp(6.0, 9.0),
+        (12 * scale).clamp(10.0, 14.0),
+        (7 * scale).clamp(6.0, 9.0),
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular((14 * scale).clamp(11.0, 18.0)),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF24153D), Color(0xFF0C0A16)],
+        ),
+        border: Border.all(color: const Color(0xFF4DEFFF), width: 1.2),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x884DEFFF),
+            blurRadius: 16,
+            spreadRadius: -2,
+            offset: Offset(0, 1),
+          ),
+          BoxShadow(
+            color: Color(0x552A8FFF),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: (26 * scale).clamp(20.0, 32.0),
+            height: (26 * scale).clamp(20.0, 32.0),
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFFFD86A), Color(0xFFFFA93D)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x88FFCB46),
+                  blurRadius: 10,
+                  offset: Offset(0, 2),
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.emoji_events_rounded,
+              size: iconSize,
+              color: const Color(0xFF3A2200),
+            ),
+          ),
+          SizedBox(width: (8 * scale).clamp(6.0, 10.0)),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'TROPHIES',
+                style: TextStyle(
+                  color: const Color(0xFF7FF8FF),
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                  fontSize: titleSize,
+                ),
+              ),
+              Text(
+                '$safeTrophies',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: valueSize,
+                  height: 1,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GameHudBadge extends StatelessWidget {
+  const _GameHudBadge({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.labelFontSize,
+    required this.valueFontSize,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final double labelFontSize;
+  final double valueFontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final darkText = color.computeLuminance() > 0.45;
+    final foreground = darkText ? Colors.black : Colors.white;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: foreground.withAlpha(180),
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.45,
+              fontSize: labelFontSize,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            value,
+            style: TextStyle(
+              color: foreground,
+              fontWeight: FontWeight.w900,
+              fontSize: valueFontSize,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1488,11 +2334,14 @@ class _ArrowButton extends StatelessWidget {
           width: size,
           height: size,
           decoration: BoxDecoration(
-            color: const Color(0xAA0F0F0F),
+            color: AppPalette.surfaceAlt,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0x88FFFFFF), width: 1.3),
+            border: Border.all(
+              color: AppPalette.accentPurple.withAlpha(170),
+              width: 1.3,
+            ),
           ),
-          child: Icon(icon, color: Colors.white, size: size * 0.68),
+          child: Icon(icon, color: AppPalette.neonGreen, size: size * 0.68),
         ),
       ),
     );
@@ -1517,7 +2366,18 @@ class _JoystickState extends State<_Joystick> {
           height: widget.size,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: const Color(0xAAFFFFFF), width: 3),
+            color: AppPalette.surfaceAlt,
+            border: Border.all(
+              color: AppPalette.accentPurple.withAlpha(170),
+              width: 2.6,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x33000000),
+                blurRadius: 8,
+                offset: Offset(0, 3),
+              ),
+            ],
           ),
           child: Stack(
             children: [
@@ -1526,8 +2386,8 @@ class _JoystickState extends State<_Joystick> {
                   child: Container(
                     width: 8,
                     height: 8,
-                    decoration: const BoxDecoration(
-                      color: Color(0x44FFFFFF),
+                    decoration: BoxDecoration(
+                      color: AppPalette.neonGreen.withAlpha(90),
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -1536,11 +2396,20 @@ class _JoystickState extends State<_Joystick> {
               Positioned.fill(
                 child: Transform.translate(
                   offset: _knobOffset,
-                  child: const Center(
-                    child: Icon(
-                      Icons.circle,
-                      color: Color(0xFFFF3B3B),
-                      size: 36,
+                  child: Center(
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppPalette.neonGreen,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.black, width: 1.2),
+                      ),
+                      child: const Icon(
+                        Icons.control_camera,
+                        size: 18,
+                        color: Colors.black,
+                      ),
                     ),
                   ),
                 ),

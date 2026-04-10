@@ -2,23 +2,28 @@ import 'dart:async';
 
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-class AdsService {
-  static const String _rewardedTestId =
-      'ca-app-pub-3940256099942544/5224354917';
-  static const String _interstitialTestId =
-      'ca-app-pub-3940256099942544/1033173712';
+import '../config/app_runtime_config.dart';
 
+class AdsService {
   RewardedAd? _rewardedAd;
   InterstitialAd? _interstitialAd;
 
   Future<void> preload() async {
+    if (!AppRuntimeConfig.adsEnabled) {
+      return;
+    }
     await Future.wait([_loadRewarded(), _loadInterstitial()]);
   }
 
   Future<void> _loadRewarded() {
+    final adUnitId = AppRuntimeConfig.rewardedAdUnitId;
+    if (adUnitId == null) {
+      return Future.value();
+    }
+
     final c = Completer<void>();
     RewardedAd.load(
-      adUnitId: _rewardedTestId,
+      adUnitId: adUnitId,
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
@@ -32,9 +37,14 @@ class AdsService {
   }
 
   Future<void> _loadInterstitial() {
+    final adUnitId = AppRuntimeConfig.interstitialAdUnitId;
+    if (adUnitId == null) {
+      return Future.value();
+    }
+
     final c = Completer<void>();
     InterstitialAd.load(
-      adUnitId: _interstitialTestId,
+      adUnitId: adUnitId,
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {

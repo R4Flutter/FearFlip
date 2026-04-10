@@ -22,6 +22,11 @@
 3. Upload to Internal testing.
 4. Rollout sequence: Internal -> Closed -> Production staged %.
 
+## Local release config
+- Copy `android/release.properties.example` to `android/release.properties`.
+- Copy `android/key.properties.example` to `android/key.properties`.
+- Pass build-time runtime IDs with `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, `--dart-define=ADMOB_REWARDED_AD_UNIT_ID=...`, and `--dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=...`.
+
 ## Compliance
 - Privacy policy required (Firebase + Ads usage).
 - Data safety form with analytics/auth/crash reporting disclosures.

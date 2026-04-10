@@ -18,6 +18,8 @@ class AppFlowProvider extends ChangeNotifier {
   static const String _joystickSizePrefKey = 'ui.joystick.size';
   static const String _selectedCharacterPrefKey = 'ui.character.index';
   static const String _arrowControllerPrefKey = 'ui.controller.arrow';
+  static const String _soundVolumePrefKey = 'audio.master.volume';
+  static const String _soundMutedPrefKey = 'audio.master.muted';
   static const String _totalTrophiesPrefKey = 'progress.total_trophies';
   static const String _maxStageReachedPrefKey = 'progress.max_stage_reached';
   static const double minJoystickSize = 90;
@@ -78,6 +80,8 @@ class AppFlowProvider extends ChangeNotifier {
   bool _showLanding = true;
   bool _isStarting = false;
   double _joystickSize = 110;
+  double _soundVolume = 1.0;
+  bool _isSoundMuted = false;
   int _selectedCharacterIndex = defaultCharacterIndex;
   bool _useArrowController = false;
   int _totalTrophies = 0;
@@ -108,6 +112,8 @@ class AppFlowProvider extends ChangeNotifier {
   bool get showLanding => _showLanding;
   bool get isStarting => _isStarting;
   double get joystickSize => _joystickSize;
+  double get soundVolume => _soundVolume;
+  bool get isSoundMuted => _isSoundMuted;
   int get selectedCharacterIndex => _selectedCharacterIndex;
   bool get useArrowController => _useArrowController;
   int get totalTrophies => _totalTrophies;
@@ -118,6 +124,8 @@ class AppFlowProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedJoystick = prefs.getDouble(_joystickSizePrefKey);
+      final savedSoundVolume = prefs.getDouble(_soundVolumePrefKey);
+      final savedSoundMuted = prefs.getBool(_soundMutedPrefKey);
       final savedCharacter = prefs.getInt(_selectedCharacterPrefKey);
       final savedArrowController = prefs.getBool(_arrowControllerPrefKey);
       final savedTrophies = prefs.getInt(_totalTrophiesPrefKey);
@@ -126,6 +134,14 @@ class AppFlowProvider extends ChangeNotifier {
       var hasChanges = false;
       if (savedJoystick != null) {
         _joystickSize = savedJoystick.clamp(minJoystickSize, maxJoystickSize);
+        hasChanges = true;
+      }
+      if (savedSoundVolume != null) {
+        _soundVolume = savedSoundVolume.clamp(0.0, 1.0);
+        hasChanges = true;
+      }
+      if (savedSoundMuted != null) {
+        _isSoundMuted = savedSoundMuted;
         hasChanges = true;
       }
       if (savedCharacter != null) {
@@ -153,6 +169,11 @@ class AppFlowProvider extends ChangeNotifier {
     } catch (_) {
       // Keep default size when local preferences are unavailable.
     }
+
+    await AudioService.configureGlobalAudio(
+      volume: _soundVolume,
+      muted: _isSoundMuted,
+    );
   }
 
   Future<void> updateJoystickSize(double size) async {
@@ -169,6 +190,43 @@ class AppFlowProvider extends ChangeNotifier {
       await prefs.setDouble(_joystickSizePrefKey, _joystickSize);
     } catch (_) {
       // UI update stays applied for this session even if persistence fails.
+    }
+  }
+
+  Future<void> updateSoundVolume(double volume) async {
+    final normalized = volume.clamp(0.0, 1.0);
+    if ((_soundVolume - normalized).abs() < 0.001) {
+      return;
+    }
+
+    _soundVolume = normalized;
+    notifyListeners();
+
+    await AudioService.configureGlobalAudio(volume: _soundVolume);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_soundVolumePrefKey, _soundVolume);
+    } catch (_) {
+      // Keep selected audio volume for this session even if persistence fails.
+    }
+  }
+
+  Future<void> updateSoundMuted(bool muted) async {
+    if (_isSoundMuted == muted) {
+      return;
+    }
+
+    _isSoundMuted = muted;
+    notifyListeners();
+
+    await AudioService.configureGlobalAudio(muted: _isSoundMuted);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_soundMutedPrefKey, _isSoundMuted);
+    } catch (_) {
+      // Keep selected mute state for this session even if persistence fails.
     }
   }
 

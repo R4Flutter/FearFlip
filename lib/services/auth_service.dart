@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../config/app_runtime_config.dart';
+
 class AuthCancelledException implements Exception {}
 
 class AuthConfigurationException implements Exception {
@@ -16,18 +18,31 @@ class AuthConfigurationException implements Exception {
 }
 
 class AuthService {
-  static const String _googleServerClientId =
-      '158165984868-bvqagc5kubdo3cmpkr3ccrhufd2ksl6i.apps.googleusercontent.com';
-
   AuthService({FirebaseAuth? firebaseAuth, GoogleSignIn? googleSignIn})
     : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
       _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
 
   final FirebaseAuth _firebaseAuth;
   final GoogleSignIn _googleSignIn;
+  bool _googleSignInInitialized = false;
 
   User? get currentUser => _firebaseAuth.currentUser;
   Stream<User?> get authStateChanges => _firebaseAuth.authStateChanges();
+
+  Future<void> _ensureGoogleSignInInitialized() async {
+    if (_googleSignInInitialized) {
+      return;
+    }
+
+    final configuredServerClientId = AppRuntimeConfig.googleServerClientId;
+    if (configuredServerClientId.isEmpty) {
+      await _googleSignIn.initialize();
+    } else {
+      await _googleSignIn.initialize(serverClientId: configuredServerClientId);
+    }
+
+    _googleSignInInitialized = true;
+  }
 
   Future<UserCredential> signInAsGuest() async {
     final credential = await _firebaseAuth.signInAnonymously();
@@ -67,35 +82,46 @@ class AuthService {
     }
 
     final existing = _firebaseAuth.currentUser;
+    await _ensureGoogleSignInInitialized();
 
-    await _googleSignIn.initialize(serverClientId: _googleServerClientId);
-    // Force chooser so player can pick from available Google accounts.
+    GoogleSignInAccount? account;
     try {
-      await _googleSignIn.signOut();
-    } catch (_) {}
-
-    late final GoogleSignInAccount account;
-    try {
-      account = await _googleSignIn.authenticate();
-    } on GoogleSignInException catch (error) {
-      if (error.code == GoogleSignInExceptionCode.canceled) {
-        throw AuthCancelledException();
+      final lightweightAttempt = _googleSignIn
+          .attemptLightweightAuthentication();
+      if (lightweightAttempt != null) {
+        account = await lightweightAttempt;
       }
-      rethrow;
+    } on GoogleSignInException {
+      // Fallback to explicit authentication below when lightweight auth fails.
+    } catch (_) {
+      // Ignore lightweight auth errors and continue with explicit auth flow.
+    }
+
+    if (account == null) {
+      try {
+        account = await _googleSignIn.authenticate();
+      } on GoogleSignInException catch (error) {
+        if (error.code == GoogleSignInExceptionCode.canceled) {
+          throw AuthCancelledException();
+        }
+        rethrow;
+      }
     }
 
     final authentication = account.authentication;
-    if (authentication.idToken == null || authentication.idToken!.isEmpty) {
+    final idToken = authentication.idToken?.trim();
+    final hasIdToken = idToken != null && idToken.isNotEmpty;
+
+    if (!hasIdToken) {
       throw AuthConfigurationException(
-        'Google Sign-In is not fully configured for this app build. '
+        'Google Sign-In is not configured correctly for this build. '
         'Add SHA-1 and SHA-256 in Firebase Android app settings, then run '
-        'FlutterFire configure again and rebuild.',
+        'FlutterFire configure again and rebuild. If needed, provide '
+        '--dart-define=GOOGLE_SERVER_CLIENT_ID=<web-client-id>.',
       );
     }
 
-    final credential = GoogleAuthProvider.credential(
-      idToken: authentication.idToken,
-    );
+    final credential = GoogleAuthProvider.credential(idToken: idToken);
 
     if (existing != null && existing.isAnonymous) {
       try {
@@ -123,12 +149,15 @@ class AuthService {
     }
   }
 
-  Future<void> signOut() async {
-    try {
-      await _googleSignIn.signOut();
-    } catch (_) {
-      // Ignore third-party sign out errors and always ensure Firebase sign out.
+  Future<void> signOut({bool keepGoogleSession = true}) async {
+    if (!keepGoogleSession) {
+      try {
+        await _googleSignIn.signOut();
+      } catch (_) {
+        // Ignore third-party sign out errors and always ensure Firebase sign out.
+      }
     }
+
     await _firebaseAuth.signOut();
   }
 }
