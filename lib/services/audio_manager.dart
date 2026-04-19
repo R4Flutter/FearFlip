@@ -60,10 +60,11 @@ class _OneShotVoice {
 }
 
 class _QueuedAudioEvent {
-  _QueuedAudioEvent(this.payload, this.completer);
+  _QueuedAudioEvent(this.payload, this.completer, {this.devilRevision});
 
   final GameAudioEventPayload payload;
   final Completer<void> completer;
+  final int? devilRevision;
 }
 
 class AudioManager {
@@ -77,12 +78,13 @@ class AudioManager {
   static const Duration _safeZoneCooldown = Duration(milliseconds: 350);
   static const Duration _loseSilence = Duration(milliseconds: 80);
   static const Duration _devilFadeInDuration = Duration(milliseconds: 150);
-  static const Duration _devilFadeOutDuration = Duration(milliseconds: 180);
   static const Duration _loopDefaultFadeIn = Duration(milliseconds: 150);
   static const Duration _loopDefaultFadeOut = Duration(milliseconds: 160);
   static const Duration _safeZoneDuckDuration = Duration(milliseconds: 500);
   static const Duration _actionEnemyDuckHold = Duration(milliseconds: 220);
   static const Duration _actionEnemyDuckRelease = Duration(milliseconds: 320);
+  static const Duration _flipEnemyDuckHold = Duration(milliseconds: 90);
+  static const Duration _flipEnemyDuckRelease = Duration(milliseconds: 140);
   static const Duration _devilCueCooldown = Duration(milliseconds: 420);
   static const Duration _devilPriorityActionDuckHold = Duration(
     milliseconds: 180,
@@ -91,9 +93,11 @@ class AudioManager {
     milliseconds: 240,
   );
   static const Duration _winSafetyDelay = Duration(milliseconds: 30);
+  static const Duration _flipRetryDelay = Duration(milliseconds: 12);
+  static const Duration _oneShotPlayTimeout = Duration(milliseconds: 650);
 
   static const int _devilStartDistanceTiles = 6;
-  static const int _devilStopDistanceTiles = 6;
+  static const int _devilStopDistanceTiles = 7;
 
   static const bool _safeZoneDuckingEnabled = true;
   static const bool _safeZoneHalvesDevilVolume = true;
@@ -101,10 +105,11 @@ class AudioManager {
 
   static const double _calmBaseVolume = 0.45;
   static const double _flipBaseVolume = 0.92;
-  static const double _devilBaseVolume = 0.95;
+  static const double _devilBaseVolume = 1.0;
   static const double _devilPriorityActionDuckFactor = 0.62;
-  static const double _devilLoopMaxVolume = 0.90;
+  static const double _devilLoopMaxVolume = 1.0;
   static const double _actionEnemyDuckFactor = 0.30;
+  static const double _flipEnemyDuckFactor = 0.72;
   static const double _safeZoneBaseVolume = 0.75;
   static const double _lowTimeBaseVolume = 0.80;
   static const double _winBaseVolume = 1.0;
@@ -168,14 +173,17 @@ class AudioManager {
 
   Timer? _safeZoneDuckTimer;
   Timer? _actionEnemyDuckTimer;
+  Timer? _flipEnemyDuckTimer;
   Timer? _devilPriorityActionDuckTimer;
   Timer? _alarmPulseTimer;
   bool _alarmPulseOn = false;
   double _alarmPulseBoost = 0;
   double _safeZoneEnemyDuck = 1.0;
   double _actionEnemyDuck = 1.0;
+  double _flipEnemyDuck = 1.0;
   double _devilPriorityActionDuck = 1.0;
   int _actionEnemyDuckToken = 0;
+  int _flipEnemyDuckToken = 0;
   int _devilPriorityActionDuckToken = 0;
 
   int _timelineToken = 0;
@@ -197,10 +205,21 @@ class AudioManager {
   bool isAlarmPlaying = false;
   bool _isSafeZoneImmune = false;
   bool _outcomeEventQueued = false;
+  bool _devilThreatActive = false;
 
   int? _secondsLeft;
   int? _lastSecondsLeft;
   int? _devilDistanceTiles;
+
+  /// Authoritative latest devil distance written by every incoming event
+  /// BEFORE queue processing.  This lets queue-processed handlers detect
+  /// stale events:  if _latestDevilDistance >= 7 but the handler is running
+  /// for an old dist=5 event, the handler knows to stop, not start.
+  int _latestDevilDistance = 99;
+  bool _latestDevilEnabled = false;
+  bool _latestSafeZoneImmune = false;
+  int _latestDevilRevision = 0;
+  int _nextDevilRevision = 0;
 
   String _lastEvent = 'idle';
 
@@ -295,26 +314,51 @@ class AudioManager {
 
   Future<void> handlePayload(GameAudioEventPayload payload) {
     final completer = Completer<void>();
+    var devilRevision = _latestDevilRevision;
 
     if (_shouldDropGameplayEvent(payload.type)) {
       completer.complete();
       return completer.future;
     }
 
+    // Snapshot latest devil state for queue-bypass staleness detection.
+    if (payload.type == GameAudioEvent.devilDistanceChanged) {
+      _latestDevilDistance = payload.devilDistanceTiles ?? 99;
+      _latestDevilEnabled = payload.devilEnabled ?? false;
+      if (payload.safeZoneImmune != null) {
+        _latestSafeZoneImmune = payload.safeZoneImmune!;
+      }
+      devilRevision = ++_nextDevilRevision;
+      _latestDevilRevision = devilRevision;
+
+      if (_mustStopDevilImmediatelyFromLatestState) {
+        _forceKillDevilLoopSync();
+      }
+    }
+
     if (payload.type == GameAudioEvent.playerWon ||
         payload.type == GameAudioEvent.playerLost) {
       _outcomeEventQueued = true;
+      _latestDevilEnabled = false;
+      _latestDevilDistance = 99;
+      _latestSafeZoneImmune = false;
+      _latestDevilRevision = ++_nextDevilRevision;
       _cancelAlarmPulseTimer();
       isAlarmPlaying = false;
       _lowTimeLoop.baseVolume = 0;
       unawaited(_safe('alarm.stopOnOutcomeQueue', _lowTimeLoop.player.stop));
-      unawaited(_stopDevilLoop(immediate: true));
+      // Synchronous inline stop so devil threat cannot bleed into outcome.
+      _forceKillDevilLoopSync();
     }
 
     if (payload.type == GameAudioEvent.matchStart ||
         payload.type == GameAudioEvent.matchRestart ||
         payload.type == GameAudioEvent.matchExit) {
       _outcomeEventQueued = false;
+      _latestDevilEnabled = false;
+      _latestDevilDistance = 99;
+      _latestSafeZoneImmune = false;
+      _latestDevilRevision = ++_nextDevilRevision;
     }
 
     if (_isQueueBoundaryEvent(payload.type)) {
@@ -325,7 +369,13 @@ class AudioManager {
       _coalesceQueuedDevilDistanceEvents();
     }
 
-    final queued = _QueuedAudioEvent(payload, completer);
+    final queued = _QueuedAudioEvent(
+      payload,
+      completer,
+      devilRevision: payload.type == GameAudioEvent.devilDistanceChanged
+          ? devilRevision
+          : null,
+    );
     if (payload.type == GameAudioEvent.flipTriggered ||
         payload.type == GameAudioEvent.playerWon ||
         payload.type == GameAudioEvent.playerLost ||
@@ -350,8 +400,11 @@ class AudioManager {
     }
 
     if (_outcomeEventQueued) {
+      // Flip must always play for tactile feedback, even during the brief
+      // window between outcome-queue and actual outcome processing.
       return event != GameAudioEvent.playerWon &&
           event != GameAudioEvent.playerLost &&
+          event != GameAudioEvent.flipTriggered &&
           !isResetEvent;
     }
 
@@ -384,6 +437,9 @@ class AudioManager {
       return;
     }
 
+    // Drop ALL old devil-distance events from the queue.  The brand-new
+    // incoming event (added right after this call) carries the latest
+    // distance/enabled state and supersedes everything already queued.
     final retained = <_QueuedAudioEvent>[];
     while (_queue.isNotEmpty) {
       final queued = _queue.removeFirst();
@@ -409,7 +465,10 @@ class AudioManager {
       while (_queue.isNotEmpty) {
         final queued = _queue.removeFirst();
         try {
-          await _processEvent(queued.payload);
+          await _processEvent(
+            queued.payload,
+            devilRevision: queued.devilRevision,
+          );
           queued.completer.complete();
         } catch (error, stackTrace) {
           _logError('event:${queued.payload.type.name}', error, stackTrace);
@@ -423,7 +482,10 @@ class AudioManager {
     }
   }
 
-  Future<void> _processEvent(GameAudioEventPayload payload) async {
+  Future<void> _processEvent(
+    GameAudioEventPayload payload, {
+    int? devilRevision,
+  }) async {
     await preload();
 
     _lastEvent = payload.type.name;
@@ -448,10 +510,18 @@ class AudioManager {
         await _onFlipTriggered(payload.frameId);
         break;
       case GameAudioEvent.devilDistanceChanged:
+        final revision = devilRevision;
+        if (revision == null || revision != _latestDevilRevision) {
+          _log(
+            'Skipping stale devil-distance event (rev=$revision latest=$_latestDevilRevision)',
+          );
+          break;
+        }
         await _onDevilDistanceChanged(
           distanceTiles: payload.devilDistanceTiles,
           devilEnabled: payload.devilEnabled ?? true,
           safeZoneImmune: payload.safeZoneImmune,
+          devilRevision: revision,
         );
         break;
       case GameAudioEvent.safeZoneEntered:
@@ -563,9 +633,10 @@ class AudioManager {
     _disposing = true;
     _timelineToken++;
 
-    _queue.clear();
+    _clearQueuedEvents();
     _cancelCalmStartTimer();
     _cancelActionEnemyDuckTimer(resetFactor: true);
+    _cancelFlipEnemyDuckTimer(resetFactor: true);
     _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
@@ -594,6 +665,15 @@ class AudioManager {
     isCalmPlaying = false;
     isDevilPlaying = false;
     isAlarmPlaying = false;
+    _devilThreatActive = false;
+    _latestDevilDistance = 99;
+    _latestDevilEnabled = false;
+    _latestSafeZoneImmune = false;
+    _latestDevilRevision = ++_nextDevilRevision;
+    _safeZoneEnemyDuck = 1.0;
+    _actionEnemyDuck = 1.0;
+    _flipEnemyDuck = 1.0;
+    _devilPriorityActionDuck = 1.0;
     _matchState = MatchAudioState.exited;
 
     _emitDebugSnapshot();
@@ -609,18 +689,25 @@ class AudioManager {
     isLost = false;
     isPaused = false;
     _isSafeZoneImmune = false;
+    _devilThreatActive = false;
     _secondsLeft = null;
     _lastSecondsLeft = null;
     _devilDistanceTiles = null;
+    _latestDevilDistance = 99;
+    _latestDevilEnabled = false;
+    _latestSafeZoneImmune = false;
+    _latestDevilRevision = ++_nextDevilRevision;
 
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
     _cancelActionEnemyDuckTimer(resetFactor: true);
+    _cancelFlipEnemyDuckTimer(resetFactor: true);
     _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     _clearTransientCooldowns();
 
     _safeZoneEnemyDuck = 1.0;
     _actionEnemyDuck = 1.0;
+    _flipEnemyDuck = 1.0;
     _devilPriorityActionDuck = 1.0;
     final enemyBus = _buses[AudioBus.enemy];
     if (enemyBus != null) {
@@ -628,6 +715,11 @@ class AudioManager {
     }
 
     await _stopAllLoopAudio(immediate: true);
+    await _stopOneShotChannels();
+    // Double-stop after a micro-delay handles platform-level race conditions
+    // where a one-shot (e.g. game-lost SFX) is still latching at the native
+    // audio layer after the first stop call.
+    await Future<void>.delayed(const Duration(milliseconds: 30));
     await _stopOneShotChannels();
 
     _queueCalmStart();
@@ -685,7 +777,10 @@ class AudioManager {
 
     _armCalmStartTimer();
 
-    if (_calmLoop.resumeAfterPause && _canUseMatchAudioLayer) {
+    if (_calmLoop.resumeAfterPause &&
+        _canUseMatchAudioLayer &&
+        !_isDevilPriorityActive &&
+        !_isLowTimePriorityActive) {
       await _safe('calm.resume', _calmLoop.player.play);
     }
     if (_devilLoop.resumeAfterPause && _canUseMatchAudioLayer) {
@@ -711,19 +806,26 @@ class AudioManager {
     isDevilPlaying = false;
     isAlarmPlaying = false;
     _isSafeZoneImmune = false;
+    _devilThreatActive = false;
     _secondsLeft = null;
     _lastSecondsLeft = null;
     _devilDistanceTiles = null;
+    _latestDevilDistance = 99;
+    _latestDevilEnabled = false;
+    _latestSafeZoneImmune = false;
+    _latestDevilRevision = ++_nextDevilRevision;
     _matchState = MatchAudioState.exited;
 
     _cancelCalmStartTimer();
     _cancelActionEnemyDuckTimer(resetFactor: true);
+    _cancelFlipEnemyDuckTimer(resetFactor: true);
     _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
 
     _safeZoneEnemyDuck = 1.0;
     _actionEnemyDuck = 1.0;
+    _flipEnemyDuck = 1.0;
     _devilPriorityActionDuck = 1.0;
     final enemyBus = _buses[AudioBus.enemy];
     if (enemyBus != null) {
@@ -749,11 +851,25 @@ class AudioManager {
 
     final playbackRate = 0.985 + (Random().nextDouble() * 0.04);
 
-    await _playOneShot(
+    final played = await _playOneShot(
       _AudioCue.flip,
       bus: AudioBus.ui,
       baseVolume: _flipBaseVolume,
       playbackRate: playbackRate,
+    );
+
+    if (played) {
+      return;
+    }
+
+    // Production fallback: if the first trigger failed at the plugin layer,
+    // retry once on a separate bus pool so every flip still produces feedback.
+    await Future<void>.delayed(_flipRetryDelay);
+    await _playOneShot(
+      _AudioCue.flip,
+      bus: AudioBus.action,
+      baseVolume: _flipBaseVolume,
+      playbackRate: 1.0,
     );
   }
 
@@ -761,36 +877,88 @@ class AudioManager {
     required int? distanceTiles,
     required bool devilEnabled,
     required bool? safeZoneImmune,
+    required int devilRevision,
   }) async {
+    if (_isStaleDevilRevision(devilRevision)) {
+      return;
+    }
+
     _devilDistanceTiles = distanceTiles;
     if (safeZoneImmune != null) {
       _isSafeZoneImmune = safeZoneImmune;
+      _latestSafeZoneImmune = safeZoneImmune;
     }
 
-    if (!_canUseMatchAudioLayer || !devilEnabled || distanceTiles == null) {
+    // Authoritative values come from enqueue-time state, not this potentially
+    // stale payload.
+    final authDistance = _latestDevilDistance;
+    final authEnabled = _latestDevilEnabled;
+    final authSafeZoneImmune = _latestSafeZoneImmune;
+
+    final shouldDevilPlay =
+        _canUseMatchAudioLayer &&
+        authEnabled &&
+        !authSafeZoneImmune &&
+        authDistance <= _devilStartDistanceTiles;
+
+    final shouldDevilStop =
+        !_canUseMatchAudioLayer ||
+        !authEnabled ||
+        authSafeZoneImmune ||
+        authDistance >= _devilStopDistanceTiles;
+
+    if (shouldDevilStop) {
+      final wasActive = _devilThreatActive || isDevilPlaying;
+      _devilThreatActive = false;
       await _stopDevilLoop(immediate: true);
+
+      if (wasActive &&
+          !_isStaleDevilRevision(devilRevision) &&
+          _canUseMatchAudioLayer &&
+          !_outcomeEventQueued) {
+        await _resumeBackgroundAudioAfterThreat();
+      }
       return;
     }
 
-    final shouldStartDevil =
-        distanceTiles <= _devilStartDistanceTiles && !_isSafeZoneImmune;
-    final shouldStopDevil =
-        distanceTiles > _devilStopDistanceTiles || _isSafeZoneImmune;
-
-    if (shouldStopDevil) {
-      await _stopDevilLoop(immediate: true);
+    if (!shouldDevilPlay || _isStaleDevilRevision(devilRevision)) {
       return;
     }
 
-    if (shouldStartDevil && !isDevilPlaying) {
-      await _startDevilLoop();
+    _devilThreatActive = true;
+
+    // Kill competing audio layers.
+    if (_calmStartQueued) {
+      _cancelCalmStartTimer();
+      _calmStartQueued = false;
+    }
+    if (isCalmPlaying || _calmLoop.player.playing) {
+      await _stopCalmLoop(immediate: true);
+    }
+    if (isAlarmPlaying || _lowTimeLoop.player.playing) {
+      await _stopLowTimeLoop(immediate: true);
     }
 
+    if (_isStaleDevilRevision(devilRevision)) {
+      return;
+    }
+
+    // Start loop if not already running.
     if (!isDevilPlaying) {
+      await _startDevilLoop(devilRevision: devilRevision);
+    }
+
+    if (!isDevilPlaying || _isStaleDevilRevision(devilRevision)) {
       return;
     }
 
-    await _updateDevilLoopVolume(distanceTiles);
+    if (_mustStopDevilImmediatelyFromLatestState) {
+      _devilThreatActive = false;
+      await _stopDevilLoop(immediate: true);
+      return;
+    }
+
+    await _updateDevilLoopVolume(_latestDevilDistance);
 
     if (_isInCooldown(GameAudioEvent.devilDistanceChanged)) {
       return;
@@ -802,6 +970,13 @@ class AudioManager {
 
   Future<void> _onSafeZoneEntered() async {
     _isSafeZoneImmune = true;
+    _latestSafeZoneImmune = true;
+    _latestDevilRevision = ++_nextDevilRevision;
+
+    if (_devilThreatActive || isDevilPlaying || _devilLoop.player.playing) {
+      _devilThreatActive = false;
+      await _stopDevilLoop(immediate: true);
+    }
 
     if (!_canPlayGameplaySfx) {
       return;
@@ -834,6 +1009,8 @@ class AudioManager {
 
   Future<void> _onSafeZoneExited() async {
     _isSafeZoneImmune = false;
+    _latestSafeZoneImmune = false;
+    _latestDevilRevision = ++_nextDevilRevision;
     await _refreshAllVolumes();
   }
 
@@ -842,7 +1019,14 @@ class AudioManager {
       return;
     }
 
-    if (_matchState == MatchAudioState.won || isWon || _outcomeEventQueued) {
+    // Block alarm for BOTH win and loss outcomes — the previous check only
+    // covered won, letting a queued timeChanged event restart the alarm after
+    // playerLost had already stopped it.
+    if (_matchState == MatchAudioState.won ||
+        _matchState == MatchAudioState.lost ||
+        isWon ||
+        isLost ||
+        _outcomeEventQueued) {
       if (isAlarmPlaying || _lowTimeLoop.player.playing) {
         await _stopLowTimeLoop(immediate: true);
       }
@@ -850,23 +1034,28 @@ class AudioManager {
     }
 
     _secondsLeft = secondsLeft;
-
-    final previous = _lastSecondsLeft;
     _lastSecondsLeft = secondsLeft;
 
     if (!_canUseMatchAudioLayer) {
       return;
     }
 
-    final crossedToTen =
-        (previous == null && secondsLeft == 10) ||
-        (previous != null && previous > 10 && secondsLeft == 10);
+    if (_isDevilPriorityActive) {
+      if (isAlarmPlaying || _lowTimeLoop.player.playing) {
+        await _stopLowTimeLoop(immediate: true);
+      }
+      return;
+    }
 
-    if (crossedToTen && !isAlarmPlaying) {
+    final shouldRunLowTimeAlarm = secondsLeft > 0 && secondsLeft <= 10;
+    if (shouldRunLowTimeAlarm && !isAlarmPlaying) {
       await _startLowTimeLoop();
     }
 
     if (isAlarmPlaying) {
+      if (isCalmPlaying || _calmLoop.player.playing) {
+        await _stopCalmLoop(immediate: true);
+      }
       _updateAlarmPulse(secondsLeft);
     }
 
@@ -891,11 +1080,17 @@ class AudioManager {
     isPaused = false;
     _matchState = MatchAudioState.won;
     _outcomeEventQueued = true;
+    _devilThreatActive = false;
+    _latestDevilEnabled = false;
+    _latestDevilDistance = 99;
+    _latestSafeZoneImmune = false;
+    _latestDevilRevision = ++_nextDevilRevision;
 
     _cancelCalmStartTimer();
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
     _cancelActionEnemyDuckTimer(resetFactor: true);
+    _cancelFlipEnemyDuckTimer(resetFactor: true);
     _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     await _applyEnemyBusDuck();
 
@@ -924,6 +1119,10 @@ class AudioManager {
     }
 
     _outcomeEventQueued = true;
+    _latestDevilEnabled = false;
+    _latestDevilDistance = 99;
+    _latestSafeZoneImmune = false;
+    _latestDevilRevision = ++_nextDevilRevision;
 
     _timelineToken++;
     final token = _timelineToken;
@@ -932,8 +1131,10 @@ class AudioManager {
     isWon = false;
     isMatchActive = false;
     _matchState = MatchAudioState.lost;
+    _devilThreatActive = false;
 
     _cancelCalmStartTimer();
+    _cancelFlipEnemyDuckTimer(resetFactor: true);
     _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     await _stopLowTimeLoop(immediate: true);
     await _stopDevilLoop(immediate: true);
@@ -953,7 +1154,12 @@ class AudioManager {
   }
 
   Future<void> _startCalmLoopFromDelay(int token) async {
-    if (token != _timelineToken || !_canUseMatchAudioLayer) {
+    if (token != _timelineToken ||
+        !_canUseMatchAudioLayer ||
+        _isDevilPriorityActive ||
+        _isLowTimePriorityActive ||
+        isCalmPlaying ||
+        _calmLoop.player.playing) {
       return;
     }
 
@@ -998,8 +1204,42 @@ class AudioManager {
     await _stopCalmLoop(immediate: true);
   }
 
-  Future<void> _startDevilLoop() async {
+  /// Resumes the correct background audio layer after the devil threat ends.
+  ///
+  /// Priority: low-time alarm > calm loop.  If neither should play (e.g. the
+  /// match has ended or another priority is active), this is a no-op.
+  Future<void> _resumeBackgroundAudioAfterThreat() async {
+    if (!_canUseMatchAudioLayer || _outcomeEventQueued) {
+      return;
+    }
+
+    // If timer is <= 10s, the alarm takes priority over calm loop.
+    final shouldRunLowTimeAlarm =
+        _secondsLeft != null && _secondsLeft! > 0 && _secondsLeft! <= 10;
+    if (shouldRunLowTimeAlarm && !isAlarmPlaying) {
+      await _startLowTimeLoop();
+      return;
+    }
+
+    // Otherwise resume the calm background loop if nothing else is active.
+    if (!_isLowTimePriorityActive &&
+        !isCalmPlaying &&
+        !_calmLoop.player.playing &&
+        !_calmStartQueued) {
+      _queueCalmStart();
+    }
+  }
+
+  Future<void> _startDevilLoop({required int devilRevision}) async {
     if (isDevilPlaying || !_canUseMatchAudioLayer) {
+      return;
+    }
+
+    if (_isStaleDevilRevision(devilRevision) ||
+        _mustStopDevilImmediatelyFromLatestState) {
+      _log(
+        'Devil start blocked by latest-state-wins (dist=$_latestDevilDistance)',
+      );
       return;
     }
 
@@ -1009,18 +1249,39 @@ class AudioManager {
       return;
     }
 
-    _devilLoop.baseVolume = 0.25;
+    final targetVolume = _mapDevilDistanceToVolume(_latestDevilDistance);
+    if (targetVolume <= 0) {
+      return;
+    }
+
+    _devilLoop.baseVolume = targetVolume * 0.3;
     await _safe('devil.seek0', () async {
       await _devilLoop.player.seek(Duration.zero);
     });
+    await _setLoopVolume(_devilLoop, AudioBus.enemy);
+
+    if (_isStaleDevilRevision(devilRevision) ||
+        _mustStopDevilImmediatelyFromLatestState) {
+      await _stopDevilLoop(immediate: true);
+      return;
+    }
+
     await _safe('devil.play', _devilLoop.player.play);
+
+    if (_isStaleDevilRevision(devilRevision) ||
+        _mustStopDevilImmediatelyFromLatestState) {
+      await _stopDevilLoop(immediate: true);
+      return;
+    }
+
     isDevilPlaying = true;
+    _devilThreatActive = true;
 
     unawaited(
       _fadeLoopVolume(
         _devilLoop,
         bus: AudioBus.enemy,
-        toBaseVolume: _devilLoop.baseVolume,
+        toBaseVolume: targetVolume,
         duration: _devilFadeInDuration,
       ),
     );
@@ -1046,34 +1307,78 @@ class AudioManager {
   }
 
   Future<void> _stopDevilLoop({required bool immediate}) async {
-    if (!isDevilPlaying && !_devilLoop.player.playing) {
+    // 1. Cancel any in-flight fade FIRST so it cannot overwrite baseVolume.
+    _devilLoop.fadeToken++;
+
+    // 2. Set flags immediately — no async gap before these.
+    final wasPlaying = isDevilPlaying || _devilLoop.player.playing;
+    isDevilPlaying = false;
+    _devilThreatActive = false;
+    _cancelDevilPriorityActionDuckTimer(resetFactor: true);
+
+    if (!wasPlaying) {
+      // Even if nothing was playing, zero the volume to be safe.
+      _devilLoop.baseVolume = 0;
       return;
     }
+
+    // 3. Zero volume at every level.
+    _devilLoop.baseVolume = 0;
+    await _safe('devil.vol0', () async {
+      await _devilLoop.player.setVolume(0);
+    });
 
     if (immediate) {
+      await _safe('devil.pause', _devilLoop.player.pause);
       await _safe('devil.stop', _devilLoop.player.stop);
-      isDevilPlaying = false;
-      _devilLoop.baseVolume = 0;
+      await _safe('devil.seek0', () async {
+        await _devilLoop.player.seek(Duration.zero);
+      });
+      _log('Devil loop stopped (immediate)');
       return;
     }
 
+    // Non-immediate: already zeroed volume and flags above.
+    // Fade is meaningless since volume is already 0; just stop.
+    await _safe('devil.pause', _devilLoop.player.pause);
+    await _safe('devil.stop', _devilLoop.player.stop);
+    _log('Devil loop stopped (non-immediate)');
+    _emitDebugSnapshot();
+  }
+
+  /// Synchronous-safe inline kill for the devil loop.  Used in handlePayload
+  /// where we cannot await but need the loop silenced before any further
+  /// queue processing.  Sets all flags and volumes to zero; the actual
+  /// player.stop() is fire-and-forget but the audio is already at vol=0.
+  void _forceKillDevilLoopSync() {
+    _devilLoop.fadeToken++;
+    _devilLoop.baseVolume = 0;
     isDevilPlaying = false;
-    unawaited(() async {
-      await _fadeLoopVolume(
-        _devilLoop,
-        bus: AudioBus.enemy,
-        toBaseVolume: 0,
-        duration: _devilFadeOutDuration,
-      );
-      await _safe('devil.stopAfterFade', _devilLoop.player.stop);
-      _devilLoop.baseVolume = 0;
-      _emitDebugSnapshot();
-    }());
+    _devilThreatActive = false;
+    _cancelDevilPriorityActionDuckTimer(resetFactor: true);
+    unawaited(
+      _safe('devil.forceVol0', () async {
+        await _devilLoop.player.setVolume(0);
+      }),
+    );
+    unawaited(_safe('devil.forcePause', _devilLoop.player.pause));
+    unawaited(_safe('devil.forceStop', _devilLoop.player.stop));
   }
 
   Future<void> _startLowTimeLoop() async {
-    if (_outcomeEventQueued || isAlarmPlaying || !_canUseMatchAudioLayer) {
+    if (_outcomeEventQueued ||
+        isAlarmPlaying ||
+        !_canUseMatchAudioLayer ||
+        _isDevilPriorityActive) {
       return;
+    }
+
+    if (_calmStartQueued) {
+      _cancelCalmStartTimer();
+      _calmStartQueued = false;
+    }
+    if (isCalmPlaying || _calmLoop.player.playing) {
+      await _stopCalmLoop(immediate: true);
     }
 
     if (!_lowTimeLoop.prepared) {
@@ -1210,28 +1515,38 @@ class AudioManager {
     }
   }
 
-  Future<void> _playOneShot(
+  Future<bool> _playOneShot(
     _AudioCue cue, {
     required AudioBus bus,
     required double baseVolume,
     required double playbackRate,
   }) async {
+    // Flip cue must remain playable during devil proximity to preserve maze-shift feedback.
+    if (cue != _AudioCue.flip && !_isOneShotAllowedForPriority(cue)) {
+      _log('Suppressed one-shot ${cue.name} due to active priority layer');
+      return false;
+    }
+
     final shouldDuckEnemyBus =
         (bus == AudioBus.ui || bus == AudioBus.action) && cue != _AudioCue.flip;
     if (shouldDuckEnemyBus) {
       unawaited(_duckEnemyForActionSfx());
     }
 
+    if (cue == _AudioCue.flip && (isDevilPlaying || _devilThreatActive)) {
+      unawaited(_duckEnemyForFlipCue());
+    }
+
     final resolved = _resolvedAssets[cue];
     if (resolved == null) {
       _log('Missing one-shot asset for ${cue.name}');
-      return;
+      return false;
     }
 
     final voice = _acquireOneShotVoice(bus);
     if (voice == null) {
       _log('Missing one-shot pool for ${cue.name} on ${bus.name}');
-      return;
+      return false;
     }
 
     if (voice.inUse) {
@@ -1251,9 +1566,18 @@ class AudioManager {
       await voice.player.setPlaybackRate(playbackRate);
     });
 
-    await _safe('oneshot.play.${cue.name}', () async {
-      await voice.player.play(ap.AssetSource(resolved.sfxPath), volume: volume);
+    final played = await _safeBool('oneshot.play.${cue.name}', () async {
+      await voice.player
+          .play(ap.AssetSource(resolved.sfxPath), volume: volume)
+          .timeout(_oneShotPlayTimeout);
     });
+
+    if (!played) {
+      voice.inUse = false;
+      return false;
+    }
+
+    return true;
   }
 
   Future<void> _refreshAllVolumes() async {
@@ -1339,6 +1663,36 @@ class AudioManager {
     return _canUseMatchAudioLayer;
   }
 
+  bool get _isOutcomePriorityActive {
+    return _outcomeEventQueued ||
+        isWon ||
+        isLost ||
+        _matchState == MatchAudioState.won ||
+        _matchState == MatchAudioState.lost;
+  }
+
+  bool get _isDevilPriorityActive {
+    return !_isOutcomePriorityActive && _devilThreatActive;
+  }
+
+  bool get _isLowTimePriorityActive {
+    final seconds = _secondsLeft;
+    final inWindow = seconds != null && seconds > 0 && seconds <= 10;
+    return !_isOutcomePriorityActive &&
+        !_isDevilPriorityActive &&
+        (isAlarmPlaying || inWindow);
+  }
+
+  bool _isOneShotAllowedForPriority(_AudioCue cue) {
+    if (_isOutcomePriorityActive) {
+      return cue == _AudioCue.winning || cue == _AudioCue.playerLost;
+    }
+    if (_isDevilPriorityActive) {
+      return cue == _AudioCue.flip;
+    }
+    return true;
+  }
+
   void _queueCalmStart() {
     _cancelCalmStartTimer();
     _calmStartQueued = true;
@@ -1396,6 +1750,40 @@ class AudioManager {
     _actionEnemyDuckTimer = Timer(_actionEnemyDuckHold, () {
       unawaited(_releaseActionEnemyDuck(token));
     });
+  }
+
+  Future<void> _duckEnemyForFlipCue() async {
+    _cancelFlipEnemyDuckTimer(resetFactor: false);
+    _flipEnemyDuckToken += 1;
+    final token = _flipEnemyDuckToken;
+    _flipEnemyDuck = _flipEnemyDuckFactor;
+    await _applyEnemyBusDuck();
+
+    _flipEnemyDuckTimer = Timer(_flipEnemyDuckHold, () {
+      unawaited(_releaseFlipEnemyDuck(token));
+    });
+  }
+
+  Future<void> _releaseFlipEnemyDuck(int token) async {
+    if (token != _flipEnemyDuckToken) {
+      return;
+    }
+
+    final from = _flipEnemyDuck;
+    final steps = max(1, _flipEnemyDuckRelease.inMilliseconds ~/ 30);
+    for (var i = 1; i <= steps; i++) {
+      if (token != _flipEnemyDuckToken) {
+        return;
+      }
+      final t = i / steps;
+      _flipEnemyDuck = from + (1.0 - from) * t;
+      await _applyEnemyBusDuck();
+      if (i < steps) {
+        await Future<void>.delayed(
+          Duration(milliseconds: _flipEnemyDuckRelease.inMilliseconds ~/ steps),
+        );
+      }
+    }
   }
 
   Future<void> _releaseActionEnemyDuck(int token) async {
@@ -1466,7 +1854,10 @@ class AudioManager {
     if (enemyBus == null) {
       return;
     }
-    enemyBus.duck = min(_safeZoneEnemyDuck, _actionEnemyDuck);
+    enemyBus.duck = min(
+      min(_safeZoneEnemyDuck, _actionEnemyDuck),
+      _flipEnemyDuck,
+    );
     await _refreshAllVolumes();
     _emitDebugSnapshot();
   }
@@ -1485,6 +1876,15 @@ class AudioManager {
     _actionEnemyDuckToken += 1;
     if (resetFactor) {
       _actionEnemyDuck = 1.0;
+    }
+  }
+
+  void _cancelFlipEnemyDuckTimer({required bool resetFactor}) {
+    _flipEnemyDuckTimer?.cancel();
+    _flipEnemyDuckTimer = null;
+    _flipEnemyDuckToken += 1;
+    if (resetFactor) {
+      _flipEnemyDuck = 1.0;
     }
   }
 
@@ -1557,38 +1957,40 @@ class AudioManager {
     _lastFlipFrameId = null;
   }
 
+  bool get _mustStopDevilImmediatelyFromLatestState {
+    return !_canUseMatchAudioLayer ||
+        !_latestDevilEnabled ||
+        _latestSafeZoneImmune ||
+        _latestDevilDistance >= _devilStopDistanceTiles;
+  }
+
+  bool _isStaleDevilRevision(int revision) {
+    return revision != _latestDevilRevision;
+  }
+
   double _mapDevilDistanceToVolume(int distanceTiles) {
-    if (distanceTiles <= 1) {
-      return 1.0;
+    // Contract: devil audio is ONLY audible within 6 path-tiles.
+    // At 7+ tiles the loop must be silent / stopped — no ghost audio.
+    if (distanceTiles >= _devilStopDistanceTiles) {
+      return 0.0;
     }
-    if (distanceTiles == 2) {
-      return 0.94;
+    // Production volume curve per design spec.
+    switch (distanceTiles) {
+      case 1:
+        return 1.00;
+      case 2:
+        return 0.88;
+      case 3:
+        return 0.75;
+      case 4:
+        return 0.65;
+      case 5:
+        return 0.55;
+      case 6:
+        return 0.45;
+      default:
+        return distanceTiles <= 0 ? 1.00 : 0.0;
     }
-    if (distanceTiles == 3) {
-      return 0.88;
-    }
-    if (distanceTiles == 4) {
-      return 0.80;
-    }
-    if (distanceTiles == 5) {
-      return 0.72;
-    }
-    if (distanceTiles == 6) {
-      return 0.64;
-    }
-    if (distanceTiles == 7) {
-      return 0.56;
-    }
-    if (distanceTiles == 8) {
-      return 0.46;
-    }
-    if (distanceTiles == 9) {
-      return 0.36;
-    }
-    if (distanceTiles == 10) {
-      return 0.28;
-    }
-    return 0.0;
   }
 
   Future<void> _resolveAssets() async {
@@ -1679,6 +2081,16 @@ class AudioManager {
       await action();
     } catch (error, stackTrace) {
       _logError(scope, error, stackTrace);
+    }
+  }
+
+  Future<bool> _safeBool(String scope, Future<void> Function() action) async {
+    try {
+      await action();
+      return true;
+    } catch (error, stackTrace) {
+      _logError(scope, error, stackTrace);
+      return false;
     }
   }
 

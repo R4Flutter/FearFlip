@@ -479,11 +479,12 @@ class _GameScreenState extends State<GameScreen>
       final distanceCells =
           _maze.shortestPathDistance(_devilCell!, _playerController.position) ??
           99;
+      final devilAudioEnabled = distanceCells <= 6;
       unawaited(
         _audioManager.handle(
           GameAudioEvent.devilDistanceChanged,
           devilDistanceTiles: distanceCells,
-          devilEnabled: true,
+          devilEnabled: devilAudioEnabled,
           safeZoneImmune: _playerSafe,
         ),
       );
@@ -1603,6 +1604,9 @@ class _GameScreenState extends State<GameScreen>
 
     _playerController.resetForMaze(_maze);
     _applyStageRule(resetMaze: false);
+    // Fire matchExit first to force-kill the game-lost one-shot and any other
+    // lingering audio before the new round begins.
+    unawaited(_audioManager.handle(GameAudioEvent.matchExit));
     unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
     _restartCountdown();
     setState(() {});
@@ -1624,6 +1628,9 @@ class _GameScreenState extends State<GameScreen>
 
     _playerController.resetForMaze(_maze);
     _applyStageRule(resetMaze: false);
+    // Fire matchExit first to force-kill the game-lost one-shot and any other
+    // lingering audio before the checkpoint restart begins.
+    unawaited(_audioManager.handle(GameAudioEvent.matchExit));
     unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
     _restartCountdown();
     setState(() {});

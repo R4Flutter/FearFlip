@@ -61,7 +61,7 @@ class GameAudioEventPayload {
     return const GameAudioEventPayload(GameAudioEvent.matchExit);
   }
 
-  static GameAudioEventPayload flipTriggered({int? frameId}) {
+  static GameAudioEventPayload flipTriggered({required int frameId}) {
     return GameAudioEventPayload(
       GameAudioEvent.flipTriggered,
       frameId: frameId,

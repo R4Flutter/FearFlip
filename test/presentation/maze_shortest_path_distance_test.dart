@@ -70,6 +70,53 @@ void main() {
 
       expect(distance, 4);
     });
+
+    test('tracks dynamic devil-player movement sequence', () {
+      final grid = _buildBlockedGrid(rows: 1, cols: 5);
+
+      _openPassage(grid, const Point<int>(0, 0), const Point<int>(1, 0));
+      _openPassage(grid, const Point<int>(1, 0), const Point<int>(2, 0));
+      _openPassage(grid, const Point<int>(2, 0), const Point<int>(3, 0));
+      _openPassage(grid, const Point<int>(3, 0), const Point<int>(4, 0));
+
+      final sequence = <({Point<int> player, Point<int> devil, int expected})>[
+        (
+          player: const Point<int>(0, 0),
+          devil: const Point<int>(4, 0),
+          expected: 4,
+        ),
+        (
+          player: const Point<int>(1, 0),
+          devil: const Point<int>(4, 0),
+          expected: 3,
+        ),
+        (
+          player: const Point<int>(2, 0),
+          devil: const Point<int>(4, 0),
+          expected: 2,
+        ),
+        (
+          player: const Point<int>(3, 0),
+          devil: const Point<int>(4, 0),
+          expected: 1,
+        ),
+        (
+          player: const Point<int>(4, 0),
+          devil: const Point<int>(4, 0),
+          expected: 0,
+        ),
+        (
+          player: const Point<int>(4, 0),
+          devil: const Point<int>(3, 0),
+          expected: 1,
+        ),
+      ];
+
+      for (final step in sequence) {
+        final distance = grid.shortestPathDistance(step.player, step.devil);
+        expect(distance, step.expected);
+      }
+    });
   });
 }
 

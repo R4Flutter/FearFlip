@@ -532,11 +532,12 @@ class FearFlipGame extends FlameGame {
       final playerCell = _maze.worldToCell(_player.position);
       final distanceTiles =
           _maze.shortestPathDistance(devilCell, playerCell) ?? 99;
+      final devilAudioEnabled = distanceTiles <= 6;
       unawaited(
         audioManager.handle(
           GameAudioEvent.devilDistanceChanged,
           devilDistanceTiles: distanceTiles,
-          devilEnabled: true,
+          devilEnabled: devilAudioEnabled,
           safeZoneImmune: inSafeZone,
         ),
       );
