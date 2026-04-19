@@ -25,7 +25,7 @@
 ## Local release config
 - Copy `android/release.properties.example` to `android/release.properties`.
 - Copy `android/key.properties.example` to `android/key.properties`.
-- Pass build-time runtime IDs with `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, `--dart-define=ADMOB_REWARDED_AD_UNIT_ID=...`, and `--dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=...`.
+- Pass build-time runtime IDs with `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, `--dart-define=GOOGLE_IOS_CLIENT_ID=...`, `--dart-define=ADMOB_REWARDED_AD_UNIT_ID=...`, and `--dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=...`.
 
 ## Google Sign-In preflight
 1. Package match:
@@ -40,6 +40,9 @@
    - Run `flutter clean && flutter pub get` and rebuild.
 5. Device readiness:
    - Confirm Google Play Services is available and up to date on test devices.
+6. iOS callback config:
+   - Add `GoogleService-Info.plist` to `ios/Runner` for the selected iOS bundle id, or provide `--dart-define=GOOGLE_IOS_CLIENT_ID=<ios-client-id>`.
+   - Ensure `ios/Runner/Info.plist` includes the reversed client-id URL scheme for the same iOS OAuth client.
 
 ## Compliance
 - Privacy policy required (Firebase + Ads usage).

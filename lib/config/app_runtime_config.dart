@@ -6,6 +6,10 @@ class AppRuntimeConfig {
     defaultValue:
         '158165984868-bvqagc5kubdo3cmpkr3ccrhufd2ksl6i.apps.googleusercontent.com',
   );
+  static const String _googleIosClientId = String.fromEnvironment(
+    'GOOGLE_IOS_CLIENT_ID',
+    defaultValue: '',
+  );
   static const String _releaseRewardedAdUnitId = String.fromEnvironment(
     'ADMOB_REWARDED_AD_UNIT_ID',
     defaultValue: '',
@@ -21,6 +25,8 @@ class AppRuntimeConfig {
       'ca-app-pub-3940256099942544/1033173712';
 
   static String get googleServerClientId => _googleServerClientId.trim();
+
+  static String get googleIosClientId => _googleIosClientId.trim();
 
   static bool get isGoogleSignInConfigured => googleServerClientId.isNotEmpty;
 

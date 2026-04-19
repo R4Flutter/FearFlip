@@ -210,7 +210,6 @@ class AudioManager {
   bool _devilThreatActive = false;
 
   int? _secondsLeft;
-  int? _lastSecondsLeft;
   int? _devilDistanceTiles;
 
   /// Authoritative latest devil distance written by every incoming event
@@ -693,7 +692,6 @@ class AudioManager {
     _isSafeZoneImmune = false;
     _devilThreatActive = false;
     _secondsLeft = null;
-    _lastSecondsLeft = null;
     _devilDistanceTiles = null;
     _latestDevilDistance = 99;
     _latestDevilEnabled = false;
@@ -810,7 +808,6 @@ class AudioManager {
     _isSafeZoneImmune = false;
     _devilThreatActive = false;
     _secondsLeft = null;
-    _lastSecondsLeft = null;
     _devilDistanceTiles = null;
     _latestDevilDistance = 99;
     _latestDevilEnabled = false;
@@ -1036,7 +1033,6 @@ class AudioManager {
     }
 
     _secondsLeft = secondsLeft;
-    _lastSecondsLeft = secondsLeft;
 
     if (!_canUseMatchAudioLayer) {
       return;

@@ -88,8 +88,6 @@ class _GameScreenState extends State<GameScreen>
   final Random _random = Random();
   double _stageElapsedSeconds = 0;
   double _nextFlipAtSeconds = 0;
-  bool _flipWarningActive = false;
-  double _flipWarningTimeLeft = 0;
   bool _controlsInverted = false;
   Point<int>? _devilCell;
   bool _devilSpawned = false;
@@ -270,35 +268,6 @@ class _GameScreenState extends State<GameScreen>
     _restartCountdown();
   }
 
-  Future<void> _jumpToStage(int stage) async {
-    if (!mounted ||
-        _isStageTransition ||
-        _isTimeUpHandling ||
-        _adActionInProgress) {
-      return;
-    }
-
-    final targetStage = stage.clamp(1, _maxStage);
-    _playerController.stop();
-
-    setState(() {
-      _stage = targetStage;
-      _stageRule = StageRules.forStage(_stage);
-      _difficulty = _difficultyForStage(_stage);
-      _maze = _generator.generate(rows: _difficulty, cols: _difficulty);
-      _rebuildPathMetrics();
-      _remainingSeconds = _stageDurationSeconds;
-      _showLossOverlay = false;
-      _lostByTime = false;
-      _isStageTransition = false;
-    });
-
-    _playerController.resetForMaze(_maze);
-    _applyStageRule(resetMaze: false);
-    await _audioManager.handle(GameAudioEvent.matchRestart);
-    _restartCountdown();
-  }
-
   String get _modeLabel {
     return _controlsInverted ? 'FLIPPED' : 'NORMAL';
   }
@@ -419,10 +388,7 @@ class _GameScreenState extends State<GameScreen>
     _glitchEffectController.update(dt);
 
     final timeToFlip = _nextFlipAtSeconds - _stageElapsedSeconds;
-    if (timeToFlip <= _stageRule.warningTime && timeToFlip > 0) {
-      _flipWarningActive = true;
-      _flipWarningTimeLeft = timeToFlip;
-    }
+    if (timeToFlip <= _stageRule.warningTime && timeToFlip > 0) {}
 
     if (_stageElapsedSeconds >= _nextFlipAtSeconds) {
       _controlsInverted = !_controlsInverted;
@@ -433,8 +399,6 @@ class _GameScreenState extends State<GameScreen>
           frameId: _audioFrameId,
         ),
       );
-      _flipWarningActive = false;
-      _flipWarningTimeLeft = 0;
       _nextFlipAtSeconds = _stageElapsedSeconds + _nextFlipInterval();
     }
 
@@ -552,8 +516,6 @@ class _GameScreenState extends State<GameScreen>
     _playerController.setControlsInverted(false);
     _stageElapsedSeconds = 0;
     _nextFlipAtSeconds = _stageRule.firstFlipDelay;
-    _flipWarningActive = false;
-    _flipWarningTimeLeft = 0;
     _devilCell = null;
     _devilSpawned = false;
     _devilMoveAccumulator = 0;
@@ -1634,63 +1596,6 @@ class _GameScreenState extends State<GameScreen>
     unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
     _restartCountdown();
     setState(() {});
-  }
-
-  Widget _buildAudioDebugPanel(double uiScale) {
-    return IgnorePointer(
-      ignoring: true,
-      child: Center(
-        child: ValueListenableBuilder<AudioDebugSnapshot>(
-          valueListenable: _audioManager.debugSnapshot,
-          builder: (context, snapshot, _) {
-            final cooldownText = snapshot.activeCooldowns.entries.isEmpty
-                ? '-'
-                : snapshot.activeCooldowns.entries
-                      .map(
-                        (entry) =>
-                            '${entry.key.name}:${entry.value.inMilliseconds}ms',
-                      )
-                      .join(' ');
-            final busText = snapshot.busGains.entries
-                .map(
-                  (entry) =>
-                      '${entry.key.name}:${(entry.value * 100).round()}%',
-                )
-                .join('  ');
-
-            return Container(
-              constraints: const BoxConstraints(maxWidth: 700),
-              margin: EdgeInsets.symmetric(
-                horizontal: (10 * uiScale).clamp(8.0, 16.0),
-              ),
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-              decoration: BoxDecoration(
-                color: const Color(0xCC000000),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppPalette.accentPurple, width: 0.8),
-              ),
-              child: Text(
-                'audio=${snapshot.matchState.name} '
-                'calm=${snapshot.isCalmPlaying} '
-                'devil=${snapshot.isDevilPlaying} '
-                'alarm=${snapshot.isAlarmPlaying} '
-                'safe=${snapshot.isSafeZoneImmune} '
-                'sec=${snapshot.secondsLeft ?? -1} '
-                'dist=${snapshot.devilDistanceTiles ?? -1}\n'
-                'last=${snapshot.lastEvent}  cooldowns=$cooldownText\n'
-                'bus: $busText',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  height: 1.25,
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
   }
 
   Direction4? _invertDirection(Direction4? direction) {
@@ -2845,160 +2750,6 @@ class _RunFailedDialogGridPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RunFailedDialogGridPainter oldDelegate) {
     return oldDelegate.accent != accent;
-  }
-}
-
-class _ArcadeTrophyBadge extends StatelessWidget {
-  const _ArcadeTrophyBadge({required this.trophies, required this.scale});
-
-  final int trophies;
-  final double scale;
-
-  @override
-  Widget build(BuildContext context) {
-    final safeTrophies = trophies < 0 ? 0 : trophies;
-    final titleSize = (9 * scale).clamp(8.0, 11.0);
-    final valueSize = (16 * scale).clamp(13.0, 20.0);
-    final iconSize = (16 * scale).clamp(13.0, 19.0);
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        (10 * scale).clamp(8.0, 12.0),
-        (7 * scale).clamp(6.0, 9.0),
-        (12 * scale).clamp(10.0, 14.0),
-        (7 * scale).clamp(6.0, 9.0),
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular((14 * scale).clamp(11.0, 18.0)),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF24153D), Color(0xFF0C0A16)],
-        ),
-        border: Border.all(color: const Color(0xFF4DEFFF), width: 1.2),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x884DEFFF),
-            blurRadius: 16,
-            spreadRadius: -2,
-            offset: Offset(0, 1),
-          ),
-          BoxShadow(
-            color: Color(0x552A8FFF),
-            blurRadius: 18,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: (26 * scale).clamp(20.0, 32.0),
-            height: (26 * scale).clamp(20.0, 32.0),
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFFFD86A), Color(0xFFFFA93D)],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Color(0x88FFCB46),
-                  blurRadius: 10,
-                  offset: Offset(0, 2),
-                ),
-              ],
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.emoji_events_rounded,
-              size: iconSize,
-              color: const Color(0xFF3A2200),
-            ),
-          ),
-          SizedBox(width: (8 * scale).clamp(6.0, 10.0)),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'TROPHIES',
-                style: TextStyle(
-                  color: const Color(0xFF7FF8FF),
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.8,
-                  fontSize: titleSize,
-                ),
-              ),
-              Text(
-                '$safeTrophies',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: valueSize,
-                  height: 1,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GameHudBadge extends StatelessWidget {
-  const _GameHudBadge({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.labelFontSize,
-    required this.valueFontSize,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-  final double labelFontSize;
-  final double valueFontSize;
-
-  @override
-  Widget build(BuildContext context) {
-    final darkText = color.computeLuminance() > 0.45;
-    final foreground = darkText ? Colors.black : Colors.white;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: foreground.withAlpha(180),
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.45,
-              fontSize: labelFontSize,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            value,
-            style: TextStyle(
-              color: foreground,
-              fontWeight: FontWeight.w900,
-              fontSize: valueFontSize,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

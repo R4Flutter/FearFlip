@@ -46,12 +46,23 @@ class AuthService {
 
     try {
       final configuredServerClientId = AppRuntimeConfig.googleServerClientId;
-      if (configuredServerClientId.isEmpty) {
-        await _googleSignIn.initialize();
-      } else {
+      final configuredIosClientId = AppRuntimeConfig.googleIosClientId;
+      final serverClientId = configuredServerClientId.isEmpty
+          ? null
+          : configuredServerClientId;
+      final iosClientId = configuredIosClientId.isEmpty
+          ? null
+          : configuredIosClientId;
+
+      if (defaultTargetPlatform == TargetPlatform.iOS && iosClientId != null) {
         await _googleSignIn.initialize(
-          serverClientId: configuredServerClientId,
+          clientId: iosClientId,
+          serverClientId: serverClientId,
         );
+      } else if (serverClientId != null) {
+        await _googleSignIn.initialize(serverClientId: serverClientId);
+      } else {
+        await _googleSignIn.initialize();
       }
     } on PlatformException catch (error) {
       throw _mapPlatformException(error);
@@ -118,6 +129,14 @@ class AuthService {
         details.contains('10')) {
       return AuthConfigurationException(
         'Google Sign-In configuration error. Verify package name, SHA-1/SHA-256, and OAuth client setup in Firebase, then download a fresh google-services.json and rebuild.',
+      );
+    }
+
+    if (details.contains('url scheme') ||
+        details.contains('reversed client id') ||
+        details.contains('redirect_uri_mismatch')) {
+      return AuthConfigurationException(
+        'Google Sign-In iOS callback configuration is missing. Add the reversed client id URL scheme in Info.plist and provide GOOGLE_IOS_CLIENT_ID.',
       );
     }
 
@@ -271,18 +290,21 @@ class AuthService {
         defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS;
 
-    if (isMobileNative && !hasIdToken) {
-      throw AuthConfigurationException(
-        'Google Sign-In did not return an ID token. Configure Firebase Android/iOS OAuth with correct SHA-1/SHA-256 and provide the web client id in GOOGLE_SERVER_CLIENT_ID.',
-      );
-    }
-
     if (!hasIdToken && !hasAccessToken) {
+      final iosHint = defaultTargetPlatform == TargetPlatform.iOS
+          ? ' For iOS, provide GOOGLE_IOS_CLIENT_ID and add the reversed client-id URL scheme in Info.plist (or include GoogleService-Info.plist).'
+          : '';
       throw AuthConfigurationException(
         'Google Sign-In is not configured correctly for this build. '
         'Add SHA-1 and SHA-256 in Firebase Android app settings, then run '
         'FlutterFire configure again and rebuild. If needed, provide '
-        '--dart-define=GOOGLE_SERVER_CLIENT_ID=<web-client-id>.',
+        '--dart-define=GOOGLE_SERVER_CLIENT_ID=<web-client-id>.$iosHint',
+      );
+    }
+
+    if (isMobileNative && !hasIdToken && hasAccessToken) {
+      debugPrint(
+        'Google Sign-In returned only access token; attempting Firebase sign-in with accessToken fallback.',
       );
     }
 
@@ -305,6 +327,14 @@ class AuthService {
       try {
         return await _firebaseAuth.signInWithCredential(credential);
       } on FirebaseAuthException catch (error) {
+        if (!hasIdToken &&
+            hasAccessToken &&
+            (error.code == 'invalid-credential' ||
+                error.code == 'invalid-idp-response')) {
+          throw AuthConfigurationException(
+            'Google access token was rejected. Provide GOOGLE_SERVER_CLIENT_ID (web OAuth client id), verify SHA-1/SHA-256 for this signing key in Firebase, then download a fresh google-services.json and rebuild.',
+          );
+        }
         throw _mapFirebaseAuthException(error);
       }
     }
