@@ -83,6 +83,7 @@ class AudioManager {
   static const Duration _safeZoneDuckDuration = Duration(milliseconds: 500);
   static const Duration _actionEnemyDuckHold = Duration(milliseconds: 220);
   static const Duration _actionEnemyDuckRelease = Duration(milliseconds: 320);
+  static const Duration _winSafetyDelay = Duration(milliseconds: 30);
 
   static const int _devilStartDistanceTiles = 6;
   static const int _devilStopDistanceTiles = 7;
@@ -186,6 +187,7 @@ class AudioManager {
   bool isDevilPlaying = false;
   bool isAlarmPlaying = false;
   bool _isSafeZoneImmune = false;
+  bool _outcomeEventQueued = false;
 
   int? _secondsLeft;
   int? _lastSecondsLeft;
@@ -287,6 +289,27 @@ class AudioManager {
   Future<void> handlePayload(GameAudioEventPayload payload) {
     final completer = Completer<void>();
 
+    if (_shouldDropGameplayEvent(payload.type)) {
+      completer.complete();
+      return completer.future;
+    }
+
+    if (payload.type == GameAudioEvent.playerWon ||
+        payload.type == GameAudioEvent.playerLost) {
+      _outcomeEventQueued = true;
+      _cancelAlarmPulseTimer();
+      isAlarmPlaying = false;
+      _lowTimeLoop.baseVolume = 0;
+      unawaited(_safe('alarm.stopOnOutcomeQueue', _lowTimeLoop.player.stop));
+      unawaited(_stopDevilLoop(immediate: true));
+    }
+
+    if (payload.type == GameAudioEvent.matchStart ||
+        payload.type == GameAudioEvent.matchRestart ||
+        payload.type == GameAudioEvent.matchExit) {
+      _outcomeEventQueued = false;
+    }
+
     if (_isQueueBoundaryEvent(payload.type)) {
       _clearQueuedEvents();
     }
@@ -307,6 +330,25 @@ class AudioManager {
 
     unawaited(_drainQueue());
     return completer.future;
+  }
+
+  bool _shouldDropGameplayEvent(GameAudioEvent event) {
+    final isResetEvent =
+        event == GameAudioEvent.matchStart ||
+        event == GameAudioEvent.matchRestart ||
+        event == GameAudioEvent.matchExit;
+
+    if (_matchState == MatchAudioState.won) {
+      return !isResetEvent;
+    }
+
+    if (_outcomeEventQueued) {
+      return event != GameAudioEvent.playerWon &&
+          event != GameAudioEvent.playerLost &&
+          !isResetEvent;
+    }
+
+    return false;
   }
 
   bool _isQueueBoundaryEvent(GameAudioEvent event) {
@@ -552,6 +594,7 @@ class AudioManager {
   Future<void> _onMatchStart() async {
     _timelineToken++;
 
+    _outcomeEventQueued = false;
     _matchState = MatchAudioState.active;
     isMatchActive = true;
     isWon = false;
@@ -651,6 +694,7 @@ class AudioManager {
   Future<void> _onMatchExit() async {
     _timelineToken++;
 
+    _outcomeEventQueued = false;
     isMatchActive = false;
     isPaused = false;
     isWon = false;
@@ -794,6 +838,13 @@ class AudioManager {
       return;
     }
 
+    if (_matchState == MatchAudioState.won || isWon || _outcomeEventQueued) {
+      if (isAlarmPlaying || _lowTimeLoop.player.playing) {
+        await _stopLowTimeLoop(immediate: true);
+      }
+      return;
+    }
+
     _secondsLeft = secondsLeft;
 
     final previous = _lastSecondsLeft;
@@ -821,7 +872,11 @@ class AudioManager {
   }
 
   Future<void> _onPlayerWon() async {
-    if (!_canUseMatchAudioLayer) {
+    if (_matchState == MatchAudioState.exited) {
+      return;
+    }
+
+    if (_matchState == MatchAudioState.won && isWon) {
       return;
     }
 
@@ -829,12 +884,27 @@ class AudioManager {
     isWon = true;
     isLost = false;
     isMatchActive = false;
+    isPaused = false;
     _matchState = MatchAudioState.won;
+    _outcomeEventQueued = true;
 
     _cancelCalmStartTimer();
+    _cancelAlarmPulseTimer();
+    _cancelSafeZoneDuckTimer(resetFactor: true);
+    _cancelActionEnemyDuckTimer(resetFactor: true);
+    await _applyEnemyBusDuck();
+
     await _stopLowTimeLoop(immediate: true);
     await _stopDevilLoop(immediate: true);
-    unawaited(_fadeOutCalmOnWin());
+
+    if (isCalmPlaying || _calmLoop.player.playing) {
+      await _fadeOutCalmOnWin();
+    } else {
+      await _stopCalmLoop(immediate: true);
+    }
+
+    await Future<void>.delayed(_winSafetyDelay);
+
     await _playOneShot(
       _AudioCue.winning,
       bus: AudioBus.ui,
@@ -847,6 +917,8 @@ class AudioManager {
     if (!_canUseMatchAudioLayer) {
       return;
     }
+
+    _outcomeEventQueued = true;
 
     _timelineToken++;
     final token = _timelineToken;
@@ -994,7 +1066,7 @@ class AudioManager {
   }
 
   Future<void> _startLowTimeLoop() async {
-    if (isAlarmPlaying || !_canUseMatchAudioLayer) {
+    if (_outcomeEventQueued || isAlarmPlaying || !_canUseMatchAudioLayer) {
       return;
     }
 
@@ -1007,7 +1079,23 @@ class AudioManager {
     await _safe('alarm.seek0', () async {
       await _lowTimeLoop.player.seek(Duration.zero);
     });
+
+    if (_outcomeEventQueued || !_canUseMatchAudioLayer) {
+      await _safe('alarm.stopBeforePlay', _lowTimeLoop.player.stop);
+      _lowTimeLoop.baseVolume = 0;
+      isAlarmPlaying = false;
+      return;
+    }
+
     await _safe('alarm.play', _lowTimeLoop.player.play);
+
+    if (_outcomeEventQueued || !_canUseMatchAudioLayer) {
+      await _safe('alarm.stopAfterPlay', _lowTimeLoop.player.stop);
+      _lowTimeLoop.baseVolume = 0;
+      isAlarmPlaying = false;
+      return;
+    }
+
     isAlarmPlaying = true;
 
     _updateAlarmPulse(_secondsLeft ?? 10);
@@ -1042,6 +1130,11 @@ class AudioManager {
 
     isAlarmPlaying = false;
     _lowTimeLoop.baseVolume = 0;
+  }
+
+  Future<void> stopAlarmImmediately() async {
+    await _stopLowTimeLoop(immediate: true);
+    _emitDebugSnapshot();
   }
 
   Future<void> _stopCalmLoop({required bool immediate}) async {

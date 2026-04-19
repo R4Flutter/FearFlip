@@ -217,6 +217,12 @@ class _GameScreenState extends State<GameScreen>
     _playerController.stop();
     _countdownTimer?.cancel();
 
+    try {
+      await _audioManager.stopAlarmImmediately();
+    } catch (_) {
+      // Keep stage transition crash-safe if alarm stop fails.
+    }
+
     setState(() {
       _isStageTransition = true;
       _completedStage = _stage;
