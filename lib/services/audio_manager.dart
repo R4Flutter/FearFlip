@@ -246,7 +246,9 @@ class AudioManager {
 
     for (final voice in _allOneShotVoices()) {
       if (voice.completionSubscription == null) {
-        voice.completionSubscription = voice.player.onPlayerComplete.listen((_) {
+        voice.completionSubscription = voice.player.onPlayerComplete.listen((
+          _,
+        ) {
           voice.inUse = false;
         });
       }
@@ -284,6 +286,11 @@ class AudioManager {
 
   Future<void> handlePayload(GameAudioEventPayload payload) {
     final completer = Completer<void>();
+
+    if (_isQueueBoundaryEvent(payload.type)) {
+      _clearQueuedEvents();
+    }
+
     if (payload.type == GameAudioEvent.devilDistanceChanged) {
       _coalesceQueuedDevilDistanceEvents();
     }
@@ -300,6 +307,27 @@ class AudioManager {
 
     unawaited(_drainQueue());
     return completer.future;
+  }
+
+  bool _isQueueBoundaryEvent(GameAudioEvent event) {
+    return event == GameAudioEvent.matchStart ||
+        event == GameAudioEvent.matchRestart ||
+        event == GameAudioEvent.matchExit ||
+        event == GameAudioEvent.playerWon ||
+        event == GameAudioEvent.playerLost;
+  }
+
+  void _clearQueuedEvents() {
+    if (_queue.isEmpty) {
+      return;
+    }
+
+    while (_queue.isNotEmpty) {
+      final queued = _queue.removeFirst();
+      if (!queued.completer.isCompleted) {
+        queued.completer.complete();
+      }
+    }
   }
 
   void _coalesceQueuedDevilDistanceEvents() {
@@ -806,7 +834,7 @@ class AudioManager {
     _cancelCalmStartTimer();
     await _stopLowTimeLoop(immediate: true);
     await _stopDevilLoop(immediate: true);
-    await _fadeOutCalmOnWin();
+    unawaited(_fadeOutCalmOnWin());
     await _playOneShot(
       _AudioCue.winning,
       bus: AudioBus.ui,
@@ -1089,8 +1117,8 @@ class AudioManager {
     required double baseVolume,
     required double playbackRate,
   }) async {
-   if (bus == AudioBus.ui || bus == AudioBus.action) {
-  unawaited(_duckEnemyForActionSfx());
+    if (bus == AudioBus.ui || bus == AudioBus.action) {
+      unawaited(_duckEnemyForActionSfx());
     }
 
     final resolved = _resolvedAssets[cue];
@@ -1281,7 +1309,9 @@ class AudioManager {
       await _applyEnemyBusDuck();
       if (i < steps) {
         await Future<void>.delayed(
-          Duration(milliseconds: _actionEnemyDuckRelease.inMilliseconds ~/ steps),
+          Duration(
+            milliseconds: _actionEnemyDuckRelease.inMilliseconds ~/ steps,
+          ),
         );
       }
     }

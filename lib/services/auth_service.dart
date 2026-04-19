@@ -234,32 +234,29 @@ class AuthService {
     final existing = _firebaseAuth.currentUser;
     await _ensureGoogleSignInInitialized();
 
-    GoogleSignInAccount? account;
+    // Clear cached provider session so users always get account picker.
     try {
-      final lightweightAttempt = _googleSignIn
-          .attemptLightweightAuthentication();
-      if (lightweightAttempt != null) {
-        account = await lightweightAttempt;
-      }
-    } on GoogleSignInException {
-      // Fallback to explicit authentication below when lightweight auth fails.
+      await _googleSignIn.signOut();
     } catch (_) {
-      // Ignore lightweight auth errors and continue with explicit auth flow.
+      // Ignore sign-out failures and continue to explicit auth flow.
     }
 
-    if (account == null) {
-      try {
-        account = await _googleSignIn.authenticate();
-      } on PlatformException catch (error) {
-        throw _mapPlatformException(error);
-      } on GoogleSignInException catch (error) {
-        throw _mapGoogleSignInException(error);
-      }
+    GoogleSignInAccount account;
+    try {
+      account = await _googleSignIn.authenticate();
+    } on PlatformException catch (error) {
+      throw _mapPlatformException(error);
+    } on GoogleSignInException catch (error) {
+      throw _mapGoogleSignInException(error);
+    } catch (_) {
+      throw AuthSignInFailedException(
+        'Unable to sign in with Google right now. Please try again.',
+      );
     }
 
     final authentication = (() {
       try {
-        return account!.authentication;
+        return account.authentication;
       } on PlatformException catch (error) {
         throw _mapPlatformException(error);
       } on GoogleSignInException catch (error) {
@@ -327,7 +324,7 @@ class AuthService {
     }
   }
 
-  Future<void> signOut({bool keepGoogleSession = true}) async {
+  Future<void> signOut({bool keepGoogleSession = false}) async {
     if (!keepGoogleSession) {
       try {
         await _googleSignIn.signOut();

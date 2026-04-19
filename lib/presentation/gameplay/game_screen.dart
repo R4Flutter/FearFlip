@@ -106,6 +106,7 @@ class _GameScreenState extends State<GameScreen>
   bool _lostByTime = false;
   bool _isPaused = false;
   bool _isExternallyInactive = false;
+  bool _roundResolved = false;
   int _audioFrameId = 0;
 
   @override
@@ -207,9 +208,11 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Future<void> _loadNextMaze() async {
-    if (_isStageTransition) {
+    if (!mounted || _roundResolved || _isStageTransition || _showLossOverlay) {
       return;
     }
+
+    _roundResolved = true;
 
     _playerController.stop();
     _countdownTimer?.cancel();
@@ -219,10 +222,14 @@ class _GameScreenState extends State<GameScreen>
       _completedStage = _stage;
     });
 
-    await _audioManager.handle(GameAudioEvent.playerWon);
+    try {
+      await _audioManager.handle(GameAudioEvent.playerWon);
+    } catch (_) {
+      // Keep stage transition crash-safe if audio dispatch fails.
+    }
 
     try {
-      await widget.onStageCleared(_stage);
+      await widget.onStageCleared(_stage).timeout(const Duration(seconds: 3));
     } catch (_) {
       // Keep stage progression crash-safe even if trophy persistence fails.
     }
@@ -246,7 +253,7 @@ class _GameScreenState extends State<GameScreen>
 
     _playerController.resetForMaze(_maze);
     _applyStageRule(resetMaze: false);
-    await _audioManager.handle(GameAudioEvent.matchRestart);
+    unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
     _restartCountdown();
   }
 
@@ -326,6 +333,9 @@ class _GameScreenState extends State<GameScreen>
       if (!mounted) {
         return;
       }
+      if (_roundResolved || _isStageTransition) {
+        return;
+      }
       if (_showLossOverlay) {
         return;
       }
@@ -334,7 +344,11 @@ class _GameScreenState extends State<GameScreen>
       }
       if (_remainingSeconds <= 0) {
         _countdownTimer?.cancel();
-        unawaited(_onTimeExpired());
+        if (_playerReachedGoal) {
+          unawaited(_loadNextMaze());
+        } else {
+          unawaited(_onTimeExpired());
+        }
         return;
       }
       setState(() {
@@ -350,7 +364,11 @@ class _GameScreenState extends State<GameScreen>
 
       if (_remainingSeconds <= 0) {
         _countdownTimer?.cancel();
-        unawaited(_onTimeExpired());
+        if (_playerReachedGoal) {
+          unawaited(_loadNextMaze());
+        } else {
+          unawaited(_onTimeExpired());
+        }
       }
     });
   }
@@ -365,6 +383,7 @@ class _GameScreenState extends State<GameScreen>
 
   void _onStageTick() {
     if (!mounted ||
+        _roundResolved ||
         _isStageTransition ||
         _isTimeUpHandling ||
         _showLossOverlay ||
@@ -444,7 +463,7 @@ class _GameScreenState extends State<GameScreen>
         _devilMoveAccumulator = 0;
       }
 
-        final distanceCells =
+      final distanceCells =
           _maze.shortestPathDistance(_devilCell!, _playerController.position) ??
           99;
       unawaited(
@@ -485,15 +504,22 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _onDevilCaught() async {
     if (!mounted ||
+        _roundResolved ||
         _isTimeUpHandling ||
         _isStageTransition ||
         _showLossOverlay) {
       return;
     }
+    _roundResolved = true;
     _isTimeUpHandling = true;
     _isPaused = false;
+    _countdownTimer?.cancel();
     _playerController.stop();
-    await _audioManager.handle(GameAudioEvent.playerLost);
+    try {
+      await _audioManager.handle(GameAudioEvent.playerLost);
+    } catch (_) {
+      // Keep fail flow crash-safe if audio dispatch fails.
+    }
     setState(() {
       _showLossOverlay = true;
       _lostByTime = false;
@@ -531,6 +557,7 @@ class _GameScreenState extends State<GameScreen>
     _adActionInProgress = false;
     _lostByTime = false;
     _isPaused = false;
+    _roundResolved = false;
     _glitchEffectController.clear();
   }
 
@@ -868,6 +895,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _restartCountdown() {
+    _roundResolved = false;
     _remainingSeconds = _stageDurationSeconds;
     unawaited(
       _audioManager.handle(
@@ -880,22 +908,36 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _onTimeExpired() async {
     if (!mounted ||
+        _roundResolved ||
         _isTimeUpHandling ||
         _isStageTransition ||
         _showLossOverlay) {
       return;
     }
 
+    if (_playerReachedGoal) {
+      unawaited(_loadNextMaze());
+      return;
+    }
+
+    _roundResolved = true;
     _isTimeUpHandling = true;
     _isPaused = false;
+    _countdownTimer?.cancel();
     _playerController.stop();
+    try {
+      await _audioManager.handle(GameAudioEvent.playerLost);
+    } catch (_) {
+      // Keep timeout flow crash-safe if audio dispatch fails.
+    }
     setState(() {
       _showLossOverlay = true;
       _lostByTime = true;
     });
-    unawaited(_audioManager.handle(GameAudioEvent.playerLost));
     _isTimeUpHandling = false;
   }
+
+  bool get _playerReachedGoal => _playerController.position == _maze.end;
 
   Future<void> _onExitPressed() async {
     final shouldExit = await showDialog<bool>(
@@ -1167,15 +1209,15 @@ class _GameScreenState extends State<GameScreen>
     final verticalPadding = (10 * uiScale).clamp(8.0, 16.0);
     final controlsLift = (-44 * uiScale).clamp(-56.0, -30.0);
     final controlsBottomPadding = (6 * uiScale).clamp(4.0, 12.0);
-    final topButtonSize = (42 * uiScale).clamp(38.0, 52.0);
-    final topButtonIconSize = (20 * uiScale).clamp(18.0, 24.0);
-    final hudTopGap = (topButtonSize + (8 * uiScale).clamp(6.0, 14.0))
-        .toDouble();
-    final hudLabelFont = (10 * uiScale).clamp(9.0, 12.0);
-    final hudValueFont = (13 * uiScale).clamp(11.0, 15.0);
-    final timerFont = (13 * uiScale).clamp(11.0, 15.0);
     final mazeFramePadding = (6 * uiScale).clamp(4.0, 10.0);
     final stageClearTextSize = (42 * uiScale).clamp(26.0, 50.0);
+    final floatingLabelSize = (10 * uiScale).clamp(8.0, 12.0);
+    final floatingValueSize = (20 * uiScale).clamp(15.0, 24.0);
+    final floatingSubValueSize = (14 * uiScale).clamp(11.0, 18.0);
+    final floatingTop = (4 * uiScale).clamp(2.0, 8.0);
+    final floatingDrift =
+        sin(_pulseController.value * pi * 2) * (1.8 * uiScale);
+    final timeDigits = _timeLabel.replaceFirst('TIME: ', '');
 
     final stageClearSlide =
         Tween<Offset>(
@@ -1204,122 +1246,7 @@ class _GameScreenState extends State<GameScreen>
             children: [
               Column(
                 children: [
-                  SizedBox(height: hudTopGap),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppPalette.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppPalette.borderSoft),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x33000000),
-                          blurRadius: 12,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    padding: EdgeInsets.fromLTRB(
-                      (10 * uiScale).clamp(8.0, 14.0),
-                      (10 * uiScale).clamp(8.0, 14.0),
-                      (10 * uiScale).clamp(8.0, 14.0),
-                      (10 * uiScale).clamp(8.0, 14.0),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Container(
-                              height: (42 * uiScale).clamp(38.0, 48.0),
-                              padding: EdgeInsets.symmetric(
-                                horizontal: (12 * uiScale).clamp(9.0, 14.0),
-                              ),
-                              decoration: BoxDecoration(
-                                color: _isPanic
-                                    ? const Color(0xFFFF8A80)
-                                    : AppPalette.neonGreen,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.schedule_rounded,
-                                    color: Colors.black,
-                                    size: (16 * uiScale).clamp(14.0, 18.0),
-                                  ),
-                                  SizedBox(
-                                    width: (6 * uiScale).clamp(4.0, 8.0),
-                                  ),
-                                  Text(
-                                    _timeLabel,
-                                    style: TextStyle(
-                                      color: Colors.black,
-                                      fontSize: timerFont,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: (8 * uiScale).clamp(6.0, 12.0)),
-                        Wrap(
-                          spacing: (8 * uiScale).clamp(6.0, 12.0),
-                          runSpacing: (8 * uiScale).clamp(6.0, 12.0),
-                          children: [
-                            _GameHudBadge(
-                              label: 'STAGE',
-                              value: '$_stage',
-                              color: AppPalette.accentPink,
-                              labelFontSize: hudLabelFont,
-                              valueFontSize: hudValueFont,
-                            ),
-                            _GameHudBadge(
-                              label: 'MODE',
-                              value: _modeLabel,
-                              color: _controlsInverted
-                                  ? AppPalette.danger
-                                  : AppPalette.neonGreen,
-                              labelFontSize: hudLabelFont,
-                              valueFontSize: hudValueFont,
-                            ),
-                            _GameHudBadge(
-                              label: 'CHECKPOINT',
-                              value: '$_checkpoint',
-                              color: AppPalette.accentPurple,
-                              labelFontSize: hudLabelFont,
-                              valueFontSize: hudValueFont,
-                            ),
-                            _GameHudBadge(
-                              label: 'STATE',
-                              value: _playerSafe ? 'SAFE' : 'EXPOSED',
-                              color: _playerSafe
-                                  ? const Color(0xFF5EDB87)
-                                  : const Color(0xFFFFA39A),
-                              labelFontSize: hudLabelFont,
-                              valueFontSize: hudValueFont,
-                            ),
-                            _GameHudBadge(
-                              label: 'FLIP',
-                              value: _flipWarningActive
-                                  ? '${_flipWarningTimeLeft.toStringAsFixed(1)}s'
-                                  : 'STABLE',
-                              color: _flipWarningActive
-                                  ? AppPalette.danger
-                                  : const Color(0xFFB4F76B),
-                              labelFontSize: hudLabelFont,
-                              valueFontSize: hudValueFont,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+                  SizedBox(height: (16 * uiScale).clamp(10.0, 22.0)),
                   Expanded(
                     child: Center(
                       child: AspectRatio(
@@ -1412,76 +1339,58 @@ class _GameScreenState extends State<GameScreen>
                   ),
                 ],
               ),
-              Align(
-                alignment: Alignment.topLeft,
-                child: Padding(
-                  padding: EdgeInsets.only(top: (2 * uiScale).clamp(1.0, 4.0)),
-                  child: _ArcadeTrophyBadge(
-                    trophies: widget.totalTrophies,
-                    scale: uiScale,
-                  ),
-                ),
-              ),
-              Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: EdgeInsets.only(top: (2 * uiScale).clamp(1.0, 4.0)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+              Positioned(
+                left: (2 * uiScale).clamp(1.0, 8.0),
+                top: floatingTop + floatingDrift,
+                child: IgnorePointer(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(
-                        width: topButtonSize,
-                        height: topButtonSize,
-                        child: FilledButton(
-                          onPressed: _togglePause,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppPalette.surfaceAlt,
-                            foregroundColor: AppPalette.neonGreen,
-                            side: BorderSide(
-                              color: AppPalette.neonGreen.withAlpha(170),
-                            ),
-                            padding: EdgeInsets.zero,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: Icon(
-                            _isPaused ? Icons.play_arrow : Icons.pause,
-                            size: topButtonIconSize,
-                          ),
-                        ),
+                      _FloatingHudMetric(
+                        label: 'STAGE',
+                        value: _stage.toString(),
+                        labelColor: const Color(0xFF79EFFF),
+                        valueColor: AppPalette.accentPink,
+                        labelSize: floatingLabelSize,
+                        valueSize: floatingValueSize,
+                        icon: Icons.auto_awesome_rounded,
                       ),
-                      SizedBox(width: (8 * uiScale).clamp(6.0, 12.0)),
-                      SizedBox(
-                        width: topButtonSize,
-                        height: topButtonSize,
-                        child: FilledButton(
-                          onPressed: _onExitPressed,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppPalette.surfaceAlt,
-                            foregroundColor: AppPalette.danger,
-                            side: BorderSide(
-                              color: AppPalette.danger.withAlpha(170),
-                            ),
-                            padding: EdgeInsets.zero,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: Icon(Icons.close, size: topButtonIconSize),
-                        ),
+                      SizedBox(height: (6 * uiScale).clamp(4.0, 10.0)),
+                      _FloatingHudMetric(
+                        label: 'CHECKPOINT',
+                        value: _checkpoint.toString(),
+                        labelColor: const Color(0xFFC5B0FF),
+                        valueColor: AppPalette.accentPurple,
+                        labelSize: floatingLabelSize,
+                        valueSize: floatingSubValueSize,
+                        icon: Icons.flag_rounded,
                       ),
                     ],
                   ),
                 ),
               ),
-              if (kDebugMode)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: (8 * uiScale).clamp(6.0, 14.0),
-                  child: _buildAudioDebugPanel(uiScale),
+              Positioned(
+                right: (2 * uiScale).clamp(1.0, 8.0),
+                top: floatingTop - floatingDrift,
+                child: IgnorePointer(
+                  child: _FloatingHudMetric(
+                    label: 'TIME',
+                    value: timeDigits,
+                    labelColor: _isPanic
+                        ? const Color(0xFFFFA39A)
+                        : const Color(0xFFB7FFA8),
+                    valueColor: _isPanic
+                        ? AppPalette.danger
+                        : AppPalette.neonGreen,
+                    labelSize: floatingLabelSize,
+                    valueSize: floatingValueSize,
+                    icon: _isPanic
+                        ? Icons.favorite_rounded
+                        : Icons.schedule_rounded,
+                    alignEnd: true,
+                  ),
                 ),
+              ),
               if (_isPaused)
                 Positioned.fill(
                   child: IgnorePointer(
@@ -2175,6 +2084,91 @@ class _GameScreenState extends State<GameScreen>
           );
         },
       ),
+    );
+  }
+}
+
+class _FloatingHudMetric extends StatelessWidget {
+  const _FloatingHudMetric({
+    required this.label,
+    required this.value,
+    required this.labelColor,
+    required this.valueColor,
+    required this.labelSize,
+    required this.valueSize,
+    required this.icon,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String value;
+  final Color labelColor;
+  final Color valueColor;
+  final double labelSize;
+  final double valueSize;
+  final IconData icon;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final textAlign = alignEnd ? TextAlign.right : TextAlign.left;
+    final crossAxis = alignEnd
+        ? CrossAxisAlignment.end
+        : CrossAxisAlignment.start;
+
+    return Column(
+      crossAxisAlignment: crossAxis,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: labelColor.withAlpha(230), size: labelSize + 3),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              textAlign: textAlign,
+              style: TextStyle(
+                color: labelColor,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.9,
+                fontSize: labelSize,
+                height: 1,
+                shadows: [
+                  Shadow(
+                    color: labelColor.withAlpha(130),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        Text(
+          value,
+          textAlign: textAlign,
+          style: TextStyle(
+            color: valueColor,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.1,
+            fontSize: valueSize,
+            height: 1,
+            shadows: [
+              Shadow(
+                color: valueColor.withAlpha(160),
+                blurRadius: 14,
+                offset: const Offset(0, 3),
+              ),
+              const Shadow(
+                color: Color(0x99000000),
+                blurRadius: 9,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
