@@ -7,7 +7,8 @@ import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 
 import '../services/ads_service.dart';
-import '../services/audio_service.dart';
+import '../services/audio_manager.dart';
+import '../services/game_audio_event.dart';
 import '../services/leaderboard_service.dart';
 import '../domain/procedural/level_config.dart';
 import '../domain/procedural/procedural_modules.dart';
@@ -86,12 +87,12 @@ class HudState {
 class FearFlipGame extends FlameGame {
   FearFlipGame({
     required this.adsService,
-    required this.audioService,
+    required this.audioManager,
     required this.leaderboardService,
   });
 
   final AdsService adsService;
-  final AudioService audioService;
+  final AudioManager audioManager;
   final LeaderboardService leaderboardService;
 
   final Random _random = Random();
@@ -156,6 +157,7 @@ class FearFlipGame extends FlameGame {
   double _glitchLeft = 0;
   double _shakeLeft = 0;
   double _goalHintLeft = 0;
+  int _audioFrameId = 0;
 
   Vector2 _inputDirection = Vector2.zero();
 
@@ -218,8 +220,7 @@ class FearFlipGame extends FlameGame {
     FearFlipMode mode, {
     FearFlipCharacter? character,
   }) async {
-    await audioService.setCriticalGameplayAudioOnly(true);
-    await audioService.stopAll();
+    await audioManager.handle(GameAudioEvent.matchStart);
 
     _selectedCharacter = character ?? _selectedCharacter;
     _mode = mode;
@@ -236,6 +237,7 @@ class FearFlipGame extends FlameGame {
     _shakeLeft = 0;
     _goalHintLeft = GameBalanceConfig.alwaysShowGoalHint ? double.infinity : 4;
     _nextBreathingEventIndex = 0;
+    _audioFrameId = 0;
 
     _difficulty = _progressionMode == ProgressionMode.levelBased
         ? _difficultyEngine.nextLevelBasedDifficulty(levelIndex: _levelIndex)
@@ -320,8 +322,6 @@ class FearFlipGame extends FlameGame {
     overlays.remove('win');
     overlays.add('hud');
 
-    await audioService.playCalm();
-
     _updateHud();
   }
 
@@ -399,10 +399,10 @@ class FearFlipGame extends FlameGame {
       _goalHintLeft = 0;
     }
 
-    await Future.wait<void>([
-      audioService.playFlipCue(),
-      audioService.playIntense(),
-    ]);
+    await audioManager.handle(
+      GameAudioEvent.flipTriggered,
+      frameId: _audioFrameId,
+    );
     _updateHud();
   }
 
@@ -477,6 +477,7 @@ class FearFlipGame extends FlameGame {
 
   @override
   void update(double dt) {
+    _audioFrameId += 1;
     super.update(dt);
 
     if (!_isRunningRound) {
@@ -520,15 +521,34 @@ class FearFlipGame extends FlameGame {
     }
 
     if (inSafeZone && !_wasInSafeZone) {
-      unawaited(audioService.playSafeZoneCue());
+      unawaited(audioManager.handle(GameAudioEvent.safeZoneEntered));
+    } else if (!inSafeZone && _wasInSafeZone) {
+      unawaited(audioManager.handle(GameAudioEvent.safeZoneExited));
     }
     _wasInSafeZone = inSafeZone;
 
-    final distToDevil = _devil?.position.distanceTo(_player.position);
-    if (distToDevil != null) {
-      final intensity = (1 - (distToDevil / (GameBalanceConfig.tileSize * 10)))
-          .clamp(0.0, 1.0);
-      audioService.setHeartbeatIntensity(intensity);
+    if (_devil != null) {
+      final devilCell = _maze.worldToCell(_devil!.position);
+      final playerCell = _maze.worldToCell(_player.position);
+      final distanceTiles =
+          _maze.shortestPathDistance(devilCell, playerCell) ?? 99;
+      unawaited(
+        audioManager.handle(
+          GameAudioEvent.devilDistanceChanged,
+          devilDistanceTiles: distanceTiles,
+          devilEnabled: true,
+          safeZoneImmune: inSafeZone,
+        ),
+      );
+    } else {
+      unawaited(
+        audioManager.handle(
+          GameAudioEvent.devilDistanceChanged,
+          devilDistanceTiles: 99,
+          devilEnabled: false,
+          safeZoneImmune: inSafeZone,
+        ),
+      );
     }
 
     final goalReached =
@@ -560,23 +580,26 @@ class FearFlipGame extends FlameGame {
     _isRunningRound = false;
     _inputDirection = Vector2.zero();
     _wasInSafeZone = false;
-    await audioService.setHeartbeatIntensity(0);
+    await audioManager.handle(
+      GameAudioEvent.devilDistanceChanged,
+      devilDistanceTiles: 99,
+      devilEnabled: false,
+      safeZoneImmune: false,
+    );
 
     if (won) {
-      await audioService.stopGameLostCue();
+      await audioManager.handle(GameAudioEvent.playerWon);
       _levelIndex++;
       overlays.remove('hud');
       overlays.add('win');
-      await audioService.startWinningTransitionLoop();
       await leaderboardService.submitRun(
         scoreSeconds: _roundElapsed.floor(),
         mode: _mode.name,
       );
     } else {
-      await audioService.stopWinningTransitionLoop();
+      await audioManager.handle(GameAudioEvent.playerLost);
       overlays.remove('hud');
       overlays.add('gameOver');
-      await audioService.playGameLostCue();
       await adsService.showInterstitialAfterGameOver();
     }
 
@@ -607,10 +630,8 @@ class FearFlipGame extends FlameGame {
     _devil?.resetChase();
     _mazeComponent.devilPresent = _devil != null;
 
-    await audioService.stopGameLostCue();
-    await audioService.stopWinningTransitionLoop();
+    await audioManager.handle(GameAudioEvent.matchRestart);
     _updateHud(roundResult: RoundResult.playing, canRevive: false);
-    await audioService.playCalm();
   }
 
   void _updateHud({RoundResult? roundResult, bool? canRevive}) {
@@ -698,7 +719,7 @@ class FearFlipGame extends FlameGame {
   void onRemove() {
     hud.dispose();
     adsService.dispose();
-    audioService.stopAll();
+    unawaited(audioManager.handle(GameAudioEvent.matchExit));
     super.onRemove();
   }
 }

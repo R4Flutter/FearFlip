@@ -3,19 +3,24 @@ import 'dart:async';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../config/app_runtime_config.dart';
+import 'consent_service.dart';
 
 class AdsService {
   RewardedAd? _rewardedAd;
   InterstitialAd? _interstitialAd;
 
   Future<void> preload() async {
-    if (!AppRuntimeConfig.adsEnabled) {
+    if (!AppRuntimeConfig.adsEnabled ||
+        !ConsentService.instance.canRequestAds) {
       return;
     }
     await Future.wait([_loadRewarded(), _loadInterstitial()]);
   }
 
   Future<void> _loadRewarded() {
+    if (!ConsentService.instance.canRequestAds) {
+      return Future.value();
+    }
     final adUnitId = AppRuntimeConfig.rewardedAdUnitId;
     if (adUnitId == null) {
       return Future.value();
@@ -37,6 +42,9 @@ class AdsService {
   }
 
   Future<void> _loadInterstitial() {
+    if (!ConsentService.instance.canRequestAds) {
+      return Future.value();
+    }
     final adUnitId = AppRuntimeConfig.interstitialAdUnitId;
     if (adUnitId == null) {
       return Future.value();

@@ -136,6 +136,47 @@ class MazeData {
     return true;
   }
 
+  int? shortestPathDistance(Point<int> from, Point<int> to) {
+    if (!isWalkable(from) || !isWalkable(to)) {
+      return null;
+    }
+    if (from == to) {
+      return 0;
+    }
+
+    final queue = <Point<int>>[from];
+    final distance = <Point<int>, int>{from: 0};
+
+    const neighbors = <Point<int>>[
+      Point<int>(1, 0),
+      Point<int>(-1, 0),
+      Point<int>(0, 1),
+      Point<int>(0, -1),
+    ];
+
+    while (queue.isNotEmpty) {
+      final current = queue.removeAt(0);
+      final currentDist = distance[current] ?? 0;
+
+      for (final delta in neighbors) {
+        final next = Point<int>(current.x + delta.x, current.y + delta.y);
+        if (!isWalkable(next) || distance.containsKey(next)) {
+          continue;
+        }
+
+        final nextDist = currentDist + 1;
+        if (next == to) {
+          return nextDist;
+        }
+
+        distance[next] = nextDist;
+        queue.add(next);
+      }
+    }
+
+    return null;
+  }
+
   static MazeData generate({
     required int logicalRows,
     required int logicalCols,

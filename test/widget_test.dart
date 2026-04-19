@@ -142,4 +142,27 @@ void main() {
     first.dispose();
     second.dispose();
   });
+
+  testWidgets('Play as guest opens dashboard instead of auto-starting run', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    final provider = AppFlowProvider(
+      sessionDatabase: LocalSessionDatabase(),
+      startSurvivalUseCase: StartSurvivalUseCase(
+        sessionDatabase: LocalSessionDatabase(),
+      ),
+      enableAuthBootstrap: false,
+    );
+
+    await provider.playAsGuest();
+    await tester.pump();
+
+    expect(provider.showAuthGate, isFalse);
+    expect(provider.showLanding, isTrue);
+    expect(provider.isStarting, isFalse);
+
+    provider.dispose();
+  });
 }

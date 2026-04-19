@@ -27,6 +27,20 @@
 - Copy `android/key.properties.example` to `android/key.properties`.
 - Pass build-time runtime IDs with `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, `--dart-define=ADMOB_REWARDED_AD_UNIT_ID=...`, and `--dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=...`.
 
+## Google Sign-In preflight
+1. Package match:
+   - Ensure `fearflip.applicationId` in `android/release.properties` matches a `client[].client_info.android_client_info.package_name` entry in `android/app/google-services.json`.
+2. Certificate fingerprints:
+   - Run `cd android && ./gradlew :app:signingReport`.
+   - Add BOTH debug and release SHA-1/SHA-256 to the Firebase Android app for the selected package.
+3. Firebase auth provider:
+   - In Firebase Console -> Authentication -> Sign-in method, confirm Google provider is enabled.
+4. Refresh config after Firebase changes:
+   - Re-download `android/app/google-services.json` from Firebase and replace the local file.
+   - Run `flutter clean && flutter pub get` and rebuild.
+5. Device readiness:
+   - Confirm Google Play Services is available and up to date on test devices.
+
 ## Compliance
 - Privacy policy required (Firebase + Ads usage).
 - Data safety form with analytics/auth/crash reporting disclosures.

@@ -10,8 +10,9 @@ import '../../domain/usecases/start_survival_use_case.dart';
 import '../../game/game.dart';
 import '../controllers/game_controller.dart';
 import '../../services/ads_service.dart';
+import '../../services/audio_manager.dart';
 import '../../services/auth_service.dart';
-import '../../services/audio_service.dart';
+import '../../services/game_audio_event.dart';
 import '../../services/leaderboard_service.dart';
 
 class AppFlowProvider extends ChangeNotifier {
@@ -40,7 +41,7 @@ class AppFlowProvider extends ChangeNotifier {
     _sessionDatabase.markAppLaunch();
     game = FearFlipGame(
       adsService: AdsService(),
-      audioService: AudioService(),
+      audioManager: AudioManager.instance,
       leaderboardService:
           leaderboardService ??
           (enableAuthBootstrap
@@ -170,7 +171,7 @@ class AppFlowProvider extends ChangeNotifier {
       // Keep default size when local preferences are unavailable.
     }
 
-    await AudioService.configureGlobalAudio(
+    await AudioManager.configureGlobalAudio(
       volume: _soundVolume,
       muted: _isSoundMuted,
     );
@@ -202,7 +203,7 @@ class AppFlowProvider extends ChangeNotifier {
     _soundVolume = normalized;
     notifyListeners();
 
-    await AudioService.configureGlobalAudio(volume: _soundVolume);
+    await AudioManager.configureGlobalAudio(volume: _soundVolume);
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -220,7 +221,7 @@ class AppFlowProvider extends ChangeNotifier {
     _isSoundMuted = muted;
     notifyListeners();
 
-    await AudioService.configureGlobalAudio(muted: _isSoundMuted);
+    await AudioManager.configureGlobalAudio(muted: _isSoundMuted);
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -278,15 +279,62 @@ class AppFlowProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await authService.signInWithGoogle();
+      final credential = await authService.signInWithGoogle().timeout(
+        const Duration(seconds: 25),
+      );
+      var signedInUser = credential.user ?? authService.currentUser;
+      if (signedInUser == null) {
+        // Give Firebase auth-state propagation a brief chance to settle.
+        await Future<void>.delayed(const Duration(milliseconds: 220));
+        signedInUser = authService.currentUser;
+      }
+      if (signedInUser == null) {
+        _authError =
+            'Google sign-in completed but no user session was created.';
+        return;
+      }
+
+      _offlineGuestMode = false;
+      _offlineGuestName = null;
+      _currentUser = signedInUser;
+      _showLanding = true;
+      _authError = null;
+      unawaited(_syncGlobalPanicProgress());
     } on AuthCancelledException {
       _authError = null;
     } on AuthConfigurationException catch (error) {
       _authError = error.message;
+    } on AuthSignInFailedException catch (error) {
+      _authError = error.message;
+    } on TimeoutException {
+      _authError =
+          'Google sign-in timed out. Please check your internet and try again.';
     } on FirebaseAuthException catch (error) {
+      debugPrint(
+        'Google sign-in FirebaseAuthException: code=${error.code}, message=${error.message}',
+      );
       _authError = error.message ?? 'Google sign-in failed. Please try again.';
-    } catch (_) {
-      _authError = 'Unable to sign in with Google right now.';
+    } catch (error, stackTrace) {
+      final details = error.toString().toLowerCase();
+      debugPrint(
+        'Google sign-in unexpected error (${error.runtimeType}): $error',
+      );
+      debugPrint('$stackTrace');
+
+      if (details.contains('developer_error') ||
+          details.contains('configuration') ||
+          details.contains('invalid-credential') ||
+          details.contains('sha-1') ||
+          details.contains('sha-256')) {
+        _authError =
+            'Google Sign-In configuration error. Verify package name, SHA-1/SHA-256, OAuth clients, and google-services.json.';
+      } else if (details.contains('network') || details.contains('timeout')) {
+        _authError =
+            'Google Sign-In needs an internet connection. Check your network and try again.';
+      } else {
+        _authError =
+            'Unable to sign in with Google right now. Please try again.';
+      }
     } finally {
       _isAuthenticating = false;
       notifyListeners();
@@ -300,7 +348,7 @@ class AppFlowProvider extends ChangeNotifier {
       _offlineGuestName = _generateOfflineGuestName();
       _currentUser = null;
       _authError = null;
-      await startSurvival();
+      _showLanding = true;
       notifyListeners();
       return;
     }
@@ -312,27 +360,41 @@ class AppFlowProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await authService.signInAsGuest();
-      _offlineGuestMode = false;
-      _offlineGuestName = null;
-      _currentUser = authService.currentUser;
-      if (_currentUser != null) {
-        await startSurvival();
+      final credential = await authService.signInAsGuest().timeout(
+        const Duration(seconds: 25),
+      );
+      final guestUser = credential.user ?? authService.currentUser;
+      if (guestUser == null) {
+        _offlineGuestMode = true;
+        _offlineGuestName = _generateOfflineGuestName();
+        _currentUser = null;
+      } else {
+        _offlineGuestMode = false;
+        _offlineGuestName = null;
+        _currentUser = guestUser;
       }
+      _showLanding = true;
+      _authError = null;
+    } on TimeoutException {
+      _offlineGuestMode = true;
+      _offlineGuestName = _generateOfflineGuestName();
+      _currentUser = null;
+      _showLanding = true;
+      _authError = 'Guest sign-in timed out. Continuing in offline guest mode.';
     } on FirebaseAuthException {
       // Launch-safe fallback: keep game playable even when Firebase guest auth
       // is unavailable (network, quota, or anonymous auth disabled).
       _offlineGuestMode = true;
       _offlineGuestName = _generateOfflineGuestName();
       _currentUser = null;
+      _showLanding = true;
       _authError = null;
-      await startSurvival();
     } catch (_) {
       _offlineGuestMode = true;
       _offlineGuestName = _generateOfflineGuestName();
       _currentUser = null;
+      _showLanding = true;
       _authError = null;
-      await startSurvival();
     } finally {
       _isAuthenticating = false;
       notifyListeners();
@@ -447,6 +509,7 @@ class AppFlowProvider extends ChangeNotifier {
     if (_showLanding) {
       return;
     }
+    unawaited(AudioManager.instance.handle(GameAudioEvent.matchExit));
     _showLanding = true;
     notifyListeners();
   }

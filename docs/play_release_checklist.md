@@ -19,6 +19,9 @@ This checklist maps production readiness requirements to concrete repository tas
 - Firestore rules deployed from `firestore.rules`.
 - Emulator tests validate reject/allow paths for leaderboard and runs.
 - Auth linking path guest -> Google verified on real device.
+- Google provider enabled in Firebase Authentication.
+- Release keystore SHA-1 and SHA-256 are registered in Firebase for the active Android package.
+- `android/app/google-services.json` package and cert entries confirmed against `android/release.properties` + signing report.
 
 3. Ads and policy
 - Production ad IDs loaded from environment config.

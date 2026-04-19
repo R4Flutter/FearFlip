@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_palette.dart';
-import '../../services/audio_service.dart';
+import '../../services/audio_manager.dart';
+import '../../services/game_audio_event.dart';
 import 'glitch_effect_controller.dart';
 import 'maze_generator.dart';
 import 'maze_painter.dart';
@@ -51,9 +53,10 @@ class GameScreen extends StatefulWidget {
   State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
+class _GameScreenState extends State<GameScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final MazeGenerator _generator = MazeGenerator();
-  final AudioService _audioService = AudioService();
+  final AudioManager _audioManager = AudioManager.instance;
   final MazeShiftManager _mazeShiftManager = MazeShiftManager();
   final GlitchEffectController _glitchEffectController =
       GlitchEffectController();
@@ -69,8 +72,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   static const int _safeZonesPerStage = 2;
   static const int _persistentSafeZonesUntilStage = 75;
   static const double _devilMinPathClearance = 0.30;
-  static const int _devilAudioTriggerDistanceTiles = 10;
-  static const int _defaultStageDurationSeconds = 120;
+  static const int _defaultStageDurationSeconds = 90;
   static const double _stageTickSeconds = 0.05;
 
   int _difficulty = 10;
@@ -104,12 +106,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   bool _lostByTime = false;
   bool _isPaused = false;
   bool _isExternallyInactive = false;
-  bool _lowTimeAlarmPlayed = false;
-  bool _devilProximityLoopStarted = false;
+  int _audioFrameId = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _stageRule = StageRules.forStage(_stage);
     _difficulty = _difficultyForStage(_stage);
     _maze = _generator.generate(rows: _difficulty, cols: _difficulty);
@@ -133,10 +135,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 850),
     );
 
-    unawaited(_audioService.setCriticalGameplayAudioOnly(true));
-    unawaited(_audioService.warmUp());
+    unawaited(_audioManager.preload());
     _isExternallyInactive = !widget.isActive;
     _applyStageRule(resetMaze: false);
+    unawaited(_audioManager.handle(GameAudioEvent.matchStart));
+    unawaited(
+      _audioManager.handle(
+        GameAudioEvent.timeChanged,
+        secondsLeft: _remainingSeconds,
+      ),
+    );
+    if (_isExternallyInactive) {
+      unawaited(_audioManager.handle(GameAudioEvent.matchPause));
+    }
     _startCountdown();
     _startStageLoop();
     _loadCharactersSprite();
@@ -150,6 +161,26 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) {
+      return;
+    }
+
+    switch (state) {
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        _handleExternalActivityChange(false);
+        break;
+      case AppLifecycleState.resumed:
+        _handleExternalActivityChange(widget.isActive);
+        break;
+      case AppLifecycleState.detached:
+        break;
+    }
+  }
+
   void _handleExternalActivityChange(bool isActive) {
     final shouldBeInactive = !isActive;
     if (_isExternallyInactive == shouldBeInactive) {
@@ -159,21 +190,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _isExternallyInactive = shouldBeInactive;
     if (_isExternallyInactive) {
       _playerController.stop();
-      _devilProximityLoopStarted = false;
-      _lowTimeAlarmPlayed = false;
-      unawaited(_stopDangerAudio());
+      unawaited(_audioManager.handle(GameAudioEvent.matchPause));
     } else {
-      final canResumeLowTimeAlarm =
-          _remainingSeconds <= 10 &&
-          !_showLossOverlay &&
-          !_isStageTransition &&
-          !_isTimeUpHandling &&
-          !_isPaused &&
-          !_lowTimeAlarmPlayed;
-      if (canResumeLowTimeAlarm) {
-        _lowTimeAlarmPlayed = true;
-        unawaited(_audioService.startLowTimeAlarmLoop());
-      }
+      unawaited(_audioManager.handle(GameAudioEvent.matchResume));
+      unawaited(
+        _audioManager.handle(
+          GameAudioEvent.timeChanged,
+          secondsLeft: _remainingSeconds,
+        ),
+      );
     }
 
     if (mounted) {
@@ -188,15 +213,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _playerController.stop();
     _countdownTimer?.cancel();
-    await _stopDangerAudio();
-    await _stopOutcomeAudio();
 
     setState(() {
       _isStageTransition = true;
       _completedStage = _stage;
     });
 
-    await _audioService.startWinningTransitionLoop();
+    await _audioManager.handle(GameAudioEvent.playerWon);
 
     try {
       await widget.onStageCleared(_stage);
@@ -208,11 +231,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     await Future.delayed(const Duration(seconds: 2));
 
     if (!mounted) {
-      await _audioService.stopWinningTransitionLoop();
       return;
     }
-
-    await _audioService.stopWinningTransitionLoop();
 
     setState(() {
       _stage = min(_stage + 1, _maxStage);
@@ -226,6 +246,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _playerController.resetForMaze(_maze);
     _applyStageRule(resetMaze: false);
+    await _audioManager.handle(GameAudioEvent.matchRestart);
     _restartCountdown();
   }
 
@@ -239,8 +260,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     final targetStage = stage.clamp(1, _maxStage);
     _playerController.stop();
-    await _stopDangerAudio();
-    await _stopOutcomeAudio();
 
     setState(() {
       _stage = targetStage;
@@ -256,6 +275,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _playerController.resetForMaze(_maze);
     _applyStageRule(resetMaze: false);
+    await _audioManager.handle(GameAudioEvent.matchRestart);
     _restartCountdown();
   }
 
@@ -292,21 +312,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   int get _stageDurationSeconds => _stageDurationFor(_stage);
 
-  Future<void> _stopDangerAudio() async {
-    await Future.wait<void>([
-      _audioService.stopDevilProximityLoop(),
-      _audioService.stopLowTimeAlarmLoop(),
-    ]);
-  }
-
-  Future<void> _stopOutcomeAudio() async {
-    await Future.wait<void>([
-      _audioService.stopWinningTransitionLoop(),
-      _audioService.stopGameLostCue(),
-      _audioService.stopSafeZoneCue(),
-    ]);
-  }
-
   bool get _isPanic => _remainingSeconds <= 10;
 
   String get _timeLabel {
@@ -322,7 +327,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         return;
       }
       if (_showLossOverlay) {
-        unawaited(_audioService.stopLowTimeAlarmLoop());
         return;
       }
       if (_isExternallyInactive || _isPaused) {
@@ -330,21 +334,22 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       }
       if (_remainingSeconds <= 0) {
         _countdownTimer?.cancel();
-        unawaited(_audioService.stopLowTimeAlarmLoop());
+        unawaited(_onTimeExpired());
         return;
       }
       setState(() {
         _remainingSeconds -= 1;
       });
 
-      if (_remainingSeconds <= 10 && !_lowTimeAlarmPlayed) {
-        _lowTimeAlarmPlayed = true;
-        unawaited(_audioService.startLowTimeAlarmLoop());
-      }
+      unawaited(
+        _audioManager.handle(
+          GameAudioEvent.timeChanged,
+          secondsLeft: _remainingSeconds,
+        ),
+      );
 
       if (_remainingSeconds <= 0) {
         _countdownTimer?.cancel();
-        unawaited(_audioService.stopLowTimeAlarmLoop());
         unawaited(_onTimeExpired());
       }
     });
@@ -369,7 +374,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
 
     final dt = _stageTickSeconds;
+    _audioFrameId += 1;
     _stageElapsedSeconds += dt;
+
+    // Reaching the golden goal tile always wins and advances to next stage.
+    if (_playerController.position == _maze.end) {
+      unawaited(_loadNextMaze());
+      return;
+    }
+
     _mazeShiftManager.tick(dt);
     _glitchEffectController.update(dt);
 
@@ -382,7 +395,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (_stageElapsedSeconds >= _nextFlipAtSeconds) {
       _controlsInverted = !_controlsInverted;
       _playerController.setControlsInverted(_controlsInverted);
-      unawaited(_audioService.playFlipCue());
+      unawaited(
+        _audioManager.handle(
+          GameAudioEvent.flipTriggered,
+          frameId: _audioFrameId,
+        ),
+      );
       _flipWarningActive = false;
       _flipWarningTimeLeft = 0;
       _nextFlipAtSeconds = _stageElapsedSeconds + _nextFlipInterval();
@@ -392,6 +410,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _updateSafeZones();
     if (!wasPlayerSafe && _playerSafe) {
       _onSafeZoneEntered();
+    } else if (wasPlayerSafe && !_playerSafe) {
+      unawaited(_audioManager.handle(GameAudioEvent.safeZoneExited));
     }
 
     _trackPlayerSteps();
@@ -402,10 +422,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (_canSpawnDevilNow()) {
       _devilSpawned = true;
       _devilCell = _spawnDevilCell();
-      _devilProximityLoopStarted = false;
     }
 
     if (_devilSpawned && _devilCell != null) {
+      final previousDevilCell = _devilCell;
       if (!hazardGraceActive) {
         _devilMoveAccumulator += dt;
         final playerSpeed = _stageRule.playerSpeedMultiplier <= 0
@@ -424,21 +444,38 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         _devilMoveAccumulator = 0;
       }
 
-      final distanceCells =
-          (_devilCell!.x - _playerController.position.x).abs() +
-          (_devilCell!.y - _playerController.position.y).abs();
-      final shouldStartDevilLoop =
-          distanceCells <= _devilAudioTriggerDistanceTiles;
-      if (shouldStartDevilLoop && !_devilProximityLoopStarted) {
-        _devilProximityLoopStarted = true;
-        unawaited(_audioService.startDevilProximityLoop());
-      }
+        final distanceCells =
+          _maze.shortestPathDistance(_devilCell!, _playerController.position) ??
+          99;
+      unawaited(
+        _audioManager.handle(
+          GameAudioEvent.devilDistanceChanged,
+          devilDistanceTiles: distanceCells,
+          devilEnabled: true,
+          safeZoneImmune: _playerSafe,
+        ),
+      );
 
-      if (_devilCell == _playerController.position &&
+      final playerCell = _playerController.position;
+      final crossedThroughEachOther =
+          previousDevilCell != null &&
+          previousDevilCell == playerCell &&
+          _lastPlayerCell == _devilCell;
+
+      if ((_devilCell == playerCell || crossedThroughEachOther) &&
           !_playerSafe &&
           !hazardGraceActive) {
         unawaited(_onDevilCaught());
       }
+    } else {
+      unawaited(
+        _audioManager.handle(
+          GameAudioEvent.devilDistanceChanged,
+          devilDistanceTiles: 99,
+          devilEnabled: false,
+          safeZoneImmune: _playerSafe,
+        ),
+      );
     }
 
     if (mounted) {
@@ -455,12 +492,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
     _isTimeUpHandling = true;
     _isPaused = false;
-    unawaited(_audioService.stopLowTimeAlarmLoop());
     _playerController.stop();
-    await _stopDangerAudio();
-    await _stopOutcomeAudio();
-    _devilProximityLoopStarted = false;
-    await _audioService.playGameLostCue();
+    await _audioManager.handle(GameAudioEvent.playerLost);
     setState(() {
       _showLossOverlay = true;
       _lostByTime = false;
@@ -498,11 +531,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _adActionInProgress = false;
     _lostByTime = false;
     _isPaused = false;
-    _lowTimeAlarmPlayed = false;
-    _devilProximityLoopStarted = false;
     _glitchEffectController.clear();
-    unawaited(_stopDangerAudio());
-    unawaited(_stopOutcomeAudio());
   }
 
   double _nextFlipInterval() {
@@ -533,7 +562,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _onSafeZoneEntered() {
-    unawaited(_audioService.playSafeZoneCue());
+    unawaited(_audioManager.handle(GameAudioEvent.safeZoneEntered));
 
     if (!_stageRule.devilEnabled) {
       return;
@@ -543,8 +572,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _devilMoveAccumulator = 0;
     _stepsSinceSafeZone = 0;
     _awaitingDevilRespawnSteps = true;
-    _devilProximityLoopStarted = false;
-    unawaited(_audioService.stopDevilProximityLoop());
   }
 
   int _devilRespawnStepsForStage() {
@@ -608,7 +635,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _rebuildPathMetrics();
     _mazeShiftManager.updateTotalSteps(_mazeShiftTotalSteps);
     _devilMoveAccumulator = 0;
-    unawaited(_audioService.playGlitchScreenCue());
   }
 
   void _rebuildPathMetrics() {
@@ -843,8 +869,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void _restartCountdown() {
     _remainingSeconds = _stageDurationSeconds;
-    _lowTimeAlarmPlayed = false;
-    unawaited(_audioService.stopLowTimeAlarmLoop());
+    unawaited(
+      _audioManager.handle(
+        GameAudioEvent.timeChanged,
+        secondsLeft: _remainingSeconds,
+      ),
+    );
     _startCountdown();
   }
 
@@ -858,16 +888,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _isTimeUpHandling = true;
     _isPaused = false;
-    unawaited(_audioService.stopLowTimeAlarmLoop());
     _playerController.stop();
-    await _stopDangerAudio();
-    await _stopOutcomeAudio();
-    _devilProximityLoopStarted = false;
-    await _audioService.playGameLostCue();
     setState(() {
       _showLossOverlay = true;
       _lostByTime = true;
     });
+    unawaited(_audioManager.handle(GameAudioEvent.playerLost));
     _isTimeUpHandling = false;
   }
 
@@ -1069,6 +1095,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
 
     if (shouldExit == true) {
+      await _audioManager.handle(GameAudioEvent.matchExit);
       widget.onExitToDashboard();
     }
   }
@@ -1090,11 +1117,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     if (_isPaused) {
       _playerController.stop();
-      _devilProximityLoopStarted = false;
-      if (_remainingSeconds <= 10) {
-        _lowTimeAlarmPlayed = false;
-      }
-      unawaited(_stopDangerAudio());
+      unawaited(_audioManager.handle(GameAudioEvent.matchPause));
+    } else {
+      unawaited(_audioManager.handle(GameAudioEvent.matchResume));
+      unawaited(
+        _audioManager.handle(
+          GameAudioEvent.timeChanged,
+          secondsLeft: _remainingSeconds,
+        ),
+      );
     }
   }
 
@@ -1117,12 +1148,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _countdownTimer?.cancel();
     _stageTimer?.cancel();
     _pulseController.dispose();
     _stageClearController.dispose();
     _playerController.dispose();
-    unawaited(_audioService.stopAll());
+    unawaited(_audioManager.handle(GameAudioEvent.matchExit));
     super.dispose();
   }
 
@@ -1443,6 +1475,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
               ),
+              if (kDebugMode)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: (8 * uiScale).clamp(6.0, 14.0),
+                  child: _buildAudioDebugPanel(uiScale),
+                ),
               if (_isPaused)
                 Positioned.fill(
                   child: IgnorePointer(
@@ -1620,7 +1659,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                   const SizedBox(height: 10),
                                   OutlinedButton.icon(
                                     onPressed: () {
-                                      Navigator.of(context).pop();
                                       unawaited(_onExitPressed());
                                     },
                                     style: OutlinedButton.styleFrom(
@@ -2008,6 +2046,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _playerController.resetForMaze(_maze);
     _applyStageRule(resetMaze: false);
+    unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
     _restartCountdown();
     setState(() {});
   }
@@ -2028,8 +2067,66 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _playerController.resetForMaze(_maze);
     _applyStageRule(resetMaze: false);
+    unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
     _restartCountdown();
     setState(() {});
+  }
+
+  Widget _buildAudioDebugPanel(double uiScale) {
+    return IgnorePointer(
+      ignoring: true,
+      child: Center(
+        child: ValueListenableBuilder<AudioDebugSnapshot>(
+          valueListenable: _audioManager.debugSnapshot,
+          builder: (context, snapshot, _) {
+            final cooldownText = snapshot.activeCooldowns.entries.isEmpty
+                ? '-'
+                : snapshot.activeCooldowns.entries
+                      .map(
+                        (entry) =>
+                            '${entry.key.name}:${entry.value.inMilliseconds}ms',
+                      )
+                      .join(' ');
+            final busText = snapshot.busGains.entries
+                .map(
+                  (entry) =>
+                      '${entry.key.name}:${(entry.value * 100).round()}%',
+                )
+                .join('  ');
+
+            return Container(
+              constraints: const BoxConstraints(maxWidth: 700),
+              margin: EdgeInsets.symmetric(
+                horizontal: (10 * uiScale).clamp(8.0, 16.0),
+              ),
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              decoration: BoxDecoration(
+                color: const Color(0xCC000000),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppPalette.accentPurple, width: 0.8),
+              ),
+              child: Text(
+                'audio=${snapshot.matchState.name} '
+                'calm=${snapshot.isCalmPlaying} '
+                'devil=${snapshot.isDevilPlaying} '
+                'alarm=${snapshot.isAlarmPlaying} '
+                'safe=${snapshot.isSafeZoneImmune} '
+                'sec=${snapshot.secondsLeft ?? -1} '
+                'dist=${snapshot.devilDistanceTiles ?? -1}\n'
+                'last=${snapshot.lastEvent}  cooldowns=$cooldownText\n'
+                'bus: $busText',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  height: 1.25,
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   Direction4? _invertDirection(Direction4? direction) {

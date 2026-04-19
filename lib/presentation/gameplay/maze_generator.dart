@@ -57,6 +57,44 @@ class MazeGrid {
     }
   }
 
+  int? shortestPathDistance(Point<int> from, Point<int> to) {
+    if (!_inBounds(from.y, from.x) || !_inBounds(to.y, to.x)) {
+      return null;
+    }
+
+    if (from == to) {
+      return 0;
+    }
+
+    final queue = <Point<int>>[from];
+    final distance = <Point<int>, int>{from: 0};
+
+    while (queue.isNotEmpty) {
+      final current = queue.removeAt(0);
+      final currentDist = distance[current] ?? 0;
+
+      for (final direction in Direction4.values) {
+        if (!canMove(current, direction)) {
+          continue;
+        }
+        final next = move(current, direction);
+        if (distance.containsKey(next)) {
+          continue;
+        }
+
+        final nextDist = currentDist + 1;
+        if (next == to) {
+          return nextDist;
+        }
+
+        distance[next] = nextDist;
+        queue.add(next);
+      }
+    }
+
+    return null;
+  }
+
   bool _inBounds(int row, int col) {
     return row >= 0 && row < rows && col >= 0 && col < cols;
   }
