@@ -106,6 +106,7 @@ class _GameScreenState extends State<GameScreen>
   bool _lostByTime = false;
   bool _isPaused = false;
   bool _isExternallyInactive = false;
+  bool _resetToCheckpointOnReactivation = false;
   bool _roundResolved = false;
   int _audioFrameId = 0;
 
@@ -193,6 +194,12 @@ class _GameScreenState extends State<GameScreen>
       _playerController.stop();
       unawaited(_audioManager.handle(GameAudioEvent.matchPause));
     } else {
+      if (_resetToCheckpointOnReactivation) {
+        _resetToCheckpointOnReactivation = false;
+        _resetToCheckpoint();
+        return;
+      }
+
       unawaited(_audioManager.handle(GameAudioEvent.matchResume));
       unawaited(
         _audioManager.handle(
@@ -1143,6 +1150,7 @@ class _GameScreenState extends State<GameScreen>
     );
 
     if (shouldExit == true) {
+      _resetToCheckpointOnReactivation = true;
       await _audioManager.handle(GameAudioEvent.matchExit);
       widget.onExitToDashboard();
     }
@@ -1378,23 +1386,13 @@ class _GameScreenState extends State<GameScreen>
               Positioned(
                 right: (2 * uiScale).clamp(1.0, 8.0),
                 top: floatingTop - floatingDrift,
-                child: IgnorePointer(
-                  child: _FloatingHudMetric(
-                    label: 'TIME',
-                    value: timeDigits,
-                    labelColor: _isPanic
-                        ? const Color(0xFFFFA39A)
-                        : const Color(0xFFB7FFA8),
-                    valueColor: _isPanic
-                        ? AppPalette.danger
-                        : AppPalette.neonGreen,
-                    labelSize: floatingLabelSize,
-                    valueSize: floatingValueSize,
-                    icon: _isPanic
-                        ? Icons.favorite_rounded
-                        : Icons.schedule_rounded,
-                    alignEnd: true,
-                  ),
+                child: _FloatingTimeControl(
+                  isPanic: _isPanic,
+                  isPaused: _isPaused,
+                  timeDigits: timeDigits,
+                  labelSize: floatingLabelSize,
+                  valueSize: floatingValueSize,
+                  onPauseTap: _togglePause,
                 ),
               ),
               if (_isPaused)
@@ -1403,200 +1401,40 @@ class _GameScreenState extends State<GameScreen>
                     ignoring: false,
                     child: Container(
                       color: const Color(0xC0000000),
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 440),
-                            child: Container(
-                              padding: const EdgeInsets.fromLTRB(
-                                20,
-                                18,
-                                20,
-                                18,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          return SingleChildScrollView(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 18,
+                            ),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minHeight: max(0.0, constraints.maxHeight - 36),
                               ),
-                              decoration: BoxDecoration(
-                                color: AppPalette.surface,
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: AppPalette.accentPurple.withAlpha(180),
-                                  width: 1.3,
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 460,
+                                  ),
+                                  child: _RunPausedDialog(
+                                    stage: _stage,
+                                    checkpoint: _checkpoint,
+                                    nextCheckpoint: _nextMilestoneStage(),
+                                    checkpointText: _checkpointPushText(),
+                                    modeLabel: _modeLabel,
+                                    timeRemainingLabel: _timeLabel.replaceFirst(
+                                      'TIME: ',
+                                      '',
+                                    ),
+                                    onResumePressed: _togglePause,
+                                    onExitPressed: _onExitPressed,
+                                  ),
                                 ),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x44000000),
-                                    blurRadius: 18,
-                                    offset: Offset(0, 6),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 42,
-                                        height: 42,
-                                        decoration: BoxDecoration(
-                                          color: AppPalette.accentPurple,
-                                          borderRadius: BorderRadius.circular(
-                                            11,
-                                          ),
-                                        ),
-                                        alignment: Alignment.center,
-                                        child: const Icon(
-                                          Icons.pause_circle_filled_rounded,
-                                          color: Colors.black,
-                                          size: 24,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      const Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'RUN PAUSED',
-                                              style: TextStyle(
-                                                color: AppPalette.textPrimary,
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 20,
-                                                letterSpacing: 0.9,
-                                              ),
-                                            ),
-                                            SizedBox(height: 2),
-                                            Text(
-                                              'Take a breath. Your progress is safe.',
-                                              style: TextStyle(
-                                                color: AppPalette.textMuted,
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const Text(
-                                    'Ready for the next move?',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: AppPalette.neonGreen,
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 22,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Stage $_stage  •  ${_timeLabel.replaceFirst('TIME: ', '')} remaining  •  ${_modeLabel.toLowerCase()} mode',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: AppPalette.textPrimary,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 14),
-                                  Container(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      12,
-                                      10,
-                                      12,
-                                      10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppPalette.surfaceAlt,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: AppPalette.borderSoft,
-                                      ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            const Text(
-                                              'CHECKPOINT STATUS',
-                                              style: TextStyle(
-                                                color: AppPalette.textPrimary,
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 11,
-                                                letterSpacing: 0.6,
-                                              ),
-                                            ),
-                                            const Spacer(),
-                                            Text(
-                                              '$_checkpoint',
-                                              style: const TextStyle(
-                                                color: AppPalette.accentPink,
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 16,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          _checkpointPushText(),
-                                          style: const TextStyle(
-                                            color: AppPalette.textMuted,
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 14),
-                                  FilledButton.icon(
-                                    onPressed: _togglePause,
-                                    style: FilledButton.styleFrom(
-                                      minimumSize: const Size.fromHeight(50),
-                                      backgroundColor: AppPalette.neonGreen,
-                                      foregroundColor: Colors.black,
-                                    ),
-                                    icon: const Icon(Icons.play_arrow_rounded),
-                                    label: const Text(
-                                      'RESUME RUN',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 1,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  OutlinedButton.icon(
-                                    onPressed: () {
-                                      unawaited(_onExitPressed());
-                                    },
-                                    style: OutlinedButton.styleFrom(
-                                      minimumSize: const Size.fromHeight(48),
-                                      side: BorderSide(
-                                        color: AppPalette.danger.withAlpha(170),
-                                      ),
-                                      foregroundColor: AppPalette.danger,
-                                    ),
-                                    icon: const Icon(Icons.exit_to_app_rounded),
-                                    label: const Text(
-                                      'EXIT THIS RUN',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 0.8,
-                                      ),
-                                    ),
-                                  ),
-                                ],
                               ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -1641,218 +1479,22 @@ class _GameScreenState extends State<GameScreen>
                           child: Center(
                             child: ConstrainedBox(
                               constraints: const BoxConstraints(maxWidth: 460),
-                              child: Container(
-                                padding: const EdgeInsets.fromLTRB(
-                                  20,
-                                  18,
-                                  20,
-                                  18,
+                              child: _RunFailedDialog(
+                                stage: _stage,
+                                maxStage: _maxStage,
+                                escapePercent: _escapePercent(),
+                                checkpointText: _checkpointPushText(),
+                                modeLabel: _modeLabel,
+                                timeRemainingLabel: _timeLabel.replaceFirst(
+                                  'TIME: ',
+                                  '',
                                 ),
-                                decoration: BoxDecoration(
-                                  color: AppPalette.surface,
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                    color: AppPalette.danger.withAlpha(175),
-                                    width: 1.3,
-                                  ),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Color(0x40000000),
-                                      blurRadius: 16,
-                                      offset: Offset(0, 6),
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          width: 42,
-                                          height: 42,
-                                          decoration: BoxDecoration(
-                                            color: AppPalette.danger,
-                                            borderRadius: BorderRadius.circular(
-                                              11,
-                                            ),
-                                          ),
-                                          alignment: Alignment.center,
-                                          child: const Icon(
-                                            Icons.replay_circle_filled,
-                                            color: Colors.black,
-                                            size: 24,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              const Text(
-                                                'RUN FAILED',
-                                                style: TextStyle(
-                                                  color: AppPalette.textPrimary,
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 20,
-                                                  letterSpacing: 0.9,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                _lossReasonText(),
-                                                style: const TextStyle(
-                                                  color: AppPalette.textMuted,
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 14),
-                                    const Text(
-                                      'Let\'s play one more.',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: AppPalette.neonGreen,
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 24,
-                                        letterSpacing: 0.3,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _comebackHookText(),
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        color: AppPalette.textPrimary,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 14),
-                                    Container(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        12,
-                                        10,
-                                        12,
-                                        10,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppPalette.surfaceAlt,
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: AppPalette.borderSoft,
-                                        ),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              const Text(
-                                                'COMPLETION LINE',
-                                                style: TextStyle(
-                                                  color: AppPalette.textPrimary,
-                                                  fontWeight: FontWeight.w800,
-                                                  fontSize: 11,
-                                                  letterSpacing: 0.6,
-                                                ),
-                                              ),
-                                              const Spacer(),
-                                              Text(
-                                                '${_escapePercent()}%',
-                                                style: const TextStyle(
-                                                  color: AppPalette.accentPink,
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 16,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 8),
-                                          ClipRRect(
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
-                                            child: LinearProgressIndicator(
-                                              value: (_escapePercent() / 100)
-                                                  .clamp(0.0, 1.0),
-                                              minHeight: 10,
-                                              backgroundColor: const Color(
-                                                0xFF252525,
-                                              ),
-                                              valueColor:
-                                                  const AlwaysStoppedAnimation<
-                                                    Color
-                                                  >(AppPalette.accentPink),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'Stage $_stage / $_maxStage  •  ${_checkpointPushText()}',
-                                            style: const TextStyle(
-                                              color: AppPalette.textMuted,
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 14),
-                                    FilledButton.icon(
-                                      onPressed: _adActionInProgress
-                                          ? null
-                                          : _onReviveFromLoss,
-                                      icon: const Icon(Icons.flash_on_rounded),
-                                      label: Text(
-                                        _adActionInProgress
-                                            ? 'LOADING AD...'
-                                            : 'REVIVE NOW (AD)',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          letterSpacing: 1,
-                                        ),
-                                      ),
-                                      style: FilledButton.styleFrom(
-                                        minimumSize: const Size.fromHeight(50),
-                                        backgroundColor: AppPalette.neonGreen,
-                                        foregroundColor: Colors.black,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    FilledButton.icon(
-                                      onPressed: _adActionInProgress
-                                          ? null
-                                          : _onRestartFromLoss,
-                                      icon: const Icon(
-                                        Icons.restart_alt_rounded,
-                                      ),
-                                      label: Text(
-                                        _adActionInProgress
-                                            ? 'LOADING AD...'
-                                            : 'RESTART FROM CHECKPOINT (AD)',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          letterSpacing: 0.8,
-                                        ),
-                                      ),
-                                      style: FilledButton.styleFrom(
-                                        minimumSize: const Size.fromHeight(50),
-                                        backgroundColor: AppPalette.accentPink,
-                                        foregroundColor: Colors.black,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                lossReason: _lossReasonText(),
+                                comebackHook: _comebackHookText(),
+                                lostByTime: _lostByTime,
+                                adActionInProgress: _adActionInProgress,
+                                onRevivePressed: _onReviveFromLoss,
+                                onRestartPressed: _onRestartFromLoss,
                               ),
                             ),
                           ),
@@ -2176,6 +1818,1026 @@ class _FloatingHudMetric extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _FloatingTimeControl extends StatelessWidget {
+  const _FloatingTimeControl({
+    required this.isPanic,
+    required this.isPaused,
+    required this.timeDigits,
+    required this.labelSize,
+    required this.valueSize,
+    required this.onPauseTap,
+  });
+
+  final bool isPanic;
+  final bool isPaused;
+  final String timeDigits;
+  final double labelSize;
+  final double valueSize;
+  final VoidCallback onPauseTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelColor = isPanic
+        ? const Color(0xFFFFA39A)
+        : const Color(0xFFB7FFA8);
+    final valueColor = isPanic ? AppPalette.danger : AppPalette.neonGreen;
+    final buttonColor = isPaused
+        ? AppPalette.neonGreen.withAlpha(220)
+        : AppPalette.accentPurple.withAlpha(220);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        IgnorePointer(
+          child: _FloatingHudMetric(
+            label: 'TIME',
+            value: timeDigits,
+            labelColor: labelColor,
+            valueColor: valueColor,
+            labelSize: labelSize,
+            valueSize: valueSize,
+            icon: isPanic ? Icons.favorite_rounded : Icons.schedule_rounded,
+            alignEnd: true,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Tooltip(
+          message: isPaused ? 'Resume run' : 'Pause run',
+          child: Container(
+            margin: const EdgeInsets.only(top: 2),
+            decoration: BoxDecoration(
+              color: buttonColor,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withAlpha(140)),
+              boxShadow: [
+                BoxShadow(
+                  color: buttonColor.withAlpha(90),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: IconButton(
+              constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+              padding: EdgeInsets.zero,
+              splashRadius: 18,
+              onPressed: onPauseTap,
+              icon: Icon(
+                isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                size: 20,
+                color: Colors.black,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RunPausedDialog extends StatelessWidget {
+  const _RunPausedDialog({
+    required this.stage,
+    required this.checkpoint,
+    required this.nextCheckpoint,
+    required this.checkpointText,
+    required this.modeLabel,
+    required this.timeRemainingLabel,
+    required this.onResumePressed,
+    required this.onExitPressed,
+  });
+
+  final int stage;
+  final int checkpoint;
+  final int nextCheckpoint;
+  final String checkpointText;
+  final String modeLabel;
+  final String timeRemainingLabel;
+  final VoidCallback onResumePressed;
+  final Future<void> Function() onExitPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final checkpointProgress = nextCheckpoint <= 0
+        ? 1.0
+        : (stage / nextCheckpoint).clamp(0.0, 1.0);
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF121522), Color(0xFF090B14)],
+        ),
+        border: Border.all(
+          color: AppPalette.accentPurple.withAlpha(190),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppPalette.accentPurple.withAlpha(70),
+            blurRadius: 20,
+            spreadRadius: -2,
+            offset: const Offset(0, 6),
+          ),
+          const BoxShadow(
+            color: Color(0x52000000),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          children: [
+            const Positioned.fill(
+              child: CustomPaint(painter: _RunPausedDialogGridPainter()),
+            ),
+            Positioned(
+              top: -28,
+              right: -22,
+              child: Container(
+                width: 150,
+                height: 150,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [Color(0x55E26AE6), Color(0x00E26AE6)],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: -34,
+              bottom: -42,
+              child: Container(
+                width: 170,
+                height: 170,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [Color(0x3333FF2B), Color(0x0033FF2B)],
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(13),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              AppPalette.accentPurple,
+                              AppPalette.accentPink,
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppPalette.accentPurple.withAlpha(90),
+                              blurRadius: 12,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(
+                          Icons.pause_circle_filled_rounded,
+                          color: Colors.black,
+                          size: 25,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'RUN PAUSED',
+                              style: TextStyle(
+                                color: AppPalette.textPrimary,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 21,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Take a breath. Your progress is safe.',
+                              style: TextStyle(
+                                color: AppPalette.textMuted,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _RunPausedInfoChip(
+                        label: 'STAGE',
+                        value: '$stage',
+                        color: AppPalette.accentPurple,
+                      ),
+                      _RunPausedInfoChip(
+                        label: 'TIME LEFT',
+                        value: timeRemainingLabel,
+                        color: AppPalette.neonGreen,
+                      ),
+                      _RunPausedInfoChip(
+                        label: 'MODE',
+                        value: modeLabel,
+                        color: const Color(0xFF87ECFF),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Ready for the next move?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppPalette.neonGreen,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 31,
+                      letterSpacing: 0.2,
+                      height: 0.95,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    checkpointText,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppPalette.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      height: 1.28,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _RunPausedCheckpointCard(
+                    checkpoint: checkpoint,
+                    progress: checkpointProgress,
+                    stage: stage,
+                    nextCheckpoint: nextCheckpoint,
+                  ),
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    onPressed: onResumePressed,
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text(
+                      'RESUME RUN',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      backgroundColor: AppPalette.neonGreen,
+                      foregroundColor: Colors.black,
+                      elevation: 8,
+                      shadowColor: const Color(0x8833FF2B),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _RunPausedExitButton(
+                    onPressed: () {
+                      unawaited(onExitPressed());
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RunPausedInfoChip extends StatelessWidget {
+  const _RunPausedInfoChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0x33161B28),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: color.withAlpha(150)),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(
+            fontSize: 10.8,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.55,
+          ),
+          children: [
+            TextSpan(
+              text: '$label  ',
+              style: TextStyle(color: color),
+            ),
+            TextSpan(
+              text: value,
+              style: const TextStyle(color: AppPalette.textPrimary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RunPausedCheckpointCard extends StatelessWidget {
+  const _RunPausedCheckpointCard({
+    required this.checkpoint,
+    required this.progress,
+    required this.stage,
+    required this.nextCheckpoint,
+  });
+
+  final int checkpoint;
+  final double progress;
+  final int stage;
+  final int nextCheckpoint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xA8191C28),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: AppPalette.borderSoft),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'CHECKPOINT STATUS',
+                style: TextStyle(
+                  color: AppPalette.textPrimary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                  letterSpacing: 0.65,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '$checkpoint',
+                style: const TextStyle(
+                  color: AppPalette.accentPink,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _RunPausedProgressBar(value: progress),
+          const SizedBox(height: 8),
+          Text(
+            'Stage $stage  •  Next checkpoint $nextCheckpoint',
+            style: const TextStyle(
+              color: AppPalette.textMuted,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RunPausedProgressBar extends StatelessWidget {
+  const _RunPausedProgressBar({required this.value});
+
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        height: 10,
+        color: const Color(0xFF252836),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: FractionallySizedBox(
+            widthFactor: value,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [AppPalette.accentPink, AppPalette.accentPurple],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppPalette.accentPurple.withAlpha(120),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RunPausedExitButton extends StatelessWidget {
+  const _RunPausedExitButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(15),
+        gradient: const LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [Color(0x33FF8A80), Color(0x111A1A24)],
+        ),
+        border: Border.all(color: AppPalette.danger.withAlpha(170)),
+        boxShadow: [
+          BoxShadow(
+            color: AppPalette.danger.withAlpha(50),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.exit_to_app_rounded),
+        label: const Text(
+          'EXIT THIS RUN',
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8),
+        ),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(50),
+          side: BorderSide.none,
+          foregroundColor: AppPalette.danger,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RunPausedDialogGridPainter extends CustomPainter {
+  const _RunPausedDialogGridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final gridPaint = Paint()
+      ..color = AppPalette.accentPurple.withAlpha(28)
+      ..strokeWidth = 1;
+
+    const spacing = 28.0;
+    for (var x = 0.0; x <= size.width; x += spacing) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+    }
+    for (var y = 0.0; y <= size.height; y += spacing) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    final scanPaint = Paint()
+      ..shader =
+          const LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [Color(0x44E26AE6), Colors.transparent],
+          ).createShader(
+            Rect.fromLTWH(0, size.height * 0.25, size.width, size.height * 0.2),
+          );
+
+    canvas.drawRect(
+      Rect.fromLTWH(0, size.height * 0.25, size.width, size.height * 0.18),
+      scanPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _RunFailedDialog extends StatelessWidget {
+  const _RunFailedDialog({
+    required this.stage,
+    required this.maxStage,
+    required this.escapePercent,
+    required this.checkpointText,
+    required this.modeLabel,
+    required this.timeRemainingLabel,
+    required this.lossReason,
+    required this.comebackHook,
+    required this.lostByTime,
+    required this.adActionInProgress,
+    required this.onRevivePressed,
+    required this.onRestartPressed,
+  });
+
+  final int stage;
+  final int maxStage;
+  final int escapePercent;
+  final String checkpointText;
+  final String modeLabel;
+  final String timeRemainingLabel;
+  final String lossReason;
+  final String comebackHook;
+  final bool lostByTime;
+  final bool adActionInProgress;
+  final Future<void> Function() onRevivePressed;
+  final Future<void> Function() onRestartPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = lostByTime ? AppPalette.danger : const Color(0xFFFF938B);
+    final progress = (escapePercent / 100).clamp(0.0, 1.0);
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF141623), Color(0xFF0B0C14)],
+        ),
+        border: Border.all(color: accent.withAlpha(190), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withAlpha(70),
+            blurRadius: 20,
+            spreadRadius: -2,
+            offset: const Offset(0, 6),
+          ),
+          const BoxShadow(
+            color: Color(0x52000000),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _RunFailedDialogGridPainter(accent: accent),
+              ),
+            ),
+            Positioned(
+              top: -28,
+              right: -24,
+              child: Container(
+                width: 150,
+                height: 150,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [Color(0x55E85BDA), Color(0x00E85BDA)],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: -36,
+              bottom: -42,
+              child: Container(
+                width: 180,
+                height: 180,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [Color(0x3833FF2B), Color(0x0033FF2B)],
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(13),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [accent, accent.withAlpha(210)],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: accent.withAlpha(90),
+                              blurRadius: 12,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(
+                          Icons.replay_circle_filled_rounded,
+                          color: Colors.black,
+                          size: 26,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'RUN FAILED',
+                              style: TextStyle(
+                                color: AppPalette.textPrimary,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 21,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              lossReason,
+                              style: const TextStyle(
+                                color: AppPalette.textMuted,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0x26FFFFFF),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: accent.withAlpha(180)),
+                        ),
+                        child: Text(
+                          lostByTime ? 'TIME OUT' : 'DEVIL THREAT',
+                          style: TextStyle(
+                            color: accent,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 10,
+                            letterSpacing: 0.7,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _RunFailedInfoChip(
+                        label: 'STAGE',
+                        value: '$stage / $maxStage',
+                        color: AppPalette.accentPurple,
+                      ),
+                      _RunFailedInfoChip(
+                        label: 'TIME LEFT',
+                        value: timeRemainingLabel,
+                        color: AppPalette.neonGreen,
+                      ),
+                      _RunFailedInfoChip(
+                        label: 'MODE',
+                        value: modeLabel,
+                        color: const Color(0xFF87ECFF),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Let\'s play one more.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppPalette.neonGreen,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 31,
+                      letterSpacing: 0.2,
+                      height: 0.95,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    comebackHook,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppPalette.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      height: 1.28,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xA8191C28),
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(color: AppPalette.borderSoft),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              'COMPLETION LINE',
+                              style: TextStyle(
+                                color: AppPalette.textPrimary,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                                letterSpacing: 0.65,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '$escapePercent%',
+                              style: const TextStyle(
+                                color: AppPalette.accentPink,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _RunFailedProgressBar(
+                          value: progress,
+                          color: AppPalette.accentPink,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Stage $stage / $maxStage  •  $checkpointText',
+                          style: const TextStyle(
+                            color: AppPalette.textMuted,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _RunFailedActionButton(
+                    icon: Icons.flash_on_rounded,
+                    label: adActionInProgress
+                        ? 'LOADING AD...'
+                        : 'REVIVE NOW (AD)',
+                    background: AppPalette.neonGreen,
+                    foreground: Colors.black,
+                    glow: const Color(0x8833FF2B),
+                    enabled: !adActionInProgress,
+                    onPressed: () {
+                      unawaited(onRevivePressed());
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _RunFailedActionButton(
+                    icon: Icons.restart_alt_rounded,
+                    label: adActionInProgress
+                        ? 'LOADING AD...'
+                        : 'RESTART FROM CHECKPOINT (AD)',
+                    background: AppPalette.accentPink,
+                    foreground: Colors.black,
+                    glow: const Color(0x88E85BDA),
+                    enabled: !adActionInProgress,
+                    onPressed: () {
+                      unawaited(onRestartPressed());
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RunFailedInfoChip extends StatelessWidget {
+  const _RunFailedInfoChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0x33161B28),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: color.withAlpha(150)),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(
+            fontSize: 10.8,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.55,
+          ),
+          children: [
+            TextSpan(
+              text: '$label  ',
+              style: TextStyle(color: color),
+            ),
+            TextSpan(
+              text: value,
+              style: const TextStyle(color: AppPalette.textPrimary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RunFailedProgressBar extends StatelessWidget {
+  const _RunFailedProgressBar({required this.value, required this.color});
+
+  final double value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        height: 10,
+        color: const Color(0xFF252836),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: FractionallySizedBox(
+            widthFactor: value,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [color.withAlpha(220), AppPalette.accentPurple],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withAlpha(120),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RunFailedActionButton extends StatelessWidget {
+  const _RunFailedActionButton({
+    required this.icon,
+    required this.label,
+    required this.background,
+    required this.foreground,
+    required this.glow,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color background;
+  final Color foreground;
+  final Color glow;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: enabled ? onPressed : null,
+      icon: Icon(icon),
+      label: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.9),
+      ),
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(52),
+        backgroundColor: background,
+        disabledBackgroundColor: background.withAlpha(120),
+        foregroundColor: foreground,
+        elevation: enabled ? 7 : 0,
+        shadowColor: glow,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      ),
+    );
+  }
+}
+
+class _RunFailedDialogGridPainter extends CustomPainter {
+  const _RunFailedDialogGridPainter({required this.accent});
+
+  final Color accent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final gridPaint = Paint()
+      ..color = accent.withAlpha(28)
+      ..strokeWidth = 1;
+
+    const spacing = 26.0;
+    for (var x = 0.0; x <= size.width; x += spacing) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+    }
+    for (var y = 0.0; y <= size.height; y += spacing) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    final scanPaint = Paint()
+      ..shader =
+          LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [accent.withAlpha(50), Colors.transparent],
+          ).createShader(
+            Rect.fromLTWH(0, size.height * 0.2, size.width, size.height * 0.2),
+          );
+
+    canvas.drawRect(
+      Rect.fromLTWH(0, size.height * 0.2, size.width, size.height * 0.18),
+      scanPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _RunFailedDialogGridPainter oldDelegate) {
+    return oldDelegate.accent != accent;
   }
 }
 

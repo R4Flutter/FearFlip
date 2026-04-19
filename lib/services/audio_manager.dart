@@ -83,21 +83,27 @@ class AudioManager {
   static const Duration _safeZoneDuckDuration = Duration(milliseconds: 500);
   static const Duration _actionEnemyDuckHold = Duration(milliseconds: 220);
   static const Duration _actionEnemyDuckRelease = Duration(milliseconds: 320);
+  static const Duration _devilCueCooldown = Duration(milliseconds: 420);
+  static const Duration _devilPriorityActionDuckHold = Duration(
+    milliseconds: 180,
+  );
+  static const Duration _devilPriorityActionDuckRelease = Duration(
+    milliseconds: 240,
+  );
   static const Duration _winSafetyDelay = Duration(milliseconds: 30);
 
   static const int _devilStartDistanceTiles = 6;
-  static const int _devilStopDistanceTiles = 7;
-  static const int _devilStartStableTicks = 1;
-  static const int _devilStopStableTicks = 1;
+  static const int _devilStopDistanceTiles = 6;
 
   static const bool _safeZoneDuckingEnabled = true;
   static const bool _safeZoneHalvesDevilVolume = true;
   static const int _oneShotVoicesPerBus = 4;
 
   static const double _calmBaseVolume = 0.45;
-  static const double _flipBaseVolume = 1.0;
-  static const double _devilBaseVolume = 0.75;
-  static const double _devilLoopMaxVolume = 0.52;
+  static const double _flipBaseVolume = 0.92;
+  static const double _devilBaseVolume = 0.95;
+  static const double _devilPriorityActionDuckFactor = 0.62;
+  static const double _devilLoopMaxVolume = 0.90;
   static const double _actionEnemyDuckFactor = 0.30;
   static const double _safeZoneBaseVolume = 0.75;
   static const double _lowTimeBaseVolume = 0.80;
@@ -162,12 +168,15 @@ class AudioManager {
 
   Timer? _safeZoneDuckTimer;
   Timer? _actionEnemyDuckTimer;
+  Timer? _devilPriorityActionDuckTimer;
   Timer? _alarmPulseTimer;
   bool _alarmPulseOn = false;
   double _alarmPulseBoost = 0;
   double _safeZoneEnemyDuck = 1.0;
   double _actionEnemyDuck = 1.0;
+  double _devilPriorityActionDuck = 1.0;
   int _actionEnemyDuckToken = 0;
+  int _devilPriorityActionDuckToken = 0;
 
   int _timelineToken = 0;
   int? _lastFlipFrameId;
@@ -192,8 +201,6 @@ class AudioManager {
   int? _secondsLeft;
   int? _lastSecondsLeft;
   int? _devilDistanceTiles;
-  int _devilStartStableCount = 0;
-  int _devilStopStableCount = 0;
 
   String _lastEvent = 'idle';
 
@@ -559,6 +566,7 @@ class AudioManager {
     _queue.clear();
     _cancelCalmStartTimer();
     _cancelActionEnemyDuckTimer(resetFactor: true);
+    _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
 
@@ -604,16 +612,16 @@ class AudioManager {
     _secondsLeft = null;
     _lastSecondsLeft = null;
     _devilDistanceTiles = null;
-    _devilStartStableCount = 0;
-    _devilStopStableCount = 0;
 
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
     _cancelActionEnemyDuckTimer(resetFactor: true);
+    _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     _clearTransientCooldowns();
 
     _safeZoneEnemyDuck = 1.0;
     _actionEnemyDuck = 1.0;
+    _devilPriorityActionDuck = 1.0;
     final enemyBus = _buses[AudioBus.enemy];
     if (enemyBus != null) {
       enemyBus.duck = 1.0;
@@ -706,17 +714,17 @@ class AudioManager {
     _secondsLeft = null;
     _lastSecondsLeft = null;
     _devilDistanceTiles = null;
-    _devilStartStableCount = 0;
-    _devilStopStableCount = 0;
     _matchState = MatchAudioState.exited;
 
     _cancelCalmStartTimer();
     _cancelActionEnemyDuckTimer(resetFactor: true);
+    _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
 
     _safeZoneEnemyDuck = 1.0;
     _actionEnemyDuck = 1.0;
+    _devilPriorityActionDuck = 1.0;
     final enemyBus = _buses[AudioBus.enemy];
     if (enemyBus != null) {
       enemyBus.duck = 1.0;
@@ -739,10 +747,11 @@ class AudioManager {
 
     _lastFlipFrameId = frameId;
 
-    final playbackRate = 0.97 + (Random().nextDouble() * 0.08);
+    final playbackRate = 0.985 + (Random().nextDouble() * 0.04);
+
     await _playOneShot(
       _AudioCue.flip,
-      bus: AudioBus.action,
+      bus: AudioBus.ui,
       baseVolume: _flipBaseVolume,
       playbackRate: playbackRate,
     );
@@ -759,41 +768,36 @@ class AudioManager {
     }
 
     if (!_canUseMatchAudioLayer || !devilEnabled || distanceTiles == null) {
-      _devilStartStableCount = 0;
-      _devilStopStableCount = 0;
       await _stopDevilLoop(immediate: true);
       return;
     }
 
-    final isCloseToDevil =
+    final shouldStartDevil =
         distanceTiles <= _devilStartDistanceTiles && !_isSafeZoneImmune;
+    final shouldStopDevil =
+        distanceTiles > _devilStopDistanceTiles || _isSafeZoneImmune;
 
-    // Devil should not run as a continuous loop; keep it one-shot proximity only.
-    await _stopDevilLoop(immediate: true);
-
-    if (!isCloseToDevil) {
+    if (shouldStopDevil) {
+      await _stopDevilLoop(immediate: true);
       return;
     }
+
+    if (shouldStartDevil && !isDevilPlaying) {
+      await _startDevilLoop();
+    }
+
+    if (!isDevilPlaying) {
+      return;
+    }
+
+    await _updateDevilLoopVolume(distanceTiles);
 
     if (_isInCooldown(GameAudioEvent.devilDistanceChanged)) {
       return;
     }
 
-    _markCooldown(
-      GameAudioEvent.devilDistanceChanged,
-      const Duration(milliseconds: 850),
-    );
-
-    final mapped = _mapDevilDistanceToVolume(distanceTiles);
-    final cueVolume = (_devilBaseVolume * mapped).clamp(0.25, 1.0).toDouble();
-    final playbackRate = 0.97 + (Random().nextDouble() * 0.06);
-
-    await _playOneShot(
-      _AudioCue.devilApproach,
-      bus: AudioBus.enemy,
-      baseVolume: cueVolume,
-      playbackRate: playbackRate,
-    );
+    _markCooldown(GameAudioEvent.devilDistanceChanged, _devilCueCooldown);
+    unawaited(_duckActionForDevilCue());
   }
 
   Future<void> _onSafeZoneEntered() async {
@@ -892,6 +896,7 @@ class AudioManager {
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
     _cancelActionEnemyDuckTimer(resetFactor: true);
+    _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     await _applyEnemyBusDuck();
 
     await _stopLowTimeLoop(immediate: true);
@@ -929,6 +934,7 @@ class AudioManager {
     _matchState = MatchAudioState.lost;
 
     _cancelCalmStartTimer();
+    _cancelDevilPriorityActionDuckTimer(resetFactor: true);
     await _stopLowTimeLoop(immediate: true);
     await _stopDevilLoop(immediate: true);
     await _stopCalmLoop(immediate: true);
@@ -1210,7 +1216,9 @@ class AudioManager {
     required double baseVolume,
     required double playbackRate,
   }) async {
-    if (bus == AudioBus.ui || bus == AudioBus.action) {
+    final shouldDuckEnemyBus =
+        (bus == AudioBus.ui || bus == AudioBus.action) && cue != _AudioCue.flip;
+    if (shouldDuckEnemyBus) {
       unawaited(_duckEnemyForActionSfx());
     }
 
@@ -1310,12 +1318,16 @@ class AudioManager {
     }
 
     final normalizedBase = baseVolume.clamp(0.0, 1.0).toDouble();
+    final devilPriorityDuck = bus == AudioBus.action
+        ? _devilPriorityActionDuck
+        : 1.0;
     final value =
         normalizedBase *
         master.volume *
         master.duck *
         busState.volume *
-        busState.duck;
+        busState.duck *
+        devilPriorityDuck;
     return value.clamp(0.0, 1.0).toDouble();
   }
 
@@ -1410,6 +1422,45 @@ class AudioManager {
     }
   }
 
+  Future<void> _duckActionForDevilCue() async {
+    _cancelDevilPriorityActionDuckTimer(resetFactor: false);
+    _devilPriorityActionDuckToken += 1;
+    final token = _devilPriorityActionDuckToken;
+    _devilPriorityActionDuck = _devilPriorityActionDuckFactor;
+    await _refreshAllVolumes();
+    _emitDebugSnapshot();
+
+    _devilPriorityActionDuckTimer = Timer(_devilPriorityActionDuckHold, () {
+      unawaited(_releaseDevilPriorityActionDuck(token));
+    });
+  }
+
+  Future<void> _releaseDevilPriorityActionDuck(int token) async {
+    if (token != _devilPriorityActionDuckToken) {
+      return;
+    }
+
+    final from = _devilPriorityActionDuck;
+    final steps = max(1, _devilPriorityActionDuckRelease.inMilliseconds ~/ 30);
+    for (var i = 1; i <= steps; i++) {
+      if (token != _devilPriorityActionDuckToken) {
+        return;
+      }
+      final t = i / steps;
+      _devilPriorityActionDuck = from + (1.0 - from) * t;
+      await _refreshAllVolumes();
+      if (i < steps) {
+        await Future<void>.delayed(
+          Duration(
+            milliseconds:
+                _devilPriorityActionDuckRelease.inMilliseconds ~/ steps,
+          ),
+        );
+      }
+    }
+    _emitDebugSnapshot();
+  }
+
   Future<void> _applyEnemyBusDuck() async {
     final enemyBus = _buses[AudioBus.enemy];
     if (enemyBus == null) {
@@ -1434,6 +1485,15 @@ class AudioManager {
     _actionEnemyDuckToken += 1;
     if (resetFactor) {
       _actionEnemyDuck = 1.0;
+    }
+  }
+
+  void _cancelDevilPriorityActionDuckTimer({required bool resetFactor}) {
+    _devilPriorityActionDuckTimer?.cancel();
+    _devilPriorityActionDuckTimer = null;
+    _devilPriorityActionDuckToken += 1;
+    if (resetFactor) {
+      _devilPriorityActionDuck = 1.0;
     }
   }
 
@@ -1502,19 +1562,31 @@ class AudioManager {
       return 1.0;
     }
     if (distanceTiles == 2) {
-      return 0.85;
+      return 0.94;
     }
     if (distanceTiles == 3) {
-      return 0.70;
+      return 0.88;
     }
     if (distanceTiles == 4) {
-      return 0.55;
+      return 0.80;
     }
     if (distanceTiles == 5) {
-      return 0.40;
+      return 0.72;
     }
     if (distanceTiles == 6) {
-      return 0.25;
+      return 0.64;
+    }
+    if (distanceTiles == 7) {
+      return 0.56;
+    }
+    if (distanceTiles == 8) {
+      return 0.46;
+    }
+    if (distanceTiles == 9) {
+      return 0.36;
+    }
+    if (distanceTiles == 10) {
+      return 0.28;
     }
     return 0.0;
   }
