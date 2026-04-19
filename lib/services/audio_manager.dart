@@ -106,8 +106,8 @@ class AudioManager {
   static const double _calmBaseVolume = 0.45;
   static const double _flipBaseVolume = 0.92;
   static const double _devilBaseVolume = 1.0;
-  static const double _devilAudibilityBoost = 1.60;
-  static const double _devilMinTriggerVolume = 0.82;
+  static const double _devilAudibilityBoost = 2.50;
+  static const double _devilMinTriggerVolume = 1.0;
   static const double _devilPriorityActionDuckFactor = 0.62;
   static const double _devilLoopMaxVolume = 1.0;
   static const double _actionEnemyDuckFactor = 0.30;
