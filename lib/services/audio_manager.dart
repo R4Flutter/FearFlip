@@ -106,6 +106,8 @@ class AudioManager {
   static const double _calmBaseVolume = 0.45;
   static const double _flipBaseVolume = 0.92;
   static const double _devilBaseVolume = 1.0;
+  static const double _devilAudibilityBoost = 1.60;
+  static const double _devilMinTriggerVolume = 0.82;
   static const double _devilPriorityActionDuckFactor = 0.62;
   static const double _devilLoopMaxVolume = 1.0;
   static const double _actionEnemyDuckFactor = 0.30;
@@ -1249,7 +1251,7 @@ class AudioManager {
       return;
     }
 
-    final targetVolume = _mapDevilDistanceToVolume(_latestDevilDistance);
+    final targetVolume = _computeDevilLoopBaseVolume(_latestDevilDistance);
     if (targetVolume <= 0) {
       return;
     }
@@ -1292,18 +1294,34 @@ class AudioManager {
       return;
     }
 
+    _devilLoop.baseVolume = _computeDevilLoopBaseVolume(distanceTiles);
+
+    await _setLoopVolume(_devilLoop, AudioBus.enemy);
+  }
+
+  double _computeDevilLoopBaseVolume(int distanceTiles) {
     final mapped = _mapDevilDistanceToVolume(distanceTiles);
+    if (mapped <= 0) {
+      return 0;
+    }
+
     final safeZoneFactor = (_safeZoneHalvesDevilVolume && _isSafeZoneImmune)
         ? 0.5
         : 1.0;
     final alarmPriorityFactor = isAlarmPlaying ? 0.75 : 1.0;
 
-    _devilLoop.baseVolume =
-        (_devilBaseVolume * mapped * safeZoneFactor * alarmPriorityFactor)
-            .clamp(0.0, _devilLoopMaxVolume)
-            .toDouble();
+    var target =
+        _devilBaseVolume *
+        mapped *
+        safeZoneFactor *
+        alarmPriorityFactor *
+        _devilAudibilityBoost;
 
-    await _setLoopVolume(_devilLoop, AudioBus.enemy);
+    if (!_isSafeZoneImmune && distanceTiles <= _devilStartDistanceTiles) {
+      target = max(target, _devilMinTriggerVolume);
+    }
+
+    return target.clamp(0.0, _devilLoopMaxVolume).toDouble();
   }
 
   Future<void> _stopDevilLoop({required bool immediate}) async {
