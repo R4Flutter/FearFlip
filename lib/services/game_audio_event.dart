@@ -12,6 +12,8 @@ enum GameAudioEvent {
   matchExit,
   flipTriggered,
   devilDistanceChanged,
+  mazeShiftStarted,
+  mazeShiftEnded,
   safeZoneEntered,
   safeZoneExited,
   timeChanged,
@@ -79,6 +81,14 @@ class GameAudioEventPayload {
       devilEnabled: devilEnabled,
       safeZoneImmune: safeZoneImmune,
     );
+  }
+
+  static GameAudioEventPayload mazeShiftStarted() {
+    return const GameAudioEventPayload(GameAudioEvent.mazeShiftStarted);
+  }
+
+  static GameAudioEventPayload mazeShiftEnded() {
+    return const GameAudioEventPayload(GameAudioEvent.mazeShiftEnded);
   }
 
   static GameAudioEventPayload safeZoneEntered() {

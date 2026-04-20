@@ -13,6 +13,7 @@ enum _AudioCue {
   calmLoop,
   flip,
   devilApproach,
+  mazeShift,
   safeZone,
   lowTimeAlarm,
   winning,
@@ -56,6 +57,7 @@ class _OneShotVoice {
   bool inUse = false;
   DateTime startedAt = DateTime.fromMillisecondsSinceEpoch(0);
   AudioBus bus = AudioBus.action;
+  _AudioCue? cue;
   double baseVolume = 1.0;
 }
 
@@ -95,6 +97,9 @@ class AudioManager {
   static const Duration _winSafetyDelay = Duration(milliseconds: 30);
   static const Duration _flipRetryDelay = Duration(milliseconds: 12);
   static const Duration _oneShotPlayTimeout = Duration(milliseconds: 650);
+  static const Duration _mazeShiftPriorityFallback = Duration(
+    milliseconds: 5000,
+  );
 
   static const int _devilStartDistanceTiles = 6;
   static const int _devilStopDistanceTiles = 7;
@@ -111,8 +116,10 @@ class AudioManager {
   static const double _devilPriorityActionDuckFactor = 0.62;
   static const double _devilLoopMaxVolume = 1.0;
   static const double _actionEnemyDuckFactor = 0.30;
-  static const double _flipEnemyDuckFactor = 0.72;
+  // Keep devil presence stronger while the flip cue is playing.
+  static const double _flipEnemyDuckFactor = 0.90;
   static const double _safeZoneBaseVolume = 0.75;
+  static const double _mazeShiftBaseVolume = 1.0;
   static const double _lowTimeBaseVolume = 0.80;
   static const double _winBaseVolume = 1.0;
   static const double _loseBaseVolume = 1.0;
@@ -177,6 +184,7 @@ class AudioManager {
   Timer? _actionEnemyDuckTimer;
   Timer? _flipEnemyDuckTimer;
   Timer? _devilPriorityActionDuckTimer;
+  Timer? _mazeShiftPriorityFallbackTimer;
   Timer? _alarmPulseTimer;
   bool _alarmPulseOn = false;
   double _alarmPulseBoost = 0;
@@ -208,6 +216,7 @@ class AudioManager {
   bool _isSafeZoneImmune = false;
   bool _outcomeEventQueued = false;
   bool _devilThreatActive = false;
+  bool _mazeShiftPriorityActive = false;
 
   int? _secondsLeft;
   int? _devilDistanceTiles;
@@ -232,6 +241,7 @@ class AudioManager {
           'fahhhhh_flippingtime.mp3',
         ],
         _AudioCue.devilApproach: <String>['devil_approach.wav'],
+        _AudioCue.mazeShift: <String>['maze_shift_audio.mp3'],
         _AudioCue.safeZone: <String>['safe_zone_sound.mp3'],
         _AudioCue.lowTimeAlarm: <String>['low_time_alarm.wav'],
         _AudioCue.winning: <String>['winning_soundeffect.mp3'],
@@ -278,7 +288,12 @@ class AudioManager {
         voice.completionSubscription = voice.player.onPlayerComplete.listen((
           _,
         ) {
+          final completedCue = voice.cue;
           voice.inUse = false;
+          voice.cue = null;
+          if (completedCue == _AudioCue.mazeShift && _mazeShiftPriorityActive) {
+            unawaited(_onMazeShiftEnded());
+          }
         });
       }
       await _safe('oneshot.setReleaseMode', () async {
@@ -348,6 +363,7 @@ class AudioManager {
       isAlarmPlaying = false;
       _lowTimeLoop.baseVolume = 0;
       unawaited(_safe('alarm.stopOnOutcomeQueue', _lowTimeLoop.player.stop));
+      _forceKillMazeShiftPrioritySync();
       // Synchronous inline stop so devil threat cannot bleed into outcome.
       _forceKillDevilLoopSync();
     }
@@ -360,6 +376,7 @@ class AudioManager {
       _latestDevilDistance = 99;
       _latestSafeZoneImmune = false;
       _latestDevilRevision = ++_nextDevilRevision;
+      _forceKillMazeShiftPrioritySync();
     }
 
     if (_isQueueBoundaryEvent(payload.type)) {
@@ -378,6 +395,8 @@ class AudioManager {
           : null,
     );
     if (payload.type == GameAudioEvent.flipTriggered ||
+        payload.type == GameAudioEvent.mazeShiftStarted ||
+        payload.type == GameAudioEvent.mazeShiftEnded ||
         payload.type == GameAudioEvent.playerWon ||
         payload.type == GameAudioEvent.playerLost ||
         payload.type == GameAudioEvent.matchExit) {
@@ -395,6 +414,20 @@ class AudioManager {
         event == GameAudioEvent.matchStart ||
         event == GameAudioEvent.matchRestart ||
         event == GameAudioEvent.matchExit;
+    final isMazeShiftControlEvent =
+        event == GameAudioEvent.mazeShiftStarted ||
+        event == GameAudioEvent.mazeShiftEnded;
+    final isLifecycleControlEvent =
+        event == GameAudioEvent.matchPause ||
+        event == GameAudioEvent.matchResume;
+
+    if (_mazeShiftPriorityActive) {
+      return event != GameAudioEvent.playerWon &&
+          event != GameAudioEvent.playerLost &&
+          !isResetEvent &&
+          !isMazeShiftControlEvent &&
+          !isLifecycleControlEvent;
+    }
 
     if (_matchState == MatchAudioState.won) {
       return !isResetEvent;
@@ -406,6 +439,7 @@ class AudioManager {
       return event != GameAudioEvent.playerWon &&
           event != GameAudioEvent.playerLost &&
           event != GameAudioEvent.flipTriggered &&
+          !isMazeShiftControlEvent &&
           !isResetEvent;
     }
 
@@ -525,6 +559,12 @@ class AudioManager {
           devilRevision: revision,
         );
         break;
+      case GameAudioEvent.mazeShiftStarted:
+        await _onMazeShiftStarted();
+        break;
+      case GameAudioEvent.mazeShiftEnded:
+        await _onMazeShiftEnded();
+        break;
       case GameAudioEvent.safeZoneEntered:
         await _onSafeZoneEntered();
         break;
@@ -639,6 +679,7 @@ class AudioManager {
     _cancelActionEnemyDuckTimer(resetFactor: true);
     _cancelFlipEnemyDuckTimer(resetFactor: true);
     _cancelDevilPriorityActionDuckTimer(resetFactor: true);
+    _cancelMazeShiftPriorityFallbackTimer();
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
 
@@ -667,6 +708,7 @@ class AudioManager {
     isDevilPlaying = false;
     isAlarmPlaying = false;
     _devilThreatActive = false;
+    _mazeShiftPriorityActive = false;
     _latestDevilDistance = 99;
     _latestDevilEnabled = false;
     _latestSafeZoneImmune = false;
@@ -699,6 +741,7 @@ class AudioManager {
     _latestDevilRevision = ++_nextDevilRevision;
 
     _cancelAlarmPulseTimer();
+    _cancelMazeShiftPriorityFallbackTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
     _cancelActionEnemyDuckTimer(resetFactor: true);
     _cancelFlipEnemyDuckTimer(resetFactor: true);
@@ -709,6 +752,7 @@ class AudioManager {
     _actionEnemyDuck = 1.0;
     _flipEnemyDuck = 1.0;
     _devilPriorityActionDuck = 1.0;
+    _mazeShiftPriorityActive = false;
     final enemyBus = _buses[AudioBus.enemy];
     if (enemyBus != null) {
       enemyBus.duck = 1.0;
@@ -819,6 +863,7 @@ class AudioManager {
     _cancelActionEnemyDuckTimer(resetFactor: true);
     _cancelFlipEnemyDuckTimer(resetFactor: true);
     _cancelDevilPriorityActionDuckTimer(resetFactor: true);
+    _cancelMazeShiftPriorityFallbackTimer();
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
 
@@ -826,6 +871,7 @@ class AudioManager {
     _actionEnemyDuck = 1.0;
     _flipEnemyDuck = 1.0;
     _devilPriorityActionDuck = 1.0;
+    _mazeShiftPriorityActive = false;
     final enemyBus = _buses[AudioBus.enemy];
     if (enemyBus != null) {
       enemyBus.duck = 1.0;
@@ -967,6 +1013,97 @@ class AudioManager {
     unawaited(_duckActionForDevilCue());
   }
 
+  Future<void> _onMazeShiftStarted() async {
+    if (!_canUseMatchAudioLayer || _isOutcomePriorityActive) {
+      return;
+    }
+
+    _mazeShiftPriorityActive = true;
+    _armMazeShiftPriorityFallback();
+
+    if (_calmStartQueued) {
+      _cancelCalmStartTimer();
+      _calmStartQueued = false;
+    }
+
+    await _stopLowTimeLoop(immediate: true);
+    await _stopDevilLoop(immediate: true);
+    await _stopCalmLoop(immediate: true);
+    await _stopOneShotChannels();
+
+    final played = await _playOneShot(
+      _AudioCue.mazeShift,
+      bus: AudioBus.ui,
+      baseVolume: _mazeShiftBaseVolume,
+      playbackRate: 1,
+    );
+
+    if (!played) {
+      await _onMazeShiftEnded();
+    }
+  }
+
+  Future<void> _onMazeShiftEnded({bool force = false}) async {
+    if (!force && _isOneShotCueActive(_AudioCue.mazeShift)) {
+      // Keep top priority until the one-shot actually finishes.
+      return;
+    }
+
+    if (force && _isOneShotCueActive(_AudioCue.mazeShift)) {
+      await _stopOneShotCue(_AudioCue.mazeShift);
+    }
+
+    _cancelMazeShiftPriorityFallbackTimer();
+    final wasActive = _mazeShiftPriorityActive;
+    _mazeShiftPriorityActive = false;
+
+    if (!wasActive) {
+      return;
+    }
+
+    await _resumeAudioAfterMazeShiftPriority();
+  }
+
+  Future<void> _resumeAudioAfterMazeShiftPriority() async {
+    if (!_canUseMatchAudioLayer || _isOutcomePriorityActive) {
+      return;
+    }
+
+    final shouldResumeDevil =
+        _latestDevilEnabled &&
+        !_latestSafeZoneImmune &&
+        _latestDevilDistance <= _devilStartDistanceTiles;
+
+    if (shouldResumeDevil) {
+      _devilThreatActive = true;
+      await _startDevilLoop(devilRevision: _latestDevilRevision);
+      if (isDevilPlaying) {
+        await _updateDevilLoopVolume(_latestDevilDistance);
+      }
+      return;
+    }
+
+    await _resumeBackgroundAudioAfterThreat();
+  }
+
+  void _forceKillMazeShiftPrioritySync() {
+    _cancelMazeShiftPriorityFallbackTimer();
+    _mazeShiftPriorityActive = false;
+
+    for (final voice in _allOneShotVoices()) {
+      if (voice.cue != _AudioCue.mazeShift) {
+        continue;
+      }
+      voice.inUse = false;
+      voice.cue = null;
+      unawaited(
+        _safe('oneshot.forceStop.mazeShift.${voice.bus.name}', () async {
+          await voice.player.stop();
+        }),
+      );
+    }
+  }
+
   Future<void> _onSafeZoneEntered() async {
     _isSafeZoneImmune = true;
     _latestSafeZoneImmune = true;
@@ -1085,13 +1222,16 @@ class AudioManager {
     _latestDevilRevision = ++_nextDevilRevision;
 
     _cancelCalmStartTimer();
+    _cancelMazeShiftPriorityFallbackTimer();
     _cancelAlarmPulseTimer();
     _cancelSafeZoneDuckTimer(resetFactor: true);
     _cancelActionEnemyDuckTimer(resetFactor: true);
     _cancelFlipEnemyDuckTimer(resetFactor: true);
     _cancelDevilPriorityActionDuckTimer(resetFactor: true);
+    _mazeShiftPriorityActive = false;
     await _applyEnemyBusDuck();
 
+    await _stopOneShotCue(_AudioCue.mazeShift);
     await _stopLowTimeLoop(immediate: true);
     await _stopDevilLoop(immediate: true);
 
@@ -1134,6 +1274,9 @@ class AudioManager {
     _cancelCalmStartTimer();
     _cancelFlipEnemyDuckTimer(resetFactor: true);
     _cancelDevilPriorityActionDuckTimer(resetFactor: true);
+    _cancelMazeShiftPriorityFallbackTimer();
+    _mazeShiftPriorityActive = false;
+    await _stopOneShotCue(_AudioCue.mazeShift);
     await _stopLowTimeLoop(immediate: true);
     await _stopDevilLoop(immediate: true);
     await _stopCalmLoop(immediate: true);
@@ -1526,7 +1669,30 @@ class AudioManager {
         await voice.player.stop();
       });
       voice.inUse = false;
+      voice.cue = null;
     }
+  }
+
+  Future<void> _stopOneShotCue(_AudioCue cue) async {
+    for (final voice in _allOneShotVoices()) {
+      if (!voice.inUse || voice.cue != cue) {
+        continue;
+      }
+      await _safe('oneshot.stop.${cue.name}.${voice.bus.name}', () async {
+        await voice.player.stop();
+      });
+      voice.inUse = false;
+      voice.cue = null;
+    }
+  }
+
+  bool _isOneShotCueActive(_AudioCue cue) {
+    for (final voice in _allOneShotVoices()) {
+      if (voice.inUse && voice.cue == cue) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<bool> _playOneShot(
@@ -1542,7 +1708,9 @@ class AudioManager {
     }
 
     final shouldDuckEnemyBus =
-        (bus == AudioBus.ui || bus == AudioBus.action) && cue != _AudioCue.flip;
+        (bus == AudioBus.ui || bus == AudioBus.action) &&
+        cue != _AudioCue.flip &&
+        cue != _AudioCue.mazeShift;
     if (shouldDuckEnemyBus) {
       unawaited(_duckEnemyForActionSfx());
     }
@@ -1570,11 +1738,14 @@ class AudioManager {
     }
 
     voice.bus = bus;
+    voice.cue = cue;
     voice.baseVolume = baseVolume.clamp(0.0, 1.0).toDouble();
     voice.startedAt = DateTime.now();
     voice.inUse = true;
 
-    final volume = _effectiveVolume(bus, voice.baseVolume);
+    final volume = cue == _AudioCue.mazeShift
+        ? _maxUnmutedVolumeForBus(bus)
+        : _effectiveVolume(bus, voice.baseVolume);
 
     await _safe('oneshot.rate.${cue.name}', () async {
       await voice.player.setPlaybackRate(playbackRate);
@@ -1588,6 +1759,7 @@ class AudioManager {
 
     if (!played) {
       voice.inUse = false;
+      voice.cue = null;
       return false;
     }
 
@@ -1603,7 +1775,9 @@ class AudioManager {
       if (!voice.inUse) {
         continue;
       }
-      final effective = _effectiveVolume(voice.bus, voice.baseVolume);
+      final effective = voice.cue == _AudioCue.mazeShift
+          ? _maxUnmutedVolumeForBus(voice.bus)
+          : _effectiveVolume(voice.bus, voice.baseVolume);
       await _safe('oneshot.volume.${voice.bus.name}', () async {
         await voice.player.setVolume(effective);
       });
@@ -1669,6 +1843,20 @@ class AudioManager {
     return value.clamp(0.0, 1.0).toDouble();
   }
 
+  double _maxUnmutedVolumeForBus(AudioBus bus) {
+    final master = _buses[AudioBus.master];
+    final busState = _buses[bus];
+    if (master == null || busState == null) {
+      return 0;
+    }
+
+    if (master.muted || busState.muted) {
+      return 0;
+    }
+
+    return 1.0;
+  }
+
   bool get _canUseMatchAudioLayer {
     return isMatchActive && !isWon && !isLost && !isPaused;
   }
@@ -1686,13 +1874,16 @@ class AudioManager {
   }
 
   bool get _isDevilPriorityActive {
-    return !_isOutcomePriorityActive && _devilThreatActive;
+    return !_isOutcomePriorityActive &&
+        !_mazeShiftPriorityActive &&
+        _devilThreatActive;
   }
 
   bool get _isLowTimePriorityActive {
     final seconds = _secondsLeft;
     final inWindow = seconds != null && seconds > 0 && seconds <= 10;
     return !_isOutcomePriorityActive &&
+        !_mazeShiftPriorityActive &&
         !_isDevilPriorityActive &&
         (isAlarmPlaying || inWindow);
   }
@@ -1700,6 +1891,9 @@ class AudioManager {
   bool _isOneShotAllowedForPriority(_AudioCue cue) {
     if (_isOutcomePriorityActive) {
       return cue == _AudioCue.winning || cue == _AudioCue.playerLost;
+    }
+    if (_mazeShiftPriorityActive) {
+      return cue == _AudioCue.mazeShift;
     }
     if (_isDevilPriorityActive) {
       return cue == _AudioCue.flip;
@@ -1752,6 +1946,18 @@ class AudioManager {
     _calmStartTimer?.cancel();
     _calmStartTimer = null;
     _calmStartStopwatch.stop();
+  }
+
+  void _armMazeShiftPriorityFallback() {
+    _cancelMazeShiftPriorityFallbackTimer();
+    _mazeShiftPriorityFallbackTimer = Timer(_mazeShiftPriorityFallback, () {
+      unawaited(_onMazeShiftEnded(force: true));
+    });
+  }
+
+  void _cancelMazeShiftPriorityFallbackTimer() {
+    _mazeShiftPriorityFallbackTimer?.cancel();
+    _mazeShiftPriorityFallbackTimer = null;
   }
 
   Future<void> _duckEnemyForActionSfx() async {

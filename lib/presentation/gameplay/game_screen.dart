@@ -385,7 +385,11 @@ class _GameScreenState extends State<GameScreen>
     }
 
     _mazeShiftManager.tick(dt);
+    final wasGlitchActive = _glitchEffectController.isActive;
     _glitchEffectController.update(dt);
+    if (wasGlitchActive && !_glitchEffectController.isActive) {
+      unawaited(_audioManager.handle(GameAudioEvent.mazeShiftEnded));
+    }
 
     final timeToFlip = _nextFlipAtSeconds - _stageElapsedSeconds;
     if (timeToFlip <= _stageRule.warningTime && timeToFlip > 0) {}
@@ -635,6 +639,7 @@ class _GameScreenState extends State<GameScreen>
       return;
     }
 
+    unawaited(_audioManager.handle(GameAudioEvent.mazeShiftStarted));
     _rebuildPathMetrics();
     _mazeShiftManager.updateTotalSteps(_mazeShiftTotalSteps);
     _devilMoveAccumulator = 0;
@@ -1358,6 +1363,19 @@ class _GameScreenState extends State<GameScreen>
                   onPauseTap: _togglePause,
                 ),
               ),
+              if (kDebugMode)
+                Positioned(
+                  top: floatingTop + (2 * uiScale).clamp(1.0, 8.0),
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: _DebugStageDropdown(
+                      currentStage: _stage,
+                      maxStage: _maxStage,
+                      onStageSelected: _jumpToStageForDebug,
+                    ),
+                  ),
+                ),
               if (_isPaused)
                 Positioned.fill(
                   child: IgnorePointer(
@@ -1598,6 +1616,45 @@ class _GameScreenState extends State<GameScreen>
     setState(() {});
   }
 
+  void _jumpToStageForDebug(int targetStage) {
+    final stage = targetStage.clamp(1, _maxStage);
+    if (_stage == stage && !_showLossOverlay && !_isStageTransition) {
+      return;
+    }
+
+    _countdownTimer?.cancel();
+    _stageClearController.stop();
+    _stageClearController.reset();
+
+    _stage = stage;
+    _stageRule = StageRules.forStage(_stage);
+    _difficulty = _difficultyForStage(_stage);
+    _maze = _generator.generate(rows: _difficulty, cols: _difficulty);
+    _rebuildPathMetrics();
+    _remainingSeconds = _stageDurationSeconds;
+    _isStageTransition = false;
+    _isTimeUpHandling = false;
+    _showLossOverlay = false;
+    _lostByTime = false;
+    _adActionInProgress = false;
+
+    _playerController.resetForMaze(_maze);
+    _applyStageRule(resetMaze: false);
+
+    // Force-clear lingering one-shots and start the chosen stage cleanly.
+    unawaited(_audioManager.handle(GameAudioEvent.matchExit));
+    unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
+    _restartCountdown();
+
+    if (_isExternallyInactive) {
+      unawaited(_audioManager.handle(GameAudioEvent.matchPause));
+    }
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   Direction4? _invertDirection(Direction4? direction) {
     switch (direction) {
       case Direction4.up:
@@ -1643,6 +1700,86 @@ class _GameScreenState extends State<GameScreen>
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _DebugStageDropdown extends StatelessWidget {
+  const _DebugStageDropdown({
+    required this.currentStage,
+    required this.maxStage,
+    required this.onStageSelected,
+  });
+
+  final int currentStage;
+  final int maxStage;
+  final ValueChanged<int> onStageSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeStage = currentStage.clamp(1, maxStage).toInt();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 4, 8, 4),
+      decoration: BoxDecoration(
+        color: AppPalette.surface.withAlpha(224),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppPalette.accentPurple.withAlpha(170)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.bug_report_rounded,
+            color: AppPalette.accentPurple.withAlpha(220),
+            size: 16,
+          ),
+          const SizedBox(width: 6),
+          const Text(
+            'TEST STAGE',
+            style: TextStyle(
+              color: AppPalette.textMuted,
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+              letterSpacing: 0.45,
+            ),
+          ),
+          const SizedBox(width: 6),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<int>(
+              value: safeStage,
+              isDense: true,
+              menuMaxHeight: 320,
+              dropdownColor: AppPalette.surfaceAlt,
+              iconEnabledColor: AppPalette.neonGreen,
+              style: const TextStyle(
+                color: AppPalette.textPrimary,
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+              ),
+              items: List<DropdownMenuItem<int>>.generate(maxStage, (index) {
+                final stage = index + 1;
+                return DropdownMenuItem<int>(
+                  value: stage,
+                  child: Text('Stage $stage'),
+                );
+              }, growable: false),
+              onChanged: (value) {
+                if (value != null) {
+                  onStageSelected(value);
+                }
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
