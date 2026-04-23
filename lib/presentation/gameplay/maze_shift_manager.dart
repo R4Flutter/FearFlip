@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 import 'maze_generator.dart';
 
 enum MazeShiftPhase { none, midRun, lateRun }
@@ -31,6 +33,7 @@ class MazeShiftManager {
   static const int _eligibleStageModulo = 6;
   static const int _candidateCount = 3;
   static const int _regionSelectionAttempts = 28;
+  static const double _maxPathLengthMultiplier = 1.5;
   static const double _midMinProgress = 0.40;
   static const double _midMaxProgress = 0.60;
   static const double _lateMinProgress = 0.75;
@@ -142,9 +145,29 @@ class MazeShiftManager {
       exitPosition: exitPosition,
       count: _candidateCount,
     );
+    final oldPathLength = _shortestPathLength(
+      maze: original,
+      start: playerPosition,
+      end: exitPosition,
+    );
+    if (oldPathLength == null) {
+      _logPathValidation(
+        oldPathLength: null,
+        newPathLength: null,
+        verdict: 'rejected_missing_old_path',
+      );
+      return MazeShiftOutcome(
+        phase: phase,
+        applied: false,
+        attempts: 0,
+        wasEligibleStage: true,
+      );
+    }
+    final maxAllowedPathLength = oldPathLength * _maxPathLengthMultiplier;
 
     MazeGrid? bestCandidateGrid;
     var bestComplexity = -1;
+    int? bestPathLength;
     var attempts = 0;
 
     for (final candidate in candidates) {
@@ -170,7 +193,26 @@ class MazeShiftManager {
         continue;
       }
 
-      if (!_isPathAvailable(working, playerPosition, exitPosition)) {
+      final newPathLength = _shortestPathLength(
+        maze: working,
+        start: playerPosition,
+        end: exitPosition,
+      );
+      if (newPathLength == null) {
+        _logPathValidation(
+          oldPathLength: oldPathLength,
+          newPathLength: null,
+          verdict: 'rejected_no_path',
+        );
+        continue;
+      }
+
+      if (newPathLength > maxAllowedPathLength) {
+        _logPathValidation(
+          oldPathLength: oldPathLength,
+          newPathLength: newPathLength,
+          verdict: 'rejected_path_too_long',
+        );
         continue;
       }
 
@@ -180,9 +222,19 @@ class MazeShiftManager {
         region: candidate.region,
       );
 
-      if (complexity > bestComplexity) {
+      final isMoreNoticeable = complexity > bestComplexity;
+      final isTieWithShorterPath =
+          complexity == bestComplexity &&
+          (bestPathLength == null || newPathLength < bestPathLength);
+      if (isMoreNoticeable || isTieWithShorterPath) {
         bestComplexity = complexity;
+        bestPathLength = newPathLength;
         bestCandidateGrid = working;
+        _logPathValidation(
+          oldPathLength: oldPathLength,
+          newPathLength: newPathLength,
+          verdict: 'accepted',
+        );
       }
     }
 
@@ -518,38 +570,47 @@ class MazeShiftManager {
     return false;
   }
 
-  bool _isPathAvailable(MazeGrid maze, Point<int> start, Point<int> end) {
+  int? _shortestPathLength({
+    required MazeGrid maze,
+    required Point<int> start,
+    required Point<int> end,
+  }) {
     if (!_isInBounds(maze, start) || !_isInBounds(maze, end)) {
-      return false;
+      return null;
     }
     if (start == end) {
-      return true;
+      return 0;
     }
 
     final queue = <Point<int>>[start];
-    final visited = <Point<int>>{start};
+    final distances = <Point<int>, int>{start: 0};
     var index = 0;
 
     while (index < queue.length) {
       final current = queue[index++];
-      if (current == end) {
-        return true;
-      }
+      final currentDistance = distances[current] ?? 0;
 
       for (final direction in Direction4.values) {
         if (!maze.canMove(current, direction)) {
           continue;
         }
+
         final next = maze.move(current, direction);
-        if (visited.contains(next)) {
+        if (distances.containsKey(next)) {
           continue;
         }
-        visited.add(next);
+
+        final nextDistance = currentDistance + 1;
+        if (next == end) {
+          return nextDistance;
+        }
+
+        distances[next] = nextDistance;
         queue.add(next);
       }
     }
 
-    return false;
+    return null;
   }
 
   int _countEdgeDifferences({
@@ -704,6 +765,20 @@ class MazeShiftManager {
       return minValue;
     }
     return minValue + _random.nextDouble() * (maxValue - minValue);
+  }
+
+  void _logPathValidation({
+    required int? oldPathLength,
+    required int? newPathLength,
+    required String verdict,
+  }) {
+    if (!kDebugMode) {
+      return;
+    }
+
+    final oldLabel = oldPathLength?.toString() ?? 'null';
+    final newLabel = newPathLength?.toString() ?? 'null';
+    debugPrint('oldPath=$oldLabel newPath=$newLabel $verdict');
   }
 }
 
