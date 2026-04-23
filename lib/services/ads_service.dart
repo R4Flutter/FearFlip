@@ -3,9 +3,25 @@ import 'dart:async';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../config/app_runtime_config.dart';
+import 'ad_placement_policy.dart';
 import 'consent_service.dart';
 
 class AdsService {
+  AdsService({AdPlacementPolicy? placementPolicy, DateTime Function()? clock})
+    : _placementPolicy =
+          placementPolicy ??
+          AdPlacementPolicy(
+            interstitialCooldown: AppRuntimeConfig.interstitialCooldown,
+            minGameOversBeforeInterstitial: AppRuntimeConfig
+                .interstitialMinGameOvers
+                .clamp(1, 10)
+                .toInt(),
+          ),
+      _clock = clock ?? DateTime.now;
+
+  final AdPlacementPolicy _placementPolicy;
+  final DateTime Function() _clock;
+
   RewardedAd? _rewardedAd;
   InterstitialAd? _interstitialAd;
 
@@ -14,11 +30,15 @@ class AdsService {
         !ConsentService.instance.canRequestAds) {
       return;
     }
-    await Future.wait([_loadRewarded(), _loadInterstitial()]);
+    await Future.wait([
+      if (AppRuntimeConfig.rewardedAdsEnabled) _loadRewarded(),
+      if (AppRuntimeConfig.interstitialAdsEnabled) _loadInterstitial(),
+    ]);
   }
 
   Future<void> _loadRewarded() {
-    if (!ConsentService.instance.canRequestAds) {
+    if (!AppRuntimeConfig.rewardedAdsEnabled ||
+        !ConsentService.instance.canRequestAds) {
       return Future.value();
     }
     final adUnitId = AppRuntimeConfig.rewardedAdUnitId;
@@ -42,7 +62,8 @@ class AdsService {
   }
 
   Future<void> _loadInterstitial() {
-    if (!ConsentService.instance.canRequestAds) {
+    if (!AppRuntimeConfig.interstitialAdsEnabled ||
+        !ConsentService.instance.canRequestAds) {
       return Future.value();
     }
     final adUnitId = AppRuntimeConfig.interstitialAdUnitId;
@@ -66,6 +87,11 @@ class AdsService {
   }
 
   Future<bool> showRewardedForRevive() async {
+    if (!AppRuntimeConfig.rewardedAdsEnabled ||
+        !ConsentService.instance.canRequestAds) {
+      return false;
+    }
+
     final ad = _rewardedAd;
     if (ad == null) {
       await _loadRewarded();
@@ -93,7 +119,7 @@ class AdsService {
     );
 
     ad.show(
-      onUserEarnedReward: (_, __) {
+      onUserEarnedReward: (_, _) {
         if (!c.isCompleted) {
           c.complete(true);
         }
@@ -103,11 +129,18 @@ class AdsService {
     return c.future;
   }
 
-  Future<void> showInterstitialAfterGameOver() async {
+  Future<bool> showInterstitialAfterGameOver() async {
+    _placementPolicy.recordGameOver();
+    if (!AppRuntimeConfig.interstitialAdsEnabled ||
+        !ConsentService.instance.canRequestAds ||
+        !_placementPolicy.canShowInterstitial(_clock())) {
+      return false;
+    }
+
     final ad = _interstitialAd;
     if (ad == null) {
       await _loadInterstitial();
-      return;
+      return false;
     }
 
     ad.fullScreenContentCallback = FullScreenContentCallback(
@@ -122,7 +155,9 @@ class AdsService {
         unawaited(_loadInterstitial());
       },
     );
+    _placementPolicy.recordInterstitialShown(_clock());
     ad.show();
+    return true;
   }
 
   void dispose() {

@@ -11,6 +11,7 @@ import '../../game/game.dart';
 import '../controllers/game_controller.dart';
 import '../../services/ads_service.dart';
 import '../../services/audio_manager.dart';
+import '../../services/account_deletion_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/game_audio_event.dart';
 import '../../services/leaderboard_service.dart';
@@ -34,10 +35,14 @@ class AppFlowProvider extends ChangeNotifier {
     AuthService? authService,
     bool enableAuthBootstrap = true,
     LeaderboardService? leaderboardService,
+    AccountDeletionService? accountDeletionService,
   }) : _sessionDatabase = sessionDatabase,
        _startSurvivalUseCase = startSurvivalUseCase,
        _authService =
-           authService ?? (enableAuthBootstrap ? AuthService() : null) {
+           authService ?? (enableAuthBootstrap ? AuthService() : null),
+       _accountDeletionService =
+           accountDeletionService ??
+           (enableAuthBootstrap ? AccountDeletionService() : null) {
     _sessionDatabase.markAppLaunch();
     game = FearFlipGame(
       adsService: AdsService(),
@@ -68,6 +73,7 @@ class AppFlowProvider extends ChangeNotifier {
   final LocalSessionDatabase _sessionDatabase;
   final StartSurvivalUseCase _startSurvivalUseCase;
   final AuthService? _authService;
+  final AccountDeletionService? _accountDeletionService;
   StreamSubscription<User?>? _authSubscription;
 
   late final FearFlipGame game;
@@ -77,7 +83,9 @@ class AppFlowProvider extends ChangeNotifier {
   bool _offlineGuestMode = false;
   String? _offlineGuestName;
   bool _isAuthenticating = false;
+  bool _isDeletingAccount = false;
   String? _authError;
+  String? _accountMessage;
   bool _showLanding = true;
   bool _isStarting = false;
   double _joystickSize = 110;
@@ -91,7 +99,9 @@ class AppFlowProvider extends ChangeNotifier {
 
   bool get showAuthGate => _currentUser == null && !_offlineGuestMode;
   bool get isAuthenticating => _isAuthenticating;
+  bool get isDeletingAccount => _isDeletingAccount;
   String? get authError => _authError;
+  String? get accountMessage => _accountMessage;
   String get playerName {
     if (_offlineGuestMode) {
       return _offlineGuestName ?? 'Guest';
@@ -439,6 +449,69 @@ class AppFlowProvider extends ChangeNotifier {
       _authError = 'Sign out failed. Please try again.';
     } finally {
       _isAuthenticating = false;
+      notifyListeners();
+    }
+  }
+
+  Future<AccountDeletionResult> requestAccountDeletion() async {
+    if (_isDeletingAccount || _isAuthenticating) {
+      return const AccountDeletionResult(
+        status: AccountDeletionStatus.failed,
+        message: 'Another account action is already in progress.',
+      );
+    }
+
+    final service = _accountDeletionService;
+    if (service == null || _offlineGuestMode) {
+      _offlineGuestMode = false;
+      _offlineGuestName = null;
+      _currentUser = null;
+      _showLanding = true;
+      _globalPanicRank = null;
+      _accountMessage = 'Local guest profile cleared on this device.';
+      notifyListeners();
+      return AccountDeletionResult(
+        status: AccountDeletionStatus.noSignedInUser,
+        message: _accountMessage!,
+      );
+    }
+
+    _isDeletingAccount = true;
+    _authError = null;
+    _accountMessage = null;
+    notifyListeners();
+
+    try {
+      final result = await service.requestDeletion().timeout(
+        const Duration(seconds: 25),
+      );
+      _accountMessage = result.message;
+      if (result.shouldReturnToAuthGate) {
+        _offlineGuestMode = false;
+        _offlineGuestName = null;
+        _currentUser = null;
+        _showLanding = true;
+        _globalPanicRank = null;
+      }
+      return result;
+    } on TimeoutException {
+      const result = AccountDeletionResult(
+        status: AccountDeletionStatus.failed,
+        message:
+            'Account deletion timed out. Check your internet connection and try again.',
+      );
+      _accountMessage = result.message;
+      return result;
+    } catch (_) {
+      const result = AccountDeletionResult(
+        status: AccountDeletionStatus.failed,
+        message:
+            'Account deletion failed. Please try again or use the account deletion web form.',
+      );
+      _accountMessage = result.message;
+      return result;
+    } finally {
+      _isDeletingAccount = false;
       notifyListeners();
     }
   }

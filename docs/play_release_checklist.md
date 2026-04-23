@@ -28,6 +28,8 @@ This checklist maps production readiness requirements to concrete repository tas
 - Interstitial cooldown and first-fail suppression enabled.
 - Rewarded ads remain user-initiated only.
 - Consent flow (UMP) integrated where required.
+- Privacy/terms/account deletion URLs are configured and reachable.
+- In-app account deletion queues a backend deletion request and handles recent-login failures.
 
 4. Reliability
 - Crashlytics enabled with gameplay breadcrumbs.
@@ -36,6 +38,7 @@ This checklist maps production readiness requirements to concrete repository tas
 
 5. Store operations
 - Privacy policy URL published and linked in-app.
+- Account deletion URL published and linked in Play Console.
 - Data safety form completed accurately for Firebase + ads SDKs.
 - Content rating completed.
 - Store listing assets finalized (icon, screenshots, feature graphic).

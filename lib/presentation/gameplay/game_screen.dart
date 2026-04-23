@@ -61,7 +61,6 @@ class _GameScreenState extends State<GameScreen>
   final GlitchEffectController _glitchEffectController =
       GlitchEffectController();
   late PlayerController _playerController;
-  late AnimationController _pulseController;
   late AnimationController _stageClearController;
   ui.Image? _playerSprite;
   // characters.png uses a 32x32 grid: 736x128 => 23 columns x 4 rows.
@@ -107,6 +106,10 @@ class _GameScreenState extends State<GameScreen>
   bool _resetToCheckpointOnReactivation = false;
   bool _roundResolved = false;
   int _audioFrameId = 0;
+  int? _lastReportedDevilDistanceTiles;
+  bool? _lastReportedDevilEnabled;
+  bool? _lastReportedSafeZoneImmune;
+  double _devilDistanceSampleElapsed = 0;
 
   @override
   void initState() {
@@ -122,13 +125,6 @@ class _GameScreenState extends State<GameScreen>
       animationFrameCount: _spriteColumns,
       animationFrameStepMs: 80,
     );
-
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-      lowerBound: 0,
-      upperBound: 1,
-    )..repeat(reverse: true);
 
     _stageClearController = AnimationController(
       vsync: this,
@@ -375,6 +371,7 @@ class _GameScreenState extends State<GameScreen>
     }
 
     final dt = _stageTickSeconds;
+    var shouldRebuild = false;
     _audioFrameId += 1;
     _stageElapsedSeconds += dt;
 
@@ -390,6 +387,9 @@ class _GameScreenState extends State<GameScreen>
     if (wasGlitchActive && !_glitchEffectController.isActive) {
       unawaited(_audioManager.handle(GameAudioEvent.mazeShiftEnded));
     }
+    if (wasGlitchActive || _glitchEffectController.isActive) {
+      shouldRebuild = true;
+    }
 
     final timeToFlip = _nextFlipAtSeconds - _stageElapsedSeconds;
     if (timeToFlip <= _stageRule.warningTime && timeToFlip > 0) {}
@@ -404,24 +404,27 @@ class _GameScreenState extends State<GameScreen>
         ),
       );
       _nextFlipAtSeconds = _stageElapsedSeconds + _nextFlipInterval();
+      shouldRebuild = true;
     }
 
     final wasPlayerSafe = _playerSafe;
     _updateSafeZones();
     if (!wasPlayerSafe && _playerSafe) {
       _onSafeZoneEntered();
+      shouldRebuild = true;
     } else if (wasPlayerSafe && !_playerSafe) {
       unawaited(_audioManager.handle(GameAudioEvent.safeZoneExited));
+      shouldRebuild = true;
     }
 
     _trackPlayerSteps();
     _maybeTriggerMazeShift();
 
     final hazardGraceActive = _mazeShiftManager.hazardGraceActive;
-
     if (_canSpawnDevilNow()) {
       _devilSpawned = true;
       _devilCell = _spawnDevilCell();
+      shouldRebuild = true;
     }
 
     if (_devilSpawned && _devilCell != null) {
@@ -444,18 +447,26 @@ class _GameScreenState extends State<GameScreen>
         _devilMoveAccumulator = 0;
       }
 
-      final distanceCells =
-          _maze.shortestPathDistance(_devilCell!, _playerController.position) ??
-          99;
-      final devilAudioEnabled = distanceCells <= 6;
-      unawaited(
-        _audioManager.handle(
-          GameAudioEvent.devilDistanceChanged,
-          devilDistanceTiles: distanceCells,
+      if (_devilCell != previousDevilCell) {
+        shouldRebuild = true;
+      }
+
+      _devilDistanceSampleElapsed += dt;
+      if (_devilDistanceSampleElapsed >= 0.10 ||
+          _devilCell != previousDevilCell) {
+        _devilDistanceSampleElapsed = 0;
+        final distanceCells =
+            _maze.shortestPathDistance(
+              _devilCell!,
+              _playerController.position,
+            ) ??
+            99;
+        final devilAudioEnabled = distanceCells <= 6;
+        _dispatchDevilDistance(
+          distanceTiles: distanceCells,
           devilEnabled: devilAudioEnabled,
-          safeZoneImmune: _playerSafe,
-        ),
-      );
+        );
+      }
 
       final playerCell = _playerController.position;
       final crossedThroughEachOther =
@@ -469,19 +480,37 @@ class _GameScreenState extends State<GameScreen>
         unawaited(_onDevilCaught());
       }
     } else {
-      unawaited(
-        _audioManager.handle(
-          GameAudioEvent.devilDistanceChanged,
-          devilDistanceTiles: 99,
-          devilEnabled: false,
-          safeZoneImmune: _playerSafe,
-        ),
-      );
+      _devilDistanceSampleElapsed = 0;
+      _dispatchDevilDistance(distanceTiles: 99, devilEnabled: false);
     }
 
-    if (mounted) {
+    if (shouldRebuild && mounted) {
       setState(() {});
     }
+  }
+
+  void _dispatchDevilDistance({
+    required int distanceTiles,
+    required bool devilEnabled,
+  }) {
+    final safeZoneImmune = _playerSafe;
+    if (_lastReportedDevilDistanceTiles == distanceTiles &&
+        _lastReportedDevilEnabled == devilEnabled &&
+        _lastReportedSafeZoneImmune == safeZoneImmune) {
+      return;
+    }
+
+    _lastReportedDevilDistanceTiles = distanceTiles;
+    _lastReportedDevilEnabled = devilEnabled;
+    _lastReportedSafeZoneImmune = safeZoneImmune;
+    unawaited(
+      _audioManager.handle(
+        GameAudioEvent.devilDistanceChanged,
+        devilDistanceTiles: distanceTiles,
+        devilEnabled: devilEnabled,
+        safeZoneImmune: safeZoneImmune,
+      ),
+    );
   }
 
   Future<void> _onDevilCaught() async {
@@ -523,10 +552,14 @@ class _GameScreenState extends State<GameScreen>
     _devilCell = null;
     _devilSpawned = false;
     _devilMoveAccumulator = 0;
+    _devilDistanceSampleElapsed = 0;
     _lastPlayerCell = _maze.start;
     _stepsSinceSafeZone = 0;
     _awaitingDevilRespawnSteps = false;
     _playerSafe = false;
+    _lastReportedDevilDistanceTiles = null;
+    _lastReportedDevilEnabled = null;
+    _lastReportedSafeZoneImmune = null;
     _rebuildPathMetrics();
     _mazeShiftManager.startStage(
       stage: _stage,
@@ -577,6 +610,8 @@ class _GameScreenState extends State<GameScreen>
     _devilCell = null;
     _devilSpawned = false;
     _devilMoveAccumulator = 0;
+    _devilDistanceSampleElapsed = 0;
+    _dispatchDevilDistance(distanceTiles: 99, devilEnabled: false);
     _stepsSinceSafeZone = 0;
     _awaitingDevilRespawnSteps = true;
   }
@@ -653,9 +688,10 @@ class _GameScreenState extends State<GameScreen>
   Map<Point<int>, int> _buildDistanceMap(Point<int> source) {
     final distances = <Point<int>, int>{source: 0};
     final queue = <Point<int>>[source];
+    var index = 0;
 
-    while (queue.isNotEmpty) {
-      final current = queue.removeAt(0);
+    while (index < queue.length) {
+      final current = queue[index++];
       final base = distances[current] ?? 0;
       for (final dir in Direction4.values) {
         if (!_maze.canMove(current, dir)) {
@@ -748,9 +784,10 @@ class _GameScreenState extends State<GameScreen>
 
     final queue = <Point<int>>[from];
     final parent = <Point<int>, Point<int>?>{from: null};
+    var index = 0;
 
-    while (queue.isNotEmpty) {
-      final current = queue.removeAt(0);
+    while (index < queue.length) {
+      final current = queue[index++];
       if (current == player) {
         break;
       }
@@ -827,9 +864,10 @@ class _GameScreenState extends State<GameScreen>
     final goal = _maze.end;
     final queue = <Point<int>>[start];
     final parent = <Point<int>, Point<int>?>{start: null};
+    var index = 0;
 
-    while (queue.isNotEmpty) {
-      final current = queue.removeAt(0);
+    while (index < queue.length) {
+      final current = queue[index++];
       if (current == goal) {
         break;
       }
@@ -1175,7 +1213,6 @@ class _GameScreenState extends State<GameScreen>
     WidgetsBinding.instance.removeObserver(this);
     _countdownTimer?.cancel();
     _stageTimer?.cancel();
-    _pulseController.dispose();
     _stageClearController.dispose();
     _playerController.dispose();
     unawaited(_audioManager.handle(GameAudioEvent.matchExit));
@@ -1197,8 +1234,7 @@ class _GameScreenState extends State<GameScreen>
     final floatingValueSize = (20 * uiScale).clamp(15.0, 24.0);
     final floatingSubValueSize = (14 * uiScale).clamp(11.0, 18.0);
     final floatingTop = (4 * uiScale).clamp(2.0, 8.0);
-    final floatingDrift =
-        sin(_pulseController.value * pi * 2) * (1.8 * uiScale);
+    final floatingDrift = sin(_stageElapsedSeconds * pi * 2) * (1.8 * uiScale);
     final timeDigits = _timeLabel.replaceFirst('TIME: ', '');
 
     final stageClearSlide =
@@ -1674,8 +1710,9 @@ class _GameScreenState extends State<GameScreen>
     return RepaintBoundary(
       key: GameScreen.gameSurfaceKey,
       child: AnimatedBuilder(
-        animation: Listenable.merge([_pulseController, _playerController]),
+        animation: _playerController,
         builder: (context, _) {
+          final pulse = (_stageElapsedSeconds * 1.25) % 1.0;
           return CustomPaint(
             painter: MazePainter(
               maze: _maze,
@@ -1684,7 +1721,7 @@ class _GameScreenState extends State<GameScreen>
               direction: _playerController.direction,
               currentFrame: _playerController.currentFrame,
               isMoving: _playerController.isMoving,
-              pulse: _pulseController.value,
+              pulse: pulse,
               playerSprite: _playerSprite,
               spriteFrameCount: _spriteColumns,
               spriteRows: _spriteRows,
@@ -1692,9 +1729,7 @@ class _GameScreenState extends State<GameScreen>
               devilCell: _devilCell,
               devilSprite: _playerSprite,
               devilSpriteRowIndex: 0,
-              safeZones: _safeZones.map((key, value) {
-                return MapEntry(key, 1.0);
-              }),
+              safeZones: _safeZones,
               playerSafe: _playerSafe,
               isFlippedMode: _controlsInverted,
             ),
@@ -2692,7 +2727,7 @@ class _RunFailedDialog extends StatelessWidget {
                     icon: Icons.flash_on_rounded,
                     label: adActionInProgress
                         ? 'LOADING AD...'
-                        : 'REVIVE NOW (AD)',
+                        : 'REVIVE NOW (WATCH AD)',
                     background: AppPalette.neonGreen,
                     foreground: Colors.black,
                     glow: const Color(0x8833FF2B),
@@ -2705,8 +2740,8 @@ class _RunFailedDialog extends StatelessWidget {
                   _RunFailedActionButton(
                     icon: Icons.restart_alt_rounded,
                     label: adActionInProgress
-                        ? 'LOADING AD...'
-                        : 'RESTART FROM CHECKPOINT (AD)',
+                        ? 'RESTARTING...'
+                        : 'INSTANT CHECKPOINT RETRY',
                     background: AppPalette.accentPink,
                     foreground: Colors.black,
                     glow: const Color(0x88E85BDA),

@@ -61,7 +61,7 @@ val releaseTasksRequested = gradle.startParameter.taskNames.any { taskName ->
         normalized.contains("publish")
 }
 
-    val defaultReleaseAdmobAppId = "ca-app-pub-1234567890123456~1234567890"
+val defaultReleaseAdmobAppId = "ca-app-pub-1234567890123456~1234567890"
 
 val releaseStoreFilePath = keystoreProperties.getProperty("storeFile")
 val releaseStorePassword = keystoreProperties.getProperty("storePassword")
@@ -72,6 +72,48 @@ val hasReleaseSigning =
         !releaseStorePassword.isNullOrBlank() &&
         !releaseKeyAlias.isNullOrBlank() &&
         !releaseKeyPassword.isNullOrBlank()
+
+if (releaseTasksRequested) {
+    val errors = mutableListOf<String>()
+    val googleServicesFile = project.file("google-services.json")
+    val googleServicesText = if (googleServicesFile.exists()) {
+        googleServicesFile.readText(Charsets.UTF_8)
+    } else {
+        ""
+    }
+
+    if (applicationIdValue == toolingFallbackApplicationId) {
+        errors += "Set fearflip.applicationId in android/release.properties; fallback '$toolingFallbackApplicationId' cannot be uploaded to Play."
+    }
+
+    if (namespaceValue == toolingFallbackApplicationId) {
+        errors += "Set fearflip.namespace to the final package namespace."
+    }
+
+    if (releaseAdmobAppId.isNullOrBlank() ||
+        releaseAdmobAppId == defaultReleaseAdmobAppId ||
+        !releaseAdmobAppId.startsWith("ca-app-pub-") ||
+        !releaseAdmobAppId.contains("~")
+    ) {
+        errors += "Set fearflip.admob.appId to the real AdMob Android app id in android/release.properties."
+    }
+
+    if (!hasReleaseSigning) {
+        errors += "Configure release signing in untracked android/key.properties before building a release bundle."
+    }
+
+    if (!googleServicesFile.exists()) {
+        errors += "android/app/google-services.json is missing."
+    } else if (!googleServicesText.contains("\"package_name\": \"$applicationIdValue\"")) {
+        errors += "google-services.json does not contain the release applicationId '$applicationIdValue'. Download a fresh Firebase config for the final package."
+    }
+
+    if (errors.isNotEmpty()) {
+        throw GradleException(
+            "FearFlip release configuration is incomplete:\n- " + errors.joinToString("\n- "),
+        )
+    }
+}
 
 android {
     namespace = namespaceValue
@@ -125,28 +167,6 @@ android {
                 signingConfigs.getByName("debug")
             }
         }
-    }
-}
-
-if (releaseTasksRequested) {
-    if (applicationIdValue == toolingFallbackApplicationId) {
-        logger.warn(
-            "Release is using fallback applicationId '$toolingFallbackApplicationId'. " +
-                "Set fearflip.applicationId in android/release.properties for production.",
-        )
-    }
-
-    if (releaseAdmobAppId.isNullOrBlank()) {
-        logger.warn(
-            "Release fearflip.admob.appId is not configured; using fallback app id. " +
-                "Set fearflip.admob.appId in android/release.properties for production.",
-        )
-    }
-
-    if (!hasReleaseSigning) {
-        logger.warn(
-            "Release signing not configured in android/key.properties; using debug signing for this build.",
-        )
     }
 }
 

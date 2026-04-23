@@ -1,4 +1,4 @@
 fearflip.appName=FearFlip
 fearflip.namespace=dev.fearflip.game
-fearflip.applicationId=com.yourcompany.fearflip
+fearflip.applicationId=dev.fearflip.game
 fearflip.admob.appId=ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY

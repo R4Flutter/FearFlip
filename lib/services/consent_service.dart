@@ -14,6 +14,41 @@ class ConsentService {
   bool get consentFlowCompleted => _consentFlowCompleted;
   bool get canRequestAds => _canRequestAds;
 
+  Future<bool> showPrivacyOptions() async {
+    try {
+      final complete = Completer<bool>();
+      await ConsentForm.showPrivacyOptionsForm((formError) {
+        if (formError != null) {
+          debugPrint(
+            '[Consent][ERROR] Privacy options failed: ${formError.message}',
+          );
+          if (!complete.isCompleted) {
+            complete.complete(false);
+          }
+          return;
+        }
+
+        if (!complete.isCompleted) {
+          complete.complete(true);
+        }
+      });
+
+      return complete.future.timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          debugPrint('[Consent][WARN] Privacy options timeout');
+          return false;
+        },
+      );
+    } catch (error, stackTrace) {
+      debugPrint('[Consent][ERROR] Privacy options unavailable: $error');
+      if (kDebugMode) {
+        debugPrint(stackTrace.toString());
+      }
+      return false;
+    }
+  }
+
   Future<void> gatherConsentAndInitializeAds() async {
     await gatherConsent();
 

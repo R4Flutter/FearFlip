@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../config/app_runtime_config.dart';
 import '../data/database/local_session_database.dart';
 import '../domain/usecases/start_survival_use_case.dart';
 import '../presentation/gameplay/game_screen.dart';
@@ -9,7 +11,9 @@ import '../presentation/providers/app_flow_provider.dart';
 import '../presentation/screens/auth_gate_screen.dart';
 import '../presentation/screens/landing_screen.dart';
 import '../presentation/theme/app_palette.dart';
+import '../services/account_deletion_service.dart';
 import '../services/ads_service.dart';
+import '../services/consent_service.dart';
 import '../services/leaderboard_service.dart';
 
 class _CharacterOption {
@@ -395,6 +399,50 @@ class _SettingsModeTile extends StatelessWidget {
   }
 }
 
+class _SettingsPolicyButton extends StatelessWidget {
+  const _SettingsPolicyButton({
+    required this.icon,
+    required this.label,
+    required this.url,
+    required this.onCopy,
+  });
+
+  final IconData icon;
+  final String label;
+  final String url;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onCopy,
+      icon: Icon(icon, size: 18),
+      label: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
+          Text(
+            url,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 10,
+              color: AppPalette.textMuted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+      style: OutlinedButton.styleFrom(
+        alignment: Alignment.centerLeft,
+        minimumSize: const Size.fromHeight(50),
+        foregroundColor: AppPalette.textPrimary,
+        side: const BorderSide(color: AppPalette.borderSoft),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+}
+
 class FearFlipApp extends StatefulWidget {
   const FearFlipApp({super.key});
 
@@ -417,6 +465,37 @@ class _FearFlipAppState extends State<FearFlipApp> {
       spriteRowIndex: 2,
     ),
   ];
+  static const String _privacyPolicyDashbarText =
+      'Last updated: 2026-04-12\n\n'
+      'FearFlip uses Firebase and Google Mobile Ads to provide gameplay '
+      'services, authentication, analytics, crash reporting, and '
+      'monetization.\n\n'
+      'Data we process\n'
+      '- Authentication identifiers (guest and linked Google sign-in '
+      'accounts)\n'
+      '- Gameplay events and progression metrics\n'
+      '- Crash diagnostics and device metadata for stability\n'
+      '- Ad mediation and ad delivery signals required by Google Mobile '
+      'Ads\n\n'
+      'Why we process data\n'
+      '- Authenticate players and keep account continuity\n'
+      '- Operate leaderboards and progression systems\n'
+      '- Diagnose crashes, errors, and performance issues\n'
+      '- Serve ads and track ad delivery outcomes\n\n'
+      'Third-party services\n'
+      '- Firebase Authentication\n'
+      '- Cloud Firestore\n'
+      '- Firebase Analytics\n'
+      '- Firebase Crashlytics\n'
+      '- Google Mobile Ads (AdMob)\n\n'
+      'User choices\n'
+      '- Manage ad consent choices where required by law (UMP flow)\n'
+      '- Request account deletion from Settings -> Account -> Delete '
+      'Account & Data\n'
+      '- Request deletion via web: '
+      'https://fearflipgame.com/account-deletion\n\n'
+      'Contact\n'
+      'privacy@fearflipgame.com';
 
   Future<void> _openCharacterDialog(BuildContext context) async {
     await showDialog<void>(
@@ -613,6 +692,77 @@ class _FearFlipAppState extends State<FearFlipApp> {
     );
   }
 
+  Future<void> _copyUrl(BuildContext context, String label, String url) async {
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label URL copied'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppPalette.surfaceAlt,
+      ),
+    );
+  }
+
+  Future<bool> _confirmAccountDeletion(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppPalette.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: AppPalette.danger),
+          ),
+          title: const Text(
+            'Delete Account?',
+            style: TextStyle(
+              color: AppPalette.textPrimary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: const Text(
+            'This requests deletion of your sign-in account, cloud progress, leaderboard identity, and related gameplay data. This cannot be undone.',
+            style: TextStyle(
+              color: AppPalette.textMuted,
+              fontWeight: FontWeight.w600,
+              height: 1.25,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(
+                  color: AppPalette.textMuted,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppPalette.danger,
+                foregroundColor: Colors.black,
+              ),
+              child: const Text(
+                'Delete Account',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    return confirmed ?? false;
+  }
+
   Future<void> _openSettingsDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
@@ -622,6 +772,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
         var soundVolume = _flow.soundVolume;
         var isSoundMuted = _flow.isSoundMuted;
         var useArrowController = _flow.useArrowController;
+        var isDeletingAccount = _flow.isDeletingAccount;
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.symmetric(
@@ -1001,27 +1152,219 @@ class _FearFlipAppState extends State<FearFlipApp> {
                                         ),
                                         const SizedBox(height: 12),
                                         _SettingsSectionCard(
+                                          title: 'Privacy & Consent',
+                                          subtitle:
+                                              'Copy policy links for Play compliance, account deletion, and ad privacy review.',
+                                          accent: AppPalette.accentPurple,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: [
+                                              _SettingsPolicyButton(
+                                                icon: Icons.privacy_tip,
+                                                label: 'Privacy Policy',
+                                                url: AppRuntimeConfig
+                                                    .privacyPolicyUrl,
+                                                onCopy: () => _copyUrl(
+                                                  context,
+                                                  'Privacy Policy',
+                                                  AppRuntimeConfig
+                                                      .privacyPolicyUrl,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              _SettingsPolicyButton(
+                                                icon: Icons.description,
+                                                label: 'Terms',
+                                                url: AppRuntimeConfig.termsUrl,
+                                                onCopy: () => _copyUrl(
+                                                  context,
+                                                  'Terms',
+                                                  AppRuntimeConfig.termsUrl,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              _SettingsPolicyButton(
+                                                icon: Icons.delete_forever,
+                                                label:
+                                                    'Account Deletion Web Form',
+                                                url: AppRuntimeConfig
+                                                    .accountDeletionUrl,
+                                                onCopy: () => _copyUrl(
+                                                  context,
+                                                  'Account Deletion',
+                                                  AppRuntimeConfig
+                                                      .accountDeletionUrl,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              FilledButton.icon(
+                                                icon: const Icon(
+                                                  Icons.tune_rounded,
+                                                ),
+                                                label: const Text(
+                                                  'Manage Ad Privacy Choices',
+                                                ),
+                                                style: FilledButton.styleFrom(
+                                                  minimumSize:
+                                                      const Size.fromHeight(48),
+                                                  backgroundColor:
+                                                      AppPalette.accentPurple,
+                                                  foregroundColor: Colors.black,
+                                                  textStyle: const TextStyle(
+                                                    fontWeight: FontWeight.w900,
+                                                  ),
+                                                ),
+                                                onPressed: () async {
+                                                  final shown =
+                                                      await ConsentService
+                                                          .instance
+                                                          .showPrivacyOptions();
+                                                  if (!context.mounted) {
+                                                    return;
+                                                  }
+                                                  ScaffoldMessenger.of(
+                                                    context,
+                                                  ).showSnackBar(
+                                                    SnackBar(
+                                                      content: Text(
+                                                        shown
+                                                            ? 'Ad privacy options updated.'
+                                                            : 'Ad privacy options are unavailable right now.',
+                                                      ),
+                                                      behavior: SnackBarBehavior
+                                                          .floating,
+                                                      backgroundColor: shown
+                                                          ? AppPalette
+                                                                .surfaceAlt
+                                                          : AppPalette.danger,
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _SettingsSectionCard(
                                           title: 'Account',
                                           subtitle:
-                                              'Sign out from this profile on this device.',
+                                              'Sign out or request account and cloud data deletion.',
                                           accent: AppPalette.danger,
-                                          child: FilledButton.icon(
-                                            icon: const Icon(Icons.logout),
-                                            label: const Text('Sign Out'),
-                                            style: FilledButton.styleFrom(
-                                              minimumSize:
-                                                  const Size.fromHeight(48),
-                                              backgroundColor:
-                                                  AppPalette.danger,
-                                              foregroundColor: Colors.black,
-                                              textStyle: const TextStyle(
-                                                fontWeight: FontWeight.w900,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: [
+                                              FilledButton.icon(
+                                                icon: const Icon(Icons.logout),
+                                                label: const Text('Sign Out'),
+                                                style: FilledButton.styleFrom(
+                                                  minimumSize:
+                                                      const Size.fromHeight(48),
+                                                  backgroundColor:
+                                                      AppPalette.danger,
+                                                  foregroundColor: Colors.black,
+                                                  textStyle: const TextStyle(
+                                                    fontWeight: FontWeight.w900,
+                                                  ),
+                                                ),
+                                                onPressed: isDeletingAccount
+                                                    ? null
+                                                    : () async {
+                                                        Navigator.of(
+                                                          context,
+                                                        ).pop();
+                                                        await _flow.signOut();
+                                                      },
                                               ),
-                                            ),
-                                            onPressed: () async {
-                                              Navigator.of(context).pop();
-                                              await _flow.signOut();
-                                            },
+                                              const SizedBox(height: 8),
+                                              OutlinedButton.icon(
+                                                icon: isDeletingAccount
+                                                    ? const SizedBox(
+                                                        width: 18,
+                                                        height: 18,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                            ),
+                                                      )
+                                                    : const Icon(
+                                                        Icons.delete_forever,
+                                                      ),
+                                                label: Text(
+                                                  isDeletingAccount
+                                                      ? 'Requesting Deletion...'
+                                                      : 'Delete Account & Data',
+                                                ),
+                                                style: OutlinedButton.styleFrom(
+                                                  minimumSize:
+                                                      const Size.fromHeight(48),
+                                                  foregroundColor:
+                                                      AppPalette.danger,
+                                                  side: const BorderSide(
+                                                    color: AppPalette.danger,
+                                                  ),
+                                                  textStyle: const TextStyle(
+                                                    fontWeight: FontWeight.w900,
+                                                  ),
+                                                ),
+                                                onPressed: isDeletingAccount
+                                                    ? null
+                                                    : () async {
+                                                        final confirmed =
+                                                            await _confirmAccountDeletion(
+                                                              context,
+                                                            );
+                                                        if (!confirmed ||
+                                                            !context.mounted) {
+                                                          return;
+                                                        }
+
+                                                        setLocalState(() {
+                                                          isDeletingAccount =
+                                                              true;
+                                                        });
+                                                        final result = await _flow
+                                                            .requestAccountDeletion();
+                                                        if (!context.mounted) {
+                                                          return;
+                                                        }
+
+                                                        final failed =
+                                                            result.status ==
+                                                            AccountDeletionStatus
+                                                                .failed;
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                              result.message,
+                                                            ),
+                                                            behavior:
+                                                                SnackBarBehavior
+                                                                    .floating,
+                                                            backgroundColor:
+                                                                failed
+                                                                ? AppPalette
+                                                                      .danger
+                                                                : AppPalette
+                                                                      .surfaceAlt,
+                                                          ),
+                                                        );
+                                                        setLocalState(() {
+                                                          isDeletingAccount =
+                                                              false;
+                                                        });
+                                                        if (result
+                                                            .shouldReturnToAuthGate) {
+                                                          Navigator.of(
+                                                            context,
+                                                          ).pop();
+                                                        }
+                                                      },
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
@@ -1140,6 +1483,128 @@ class _FearFlipAppState extends State<FearFlipApp> {
     );
   }
 
+  Future<void> _openPrivacyPolicyDashbar(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final height = MediaQuery.sizeOf(sheetContext).height;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: Container(
+              constraints: BoxConstraints(
+                maxHeight: (height * 0.82).clamp(420.0, 840.0).toDouble(),
+              ),
+              decoration: BoxDecoration(
+                color: AppPalette.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppPalette.accentPurple),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x66000000),
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 10),
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppPalette.borderSoft,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 8, 8),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.privacy_tip_rounded,
+                          color: AppPalette.neonGreen,
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Privacy Policy Dashbar',
+                            style: TextStyle(
+                              color: AppPalette.textPrimary,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                          color: AppPalette.textPrimary,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1, color: AppPalette.borderSoft),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Hosted URL: ${AppRuntimeConfig.privacyPolicyUrl}',
+                            style: const TextStyle(
+                              color: AppPalette.textMuted,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const SelectableText(
+                            _privacyPolicyDashbarText,
+                            style: TextStyle(
+                              color: AppPalette.textPrimary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          OutlinedButton.icon(
+                            onPressed: () => _copyUrl(
+                              sheetContext,
+                              'Privacy Policy',
+                              AppRuntimeConfig.privacyPolicyUrl,
+                            ),
+                            icon: const Icon(Icons.copy_rounded),
+                            label: const Text('Copy Privacy Policy URL'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(46),
+                              foregroundColor: AppPalette.textPrimary,
+                              side: const BorderSide(
+                                color: AppPalette.borderSoft,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1161,10 +1626,6 @@ class _FearFlipAppState extends State<FearFlipApp> {
   }
 
   Future<bool> _showRestartAd() async {
-    final rewarded = await _restartAdsService.showRewardedForRevive();
-    if (rewarded) {
-      return true;
-    }
     await _restartAdsService.showInterstitialAfterGameOver();
     return true;
   }
@@ -1218,6 +1679,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
                     onSettings: () => _openSettingsDialog(context),
                     onLeaderboard: () => _openLeaderboardDialog(context),
                     onRemoveAds: () => _openRemoveAdsDialog(context),
+                    onPrivacyPolicy: () => _openPrivacyPolicyDashbar(context),
                     playerName: _flow.playerName,
                     totalTrophies: _flow.totalTrophies,
                     globalPanicRank: _flow.globalPanicRank,

@@ -68,9 +68,10 @@ class MazeGrid {
 
     final queue = <Point<int>>[from];
     final distance = <Point<int>, int>{from: 0};
+    var index = 0;
 
-    while (queue.isNotEmpty) {
-      final current = queue.removeAt(0);
+    while (index < queue.length) {
+      final current = queue[index++];
       final currentDist = distance[current] ?? 0;
 
       for (final direction in Direction4.values) {
@@ -201,9 +202,10 @@ class MazeGenerator {
     final queue = <Point<int>>[start];
     final dist = <Point<int>, int>{start: 0};
     var farthest = start;
+    var index = 0;
 
-    while (queue.isNotEmpty) {
-      final current = queue.removeAt(0);
+    while (index < queue.length) {
+      final current = queue[index++];
       final currentCell = cells[current.y][current.x];
       final currentDist = dist[current] ?? 0;
 

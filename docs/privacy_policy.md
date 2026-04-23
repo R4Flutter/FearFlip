@@ -25,7 +25,12 @@ FearFlip uses Firebase and Google Mobile Ads to provide gameplay services, authe
 
 ## User choices
 - Users can opt out or manage ad consent where required by law (UMP flow)
-- Users can request account deletion through support channels
+- Users can request account deletion in-app from Settings or through the public account deletion page
+
+## Account deletion
+- In-app path: Settings -> Account -> Delete Account & Data
+- Web path: https://fearflipgame.com/account-deletion
+- Deletion requests cover Firebase Authentication identity, leaderboard identity, cloud progress, and related gameplay records where technically possible.
 
 ## Contact
 For privacy-related requests, contact: privacy@fearflipgame.com

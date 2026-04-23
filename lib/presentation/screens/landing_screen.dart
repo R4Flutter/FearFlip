@@ -12,6 +12,7 @@ class LandingScreen extends StatefulWidget {
     required this.onSettings,
     required this.onLeaderboard,
     required this.onRemoveAds,
+    required this.onPrivacyPolicy,
     required this.playerName,
     required this.totalTrophies,
     required this.globalPanicRank,
@@ -24,6 +25,7 @@ class LandingScreen extends StatefulWidget {
   final VoidCallback onSettings;
   final VoidCallback onLeaderboard;
   final VoidCallback onRemoveAds;
+  final VoidCallback onPrivacyPolicy;
   final String playerName;
   final int totalTrophies;
   final int? globalPanicRank;
@@ -235,6 +237,27 @@ class _LandingScreenState extends State<LandingScreen>
                       ),
                     );
                   },
+                ),
+              ),
+              SafeArea(
+                child: Align(
+                  alignment: Alignment.bottomRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 18, bottom: 18),
+                    child: FloatingActionButton.extended(
+                      heroTag: 'landing_privacy_fab',
+                      onPressed: widget.onPrivacyPolicy,
+                      tooltip: 'Privacy Policy',
+                      icon: const Icon(Icons.privacy_tip_outlined),
+                      label: const Text('Privacy'),
+                      backgroundColor: AppPalette.neonGreen,
+                      foregroundColor: Colors.black,
+                      elevation: 4,
+                      extendedPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],

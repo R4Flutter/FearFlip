@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app/fear_flip_app.dart';
+import 'config/app_runtime_config.dart';
 import 'firebase_options.dart';
 import 'services/consent_service.dart';
 
@@ -11,6 +12,8 @@ export 'app/fear_flip_app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppRuntimeConfig.assertProductionReady();
+
   var firebaseReady = false;
   try {
     await Firebase.initializeApp(

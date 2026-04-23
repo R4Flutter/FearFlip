@@ -18,6 +18,7 @@
 ## Store readiness
 1. Build and verify release bundle:
    - `flutter build appbundle --release`
+   - Release builds now fail fast if final package id, Firebase package match, AdMob app id, or signing config is missing.
 2. Verify Android signing config and keystore security.
 3. Upload to Internal testing.
 4. Rollout sequence: Internal -> Closed -> Production staged %.
@@ -26,6 +27,7 @@
 - Copy `android/release.properties.example` to `android/release.properties`.
 - Copy `android/key.properties.example` to `android/key.properties`.
 - Pass build-time runtime IDs with `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, `--dart-define=GOOGLE_IOS_CLIENT_ID=...`, `--dart-define=ADMOB_REWARDED_AD_UNIT_ID=...`, and `--dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=...`.
+- Optional launch flags: `--dart-define=PRIVACY_POLICY_URL=...`, `--dart-define=TERMS_URL=...`, `--dart-define=ACCOUNT_DELETION_URL=...`, `--dart-define=ADS_ENABLED=true`, `--dart-define=REWARDED_REVIVE_ENABLED=true`, `--dart-define=INTERSTITIALS_ENABLED=true`, `--dart-define=INTERSTITIAL_COOLDOWN_SECONDS=120`, and `--dart-define=INTERSTITIAL_MIN_GAME_OVERS=2`.
 
 ## Google Sign-In preflight
 1. Package match:
@@ -48,6 +50,7 @@
 - Privacy policy required (Firebase + Ads usage).
 - Data safety form with analytics/auth/crash reporting disclosures.
 - Permission review to remove unused permissions.
+- In-app account deletion is available from Settings and writes `accountDeletionRequests/{uid}` when immediate Firebase Auth deletion needs support follow-up.
 
 ## Monetization readiness
 - Rewarded revive implemented behind service abstraction.

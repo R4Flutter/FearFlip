@@ -2,13 +2,20 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../../config/app_runtime_config.dart';
+
 class GlitchEffectController {
-  GlitchEffectController({Random? random}) : _random = random ?? Random();
+  GlitchEffectController({
+    Random? random,
+    bool effectsEnabled = AppRuntimeConfig.glitchEffectsEnabled,
+  }) : _random = random ?? Random(),
+       _effectsEnabled = effectsEnabled;
 
   static const double _minDurationSeconds = 0.30;
   static const double _maxDurationSeconds = 0.50;
 
   final Random _random;
+  final bool _effectsEnabled;
 
   bool _active = false;
   double _durationSeconds = 0;
@@ -31,6 +38,11 @@ class GlitchEffectController {
   double get rgbShiftPx => _rgbShiftPx;
 
   void trigger({double? durationSeconds}) {
+    if (!_effectsEnabled) {
+      _deactivate();
+      return;
+    }
+
     final requested =
         durationSeconds ??
         _randomInRange(_minDurationSeconds, _maxDurationSeconds);

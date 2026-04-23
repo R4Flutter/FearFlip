@@ -31,10 +31,29 @@ service cloud.firestore {
           && request.resource.data.mode.matches('^[a-z0-9_-]+$');
         }
 
-        function validDisplayName() {
+    function validDisplayName() {
       return request.resource.data.displayName is string
           && request.resource.data.displayName.size() > 0
           && request.resource.data.displayName.size() <= 32;
+    }
+
+    function validDeletionRequest(uid) {
+      return request.resource.data.keys().hasOnly([
+            'uid',
+            'email',
+            'displayName',
+            'isAnonymous',
+            'status',
+            'source',
+            'requestedAt',
+            'clientTimestampMs',
+          ])
+          && request.resource.data.uid == uid
+          && request.resource.data.status == 'requested'
+          && request.resource.data.source == 'in_app'
+          && request.resource.data.isAnonymous is bool
+          && request.resource.data.clientTimestampMs is int
+          && request.resource.data.requestedAt == request.time;
     }
 
     match /leaderboards/{mode}/scores/{scoreId} {
@@ -110,6 +129,14 @@ service cloud.firestore {
           && validDisplayName()
           && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
+    }
+
+    match /accountDeletionRequests/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create, update: if isSignedIn()
+          && request.auth.uid == uid
+          && validDeletionRequest(uid);
+      allow delete: if false;
     }
   }
 }
