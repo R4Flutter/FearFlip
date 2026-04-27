@@ -37,6 +37,10 @@ class AppRuntimeConfig {
     'GLITCH_EFFECTS_ENABLED',
     defaultValue: true,
   );
+  static const bool _forceStageOneTestTrap = bool.fromEnvironment(
+    'FORCE_STAGE1_TEST_TRAP',
+    defaultValue: false,
+  );
 
   static const String _googleServerClientId = String.fromEnvironment(
     'GOOGLE_SERVER_CLIENT_ID',
@@ -89,6 +93,14 @@ class AppRuntimeConfig {
 
   static bool get adsEnabled => rewardedAdsEnabled || interstitialAdsEnabled;
 
+  /// Enables a deterministic Stage 1 trap hook for local/dev validation.
+  ///
+  /// Non-release builds keep this enabled by default for QA velocity.
+  /// Release builds require an explicit dart-define and are guarded by
+  /// [productionReadinessIssues].
+  static bool get stageOneSixthTileTrapEnabled =>
+      _forceStageOneTestTrap || !kReleaseMode;
+
   static Duration get interstitialCooldown =>
       Duration(seconds: interstitialCooldownSeconds.clamp(30, 3600).toInt());
 
@@ -97,6 +109,7 @@ class AppRuntimeConfig {
     bool adsEnabled = adsFeatureEnabled,
     bool rewardedEnabled = rewardedReviveFeatureEnabled,
     bool interstitialEnabled = interstitialFeatureEnabled,
+    bool forceStageOneTestTrap = _forceStageOneTestTrap,
     String rewardedAdUnitId = _releaseRewardedAdUnitId,
     String interstitialAdUnitId = _releaseInterstitialAdUnitId,
     String googleServerClientId = _googleServerClientId,
@@ -120,6 +133,9 @@ class AppRuntimeConfig {
     }
     if (accountDeletionUrlValue.trim().isEmpty) {
       issues.add('ACCOUNT_DELETION_URL is required for Play account deletion.');
+    }
+    if (forceStageOneTestTrap) {
+      issues.add('FORCE_STAGE1_TEST_TRAP must be false for release builds.');
     }
     if (adsEnabled && rewardedEnabled && rewardedAdUnitId.trim().isEmpty) {
       issues.add(

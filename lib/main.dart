@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -24,7 +25,7 @@ Future<void> main() async {
     firebaseReady = false;
   }
 
-  if (firebaseReady) {
+  if (firebaseReady && !kIsWeb) {
     FlutterError.onError = (details) {
       FirebaseCrashlytics.instance.recordFlutterFatalError(details);
     };
@@ -43,12 +44,24 @@ Future<void> main() async {
     );
   };
 
-  await ConsentService.instance.gatherConsentAndInitializeAds();
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  try {
+    await ConsentService.instance
+        .gatherConsentAndInitializeAds()
+        .timeout(const Duration(seconds: 20));
+  } catch (error, stackTrace) {
+    debugPrint('[Startup][WARN] Consent/ads init failed: $error');
+    if (kDebugMode) {
+      debugPrint(stackTrace.toString());
+    }
+  }
+
+  if (!kIsWeb) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  }
 
   runApp(const FearFlipApp());
 }

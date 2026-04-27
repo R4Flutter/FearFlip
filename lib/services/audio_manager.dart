@@ -18,6 +18,7 @@ enum _AudioCue {
   lowTimeAlarm,
   winning,
   playerLost,
+  trapBreak,
 }
 
 class _ResolvedAsset {
@@ -235,7 +236,8 @@ class AudioManager {
 
   static const Map<_AudioCue, List<String>> _assetCandidates =
       <_AudioCue, List<String>>{
-        _AudioCue.calmLoop: <String>['calm_loop.mp3'],
+        // Prefer the dedicated background track; keep legacy fallback.
+        _AudioCue.calmLoop: <String>['background_audio.mp3', 'calm_loop.mp3'],
         _AudioCue.flip: <String>[
           'fahhhh_flippingtime.mp3',
           'fahhhhh_flippingtime.mp3',
@@ -250,6 +252,7 @@ class AudioManager {
           'gamelost_soundeffect.mp3',
           'game_lost_soundeffect.mp3',
         ],
+        _AudioCue.trapBreak: <String>['glass_break.mp3', 'glass_break.wav'],
       };
 
   static Future<void> configureGlobalAudio({
@@ -353,7 +356,8 @@ class AudioManager {
     }
 
     if (payload.type == GameAudioEvent.playerWon ||
-        payload.type == GameAudioEvent.playerLost) {
+        payload.type == GameAudioEvent.playerLost ||
+        payload.type == GameAudioEvent.trapDeath) {
       _outcomeEventQueued = true;
       _latestDevilEnabled = false;
       _latestDevilDistance = 99;
@@ -399,6 +403,10 @@ class AudioManager {
         payload.type == GameAudioEvent.mazeShiftEnded ||
         payload.type == GameAudioEvent.playerWon ||
         payload.type == GameAudioEvent.playerLost ||
+        payload.type == GameAudioEvent.trapDeath ||
+        payload.type == GameAudioEvent.trapDeathCrack ||
+        payload.type == GameAudioEvent.trapDeathFall ||
+        payload.type == GameAudioEvent.trapDeathImpact ||
         payload.type == GameAudioEvent.matchExit) {
       _queue.addFirst(queued);
     } else {
@@ -424,6 +432,10 @@ class AudioManager {
     if (_mazeShiftPriorityActive) {
       return event != GameAudioEvent.playerWon &&
           event != GameAudioEvent.playerLost &&
+          event != GameAudioEvent.trapDeath &&
+          event != GameAudioEvent.trapDeathCrack &&
+          event != GameAudioEvent.trapDeathFall &&
+          event != GameAudioEvent.trapDeathImpact &&
           !isResetEvent &&
           !isMazeShiftControlEvent &&
           !isLifecycleControlEvent;
@@ -438,6 +450,7 @@ class AudioManager {
       // window between outcome-queue and actual outcome processing.
       return event != GameAudioEvent.playerWon &&
           event != GameAudioEvent.playerLost &&
+          event != GameAudioEvent.trapDeath &&
           event != GameAudioEvent.flipTriggered &&
           !isMazeShiftControlEvent &&
           !isResetEvent;
@@ -451,7 +464,8 @@ class AudioManager {
         event == GameAudioEvent.matchRestart ||
         event == GameAudioEvent.matchExit ||
         event == GameAudioEvent.playerWon ||
-        event == GameAudioEvent.playerLost;
+        event == GameAudioEvent.playerLost ||
+        event == GameAudioEvent.trapDeath;
   }
 
   void _clearQueuedEvents() {
@@ -578,6 +592,65 @@ class AudioManager {
         await _onPlayerWon();
         break;
       case GameAudioEvent.playerLost:
+        await _onPlayerLost();
+        break;
+      case GameAudioEvent.trapStepWarning:
+        // Dedicated break cue when stepping on a fragile tile.
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.trapBreak,
+            bus: AudioBus.action,
+            baseVolume: 0.58,
+            playbackRate: 0.96 + (Random().nextDouble() * 0.12),
+          );
+        }
+        break;
+      case GameAudioEvent.trapProximityTension:
+        // Short glass effect for proximity escalation.
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.trapBreak,
+            bus: AudioBus.action,
+            baseVolume: 0.34,
+            playbackRate: 0.82 + (Random().nextDouble() * 0.10),
+          );
+        }
+        break;
+      case GameAudioEvent.trapDeathCrack:
+        // Initial shatter burst during death sequence.
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.trapBreak,
+            bus: AudioBus.action,
+            baseVolume: 0.92,
+            playbackRate: 1.05,
+          );
+        }
+        break;
+      case GameAudioEvent.trapDeathFall:
+        // Falling whoosh accent during the collapse sequence.
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.playerLost,
+            bus: AudioBus.action,
+            baseVolume: 0.65,
+            playbackRate: 0.72,
+          );
+        }
+        break;
+      case GameAudioEvent.trapDeathImpact:
+        // Heavy low-end impact at the end of the fall.
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.playerLost,
+            bus: AudioBus.action,
+            baseVolume: 0.90,
+            playbackRate: 0.64,
+          );
+        }
+        break;
+      case GameAudioEvent.trapDeath:
+        // Full trap death mirrors playerLost flow.
         await _onPlayerLost();
         break;
     }

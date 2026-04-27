@@ -7,6 +7,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_palette.dart';
+import '../../config/app_runtime_config.dart';
+import '../../game/trap/trap_analytics.dart';
+import '../../game/trap/trap_audio_controller.dart';
+import '../../game/trap/trap_death_sequence.dart';
+import '../../game/trap/trap_difficulty_scaler.dart';
+import '../../game/trap/trap_placement_engine.dart';
+import '../../game/trap/trap_state_controller.dart';
+import '../../game/trap/trap_tile.dart';
 import '../../services/audio_manager.dart';
 import '../../services/game_audio_event.dart';
 import 'glitch_effect_controller.dart';
@@ -58,11 +66,22 @@ class _GameScreenState extends State<GameScreen>
   final MazeGenerator _generator = MazeGenerator();
   final AudioManager _audioManager = AudioManager.instance;
   final MazeShiftManager _mazeShiftManager = MazeShiftManager();
+  final TrapPlacementEngine _trapPlacementEngine = const TrapPlacementEngine();
+  final TrapStateController _trapStateController = TrapStateController();
+  final TrapDifficultyScaler _trapDifficultyScaler =
+      const TrapDifficultyScaler();
+  final TrapAnalytics _trapAnalytics = TrapAnalytics();
   final GlitchEffectController _glitchEffectController =
       GlitchEffectController();
+  final GlobalKey _gameSurfaceSizeKey = GlobalKey(
+    debugLabel: 'game_surface_size',
+  );
   late PlayerController _playerController;
   late AnimationController _stageClearController;
+  late final TrapAudioController _trapAudioController;
+  late final TrapDeathSequence _trapDeathSequence;
   ui.Image? _playerSprite;
+  ui.Image? _breakingTrapTexture;
   // characters.png uses a 32x32 grid: 736x128 => 23 columns x 4 rows.
   static const int _spriteColumns = 23;
   static const int _spriteRows = 4;
@@ -71,7 +90,7 @@ class _GameScreenState extends State<GameScreen>
   static const int _safeZonesPerStage = 2;
   static const int _persistentSafeZonesUntilStage = 75;
   static const double _devilMinPathClearance = 0.30;
-  static const int _defaultStageDurationSeconds = 90;
+  static const int _defaultStageDurationSeconds = 105;
   static const double _stageTickSeconds = 0.05;
 
   int _difficulty = 10;
@@ -85,6 +104,7 @@ class _GameScreenState extends State<GameScreen>
   Timer? _countdownTimer;
   Timer? _stageTimer;
   final Random _random = Random();
+  final Random _trapQuoteRandom = Random();
   double _stageElapsedSeconds = 0;
   double _nextFlipAtSeconds = 0;
   bool _controlsInverted = false;
@@ -101,10 +121,22 @@ class _GameScreenState extends State<GameScreen>
   bool _showLossOverlay = false;
   bool _adActionInProgress = false;
   bool _lostByTime = false;
+  bool _lostByTrap = false;
   bool _isPaused = false;
   bool _isExternallyInactive = false;
   bool _resetToCheckpointOnReactivation = false;
+  bool _trapDeathInProgress = false;
+  bool _trapLossAudioQueued = false;
   bool _roundResolved = false;
+  String? _trapDeathQuote;
+  int _playerStepCount = 0;
+  TrapStageConfig _trapStageConfig = const TrapStageConfig(
+    trapsEnabled: false,
+    trapCount: 0,
+    allowChokepoints: false,
+    hiddenCueLevel: 0,
+    criticalTriggerDistance: 1,
+  );
   int _audioFrameId = 0;
   int? _lastReportedDevilDistanceTiles;
   bool? _lastReportedDevilEnabled;
@@ -125,6 +157,12 @@ class _GameScreenState extends State<GameScreen>
       animationFrameCount: _spriteColumns,
       animationFrameStepMs: 80,
     );
+    _trapAudioController = TrapAudioController(audioManager: _audioManager);
+    _trapDeathSequence = TrapDeathSequence(
+      vsync: this,
+      onComplete: _onTrapDeathSequenceComplete,
+    );
+    _trapStateController.onCriticalTrigger = _onTrapCriticalTriggered;
 
     _stageClearController = AnimationController(
       vsync: this,
@@ -147,6 +185,7 @@ class _GameScreenState extends State<GameScreen>
     _startCountdown();
     _startStageLoop();
     _loadCharactersSprite();
+    _loadBreakingTrapTexture();
   }
 
   @override
@@ -317,6 +356,9 @@ class _GameScreenState extends State<GameScreen>
       if (_showLossOverlay) {
         return;
       }
+      if (_trapDeathInProgress) {
+        return;
+      }
       if (_isExternallyInactive || _isPaused) {
         return;
       }
@@ -365,6 +407,7 @@ class _GameScreenState extends State<GameScreen>
         _isStageTransition ||
         _isTimeUpHandling ||
         _showLossOverlay ||
+        _trapDeathInProgress ||
         _isExternallyInactive ||
         _isPaused) {
       return;
@@ -417,7 +460,62 @@ class _GameScreenState extends State<GameScreen>
       shouldRebuild = true;
     }
 
-    _trackPlayerSteps();
+    final playerMoved = _trackPlayerSteps();
+    TrapTile? pendingTrapCollapse;
+
+    if (_trapStageConfig.trapsEnabled &&
+        _trapStateController.activeTiles.isNotEmpty) {
+      if (playerMoved) {
+        final playerCell = _playerController.position;
+        final trapStepResult = _trapStateController.onPlayerStep(
+          playerCell,
+          playerStepCount: _playerStepCount,
+        );
+
+        switch (trapStepResult) {
+          case TrapStepResult.noTrap:
+            break;
+          case TrapStepResult.trapRevealed:
+            _trapAudioController.playCrackReveal();
+            final tile = _trapStateController.trapAt(playerCell);
+            if (tile != null) {
+              _trapAnalytics.record(
+                stage: _stage,
+                eventType: 'crack_reveal',
+                cell: tile.cell,
+                topology: tile.topology,
+                playerStepCount: _playerStepCount,
+                secondsElapsed: _stageElapsedSeconds,
+                devilActive: _devilSpawned && _devilCell != null,
+                controlsInverted: _controlsInverted,
+                trapsTriggeredThisRun: _trapStateController.triggeredCount,
+                distanceToGoal: _maze.shortestPathDistance(
+                  playerCell,
+                  _maze.end,
+                ),
+              );
+            }
+            shouldRebuild = true;
+            break;
+          case TrapStepResult.trapCollapsed:
+            final tile = _trapStateController.trapAt(playerCell);
+            if (tile != null) {
+              tile.collapseProgress = 1;
+              pendingTrapCollapse = tile;
+            }
+            shouldRebuild = true;
+            break;
+        }
+      }
+
+      _trapStateController.update(
+        dt,
+        _playerController.position,
+        criticalDistance: _trapStageConfig.criticalTriggerDistance,
+      );
+      shouldRebuild = true;
+    }
+
     _maybeTriggerMazeShift();
 
     final hazardGraceActive = _mazeShiftManager.hazardGraceActive;
@@ -484,6 +582,14 @@ class _GameScreenState extends State<GameScreen>
       _dispatchDevilDistance(distanceTiles: 99, devilEnabled: false);
     }
 
+    if (pendingTrapCollapse != null && !_roundResolved) {
+      unawaited(_onTrapCollapsed(pendingTrapCollapse));
+      if (shouldRebuild && mounted) {
+        setState(() {});
+      }
+      return;
+    }
+
     if (shouldRebuild && mounted) {
       setState(() {});
     }
@@ -518,7 +624,8 @@ class _GameScreenState extends State<GameScreen>
         _roundResolved ||
         _isTimeUpHandling ||
         _isStageTransition ||
-        _showLossOverlay) {
+        _showLossOverlay ||
+        _trapDeathInProgress) {
       return;
     }
     _roundResolved = true;
@@ -534,6 +641,8 @@ class _GameScreenState extends State<GameScreen>
     setState(() {
       _showLossOverlay = true;
       _lostByTime = false;
+      _lostByTrap = false;
+      _trapDeathQuote = null;
     });
     _isTimeUpHandling = false;
   }
@@ -554,24 +663,346 @@ class _GameScreenState extends State<GameScreen>
     _devilMoveAccumulator = 0;
     _devilDistanceSampleElapsed = 0;
     _lastPlayerCell = _maze.start;
+    _playerStepCount = 0;
     _stepsSinceSafeZone = 0;
     _awaitingDevilRespawnSteps = false;
     _playerSafe = false;
     _lastReportedDevilDistanceTiles = null;
     _lastReportedDevilEnabled = null;
     _lastReportedSafeZoneImmune = null;
+    _trapDeathInProgress = false;
+    _trapLossAudioQueued = false;
+    _trapDeathQuote = null;
+    _trapDeathSequence.cancel();
+    _trapAudioController.reset();
     _rebuildPathMetrics();
     _mazeShiftManager.startStage(
       stage: _stage,
       totalSteps: _mazeShiftTotalSteps,
     );
     _resetSafeZones();
+    _rebuildTrapTilesForCurrentStage();
     _showLossOverlay = false;
     _adActionInProgress = false;
     _lostByTime = false;
+    _lostByTrap = false;
     _isPaused = false;
     _roundResolved = false;
     _glitchEffectController.clear();
+  }
+
+  void _rebuildTrapTilesForCurrentStage() {
+    final walkableCellCount = _distanceFromStart.length;
+    _trapStageConfig = _trapDifficultyScaler.configForStage(
+      stage: _stage,
+      walkableCellCount: walkableCellCount,
+    );
+
+    final forceStageOneTestTrap = _shouldForceStageOneTestTrap();
+    if (forceStageOneTestTrap) {
+      _trapStageConfig = TrapStageConfig(
+        trapsEnabled: true,
+        trapCount: max(1, _trapStageConfig.trapCount),
+        allowChokepoints: _trapStageConfig.allowChokepoints,
+        hiddenCueLevel: max(0.25, _trapStageConfig.hiddenCueLevel),
+        criticalTriggerDistance: max(
+          1,
+          _trapStageConfig.criticalTriggerDistance,
+        ),
+      );
+    }
+
+    if (!_trapStageConfig.trapsEnabled || _trapStageConfig.trapCount <= 0) {
+      _trapStateController.reset(const <TrapTile>[]);
+      return;
+    }
+
+    final seed = _stageTrapSeed();
+    final placedTiles = _trapPlacementEngine.placeTiles(
+      maze: _maze,
+      stage: _stage,
+      seed: seed,
+      config: _trapDifficultyScaler.config,
+    );
+
+    final filteredTiles = placedTiles
+        .where((tile) => !_safeZones.containsKey(tile.cell))
+        .toList(growable: true);
+
+    if (forceStageOneTestTrap) {
+      _injectStageOneTestTrap(filteredTiles, stageSeed: seed);
+    }
+
+    _trapStateController.reset(filteredTiles.toList(growable: false));
+  }
+
+  bool _shouldForceStageOneTestTrap() {
+    return _stage == 1 && AppRuntimeConfig.stageOneSixthTileTrapEnabled;
+  }
+
+  void _injectStageOneTestTrap(List<TrapTile> tiles, {required int stageSeed}) {
+    final targetCell = _stageOneTestTrapCell();
+    if (targetCell == null) {
+      return;
+    }
+    _safeZones.remove(targetCell);
+    if (tiles.any((tile) => tile.cell == targetCell)) {
+      return;
+    }
+
+    tiles.add(
+      TrapTile(
+        cell: targetCell,
+        crackSeed: _trapCrackSeedForCell(targetCell, stageSeed),
+        topology: TileTopology.corridor,
+      ),
+    );
+  }
+
+  Point<int>? _stageOneTestTrapCell() {
+    final preferredPath = _shortestPathCells(_maze.start, _maze.end);
+    if (preferredPath.length > 6) {
+      return preferredPath[5];
+    }
+    if (preferredPath.length > 2) {
+      return preferredPath[preferredPath.length - 2];
+    }
+
+    final sortedByDistance = _distanceFromStart.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+
+    var eligibleSeen = 0;
+    for (final entry in sortedByDistance) {
+      final cell = entry.key;
+      if (!_isEligibleStageOneTestTrapCell(cell)) {
+        continue;
+      }
+      eligibleSeen += 1;
+      if (eligibleSeen >= 6) {
+        return cell;
+      }
+    }
+
+    return null;
+  }
+
+  bool _isEligibleStageOneTestTrapCell(Point<int> cell) {
+    if (cell == _maze.start || cell == _maze.end) {
+      return false;
+    }
+    return true;
+  }
+
+  List<Point<int>> _shortestPathCells(Point<int> from, Point<int> to) {
+    final parent = <Point<int>, Point<int>?>{from: null};
+    final queue = <Point<int>>[from];
+    var index = 0;
+
+    while (index < queue.length) {
+      final current = queue[index++];
+      if (current == to) {
+        break;
+      }
+
+      for (final direction in Direction4.values) {
+        if (!_maze.canMove(current, direction)) {
+          continue;
+        }
+        final next = _maze.move(current, direction);
+        if (parent.containsKey(next)) {
+          continue;
+        }
+        parent[next] = current;
+        queue.add(next);
+      }
+    }
+
+    if (!parent.containsKey(to)) {
+      return const <Point<int>>[];
+    }
+
+    final path = <Point<int>>[];
+    Point<int>? cursor = to;
+    while (cursor != null) {
+      path.add(cursor);
+      cursor = parent[cursor];
+    }
+    return path.reversed.toList(growable: false);
+  }
+
+  int _trapCrackSeedForCell(Point<int> cell, int stageSeed) {
+    return cell.x * 7919 + cell.y * 104729 + stageSeed;
+  }
+
+  int _stageTrapSeed() {
+    final endHash = (_maze.end.x * 31) ^ (_maze.end.y * 17);
+    return (_stage * 73856093) ^
+        (_maze.rows * 19349663) ^
+        (_maze.cols * 83492791) ^
+        endHash;
+  }
+
+  void _onTrapCriticalTriggered(TrapTile tile) {
+    _trapAudioController.playCriticalEscalation();
+    final distanceToGoal = _maze.shortestPathDistance(
+      _playerController.position,
+      _maze.end,
+    );
+    _trapAnalytics.record(
+      stage: _stage,
+      eventType: 'critical_trigger',
+      cell: tile.cell,
+      topology: tile.topology,
+      playerStepCount: _playerStepCount,
+      secondsElapsed: _stageElapsedSeconds,
+      devilActive: _devilSpawned && _devilCell != null,
+      controlsInverted: _controlsInverted,
+      trapsTriggeredThisRun: _trapStateController.triggeredCount,
+      distanceToGoal: distanceToGoal,
+    );
+    _trapAnalytics.record(
+      stage: _stage,
+      eventType: 'near_miss',
+      cell: tile.cell,
+      topology: tile.topology,
+      playerStepCount: _playerStepCount,
+      secondsElapsed: _stageElapsedSeconds,
+      devilActive: _devilSpawned && _devilCell != null,
+      controlsInverted: _controlsInverted,
+      trapsTriggeredThisRun: _trapStateController.triggeredCount,
+      distanceToGoal: distanceToGoal,
+    );
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _onTrapCollapsed(TrapTile? tile) async {
+    if (tile == null ||
+        !mounted ||
+        _roundResolved ||
+        _isTimeUpHandling ||
+        _isStageTransition ||
+        _showLossOverlay ||
+        _trapDeathInProgress) {
+      return;
+    }
+
+    _roundResolved = true;
+    _isTimeUpHandling = true;
+    _isPaused = false;
+    _countdownTimer?.cancel();
+    _playerController.stop();
+
+    final playerCell = _playerController.position;
+    final distanceToGoal = _maze.shortestPathDistance(playerCell, _maze.end);
+    _trapDeathQuote = TrapDeathQuotes.pick(
+      random: _trapQuoteRandom,
+      wasNearGoal: (distanceToGoal ?? 99) <= 3,
+    );
+    _trapAnalytics.record(
+      stage: _stage,
+      eventType: 'trap_death',
+      cell: tile.cell,
+      topology: tile.topology,
+      playerStepCount: _playerStepCount,
+      secondsElapsed: _stageElapsedSeconds,
+      devilActive: _devilSpawned && _devilCell != null,
+      controlsInverted: _controlsInverted,
+      trapsTriggeredThisRun: _trapStateController.triggeredCount,
+      distanceToGoal: distanceToGoal,
+    );
+
+    _queueTrapLossAudio();
+
+    final metrics = _trapSurfaceMetrics();
+    if (metrics == null) {
+      await _finalizeTrapDeath(withCinematic: false);
+      return;
+    }
+
+    setState(() {
+      _trapDeathInProgress = true;
+      _lostByTrap = true;
+      _lostByTime = false;
+    });
+
+    _trapDeathSequence.start(
+      trapCenter: _cellCenterOnSurface(tile.cell, metrics),
+      cellSize: metrics.cellSize,
+    );
+  }
+
+  void _queueTrapLossAudio() {
+    if (_trapLossAudioQueued) {
+      return;
+    }
+    _trapLossAudioQueued = true;
+    unawaited(_playTrapLossAudioSafely());
+  }
+
+  Future<void> _playTrapLossAudioSafely() async {
+    try {
+      await _trapAudioController.playTrapDeath();
+    } catch (_) {
+      // Keep trap death flow crash-safe if audio dispatch fails.
+    }
+  }
+
+  void _onTrapDeathSequenceComplete() {
+    unawaited(_finalizeTrapDeath(withCinematic: true));
+  }
+
+  Future<void> _finalizeTrapDeath({required bool withCinematic}) async {
+    if (!mounted) {
+      return;
+    }
+
+    _trapDeathInProgress = false;
+    _lostByTrap = true;
+    _lostByTime = false;
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _showLossOverlay = true;
+    });
+
+    _isTimeUpHandling = false;
+    if (!withCinematic) {
+      _trapDeathSequence.cancel();
+    }
+  }
+
+  _TrapSurfaceMetrics? _trapSurfaceMetrics() {
+    final context = _gameSurfaceSizeKey.currentContext;
+    if (context == null) {
+      return null;
+    }
+    final renderObject = context.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return null;
+    }
+
+    final size = renderObject.size;
+    final cellSize = min(size.width / _maze.cols, size.height / _maze.rows);
+    final mazeWidth = cellSize * _maze.cols;
+    final mazeHeight = cellSize * _maze.rows;
+    final origin = Offset(
+      (size.width - mazeWidth) * 0.5,
+      (size.height - mazeHeight) * 0.5,
+    );
+
+    return _TrapSurfaceMetrics(origin: origin, cellSize: cellSize);
+  }
+
+  Offset _cellCenterOnSurface(Point<int> cell, _TrapSurfaceMetrics metrics) {
+    return Offset(
+      metrics.origin.dx + (cell.x + 0.5) * metrics.cellSize,
+      metrics.origin.dy + (cell.y + 0.5) * metrics.cellSize,
+    );
   }
 
   double _nextFlipInterval() {
@@ -624,16 +1055,19 @@ class _GameScreenState extends State<GameScreen>
     return steps.round().clamp(2, 5);
   }
 
-  void _trackPlayerSteps() {
+  bool _trackPlayerSteps() {
     final current = _playerController.position;
     final previous = _lastPlayerCell;
-    if (previous != null && current != previous) {
+    final moved = previous != null && current != previous;
+    if (moved) {
       _mazeShiftManager.onPlayerStep();
       if (_awaitingDevilRespawnSteps) {
         _stepsSinceSafeZone += 1;
       }
+      _playerStepCount += 1;
     }
     _lastPlayerCell = current;
+    return moved;
   }
 
   double _pathClearanceProgress() {
@@ -930,7 +1364,8 @@ class _GameScreenState extends State<GameScreen>
         _roundResolved ||
         _isTimeUpHandling ||
         _isStageTransition ||
-        _showLossOverlay) {
+        _showLossOverlay ||
+        _trapDeathInProgress) {
       return;
     }
 
@@ -952,6 +1387,8 @@ class _GameScreenState extends State<GameScreen>
     setState(() {
       _showLossOverlay = true;
       _lostByTime = true;
+      _lostByTrap = false;
+      _trapDeathQuote = null;
     });
     _isTimeUpHandling = false;
   }
@@ -1167,6 +1604,7 @@ class _GameScreenState extends State<GameScreen>
         !_isStageTransition &&
         !_isTimeUpHandling &&
         !_showLossOverlay &&
+        !_trapDeathInProgress &&
         !_isExternallyInactive &&
         !_adActionInProgress;
     if (!canToggle) {
@@ -1208,12 +1646,35 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  Future<void> _loadBreakingTrapTexture() async {
+    try {
+      final data = await rootBundle.load('assets/images/464.jpg');
+      final bytes = data.buffer.asUint8List();
+      final codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: 128,
+        targetHeight: 128,
+      );
+      final frameInfo = await codec.getNextFrame();
+      codec.dispose();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _breakingTrapTexture = frameInfo.image;
+      });
+    } catch (_) {
+      // Keep trap rendering crash-safe by falling back to vector cracks.
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _countdownTimer?.cancel();
     _stageTimer?.cancel();
     _stageClearController.dispose();
+    _trapDeathSequence.dispose();
     _playerController.dispose();
     unawaited(_audioManager.handle(GameAudioEvent.matchExit));
     super.dispose();
@@ -1313,7 +1774,8 @@ class _GameScreenState extends State<GameScreen>
                                 onDirection:
                                     (_isStageTransition ||
                                         _isExternallyInactive ||
-                                        _isPaused)
+                                        _isPaused ||
+                                        _trapDeathInProgress)
                                     ? (_) {}
                                     : (direction) {
                                         final effective = _controlsInverted
@@ -1326,7 +1788,8 @@ class _GameScreenState extends State<GameScreen>
                                 onEnd:
                                     (_isStageTransition ||
                                         _isExternallyInactive ||
-                                        _isPaused)
+                                        _isPaused ||
+                                        _trapDeathInProgress)
                                     ? () {}
                                     : _playerController.stop,
                               )
@@ -1335,7 +1798,8 @@ class _GameScreenState extends State<GameScreen>
                                 onDirection:
                                     (_isStageTransition ||
                                         _isExternallyInactive ||
-                                        _isPaused)
+                                        _isPaused ||
+                                        _trapDeathInProgress)
                                     ? (_) {}
                                     : (direction) {
                                         final effective = _controlsInverted
@@ -1348,7 +1812,8 @@ class _GameScreenState extends State<GameScreen>
                                 onEnd:
                                     (_isStageTransition ||
                                         _isExternallyInactive ||
-                                        _isPaused)
+                                        _isPaused ||
+                                        _trapDeathInProgress)
                                     ? () {}
                                     : _playerController.stop,
                               ),
@@ -1509,6 +1974,8 @@ class _GameScreenState extends State<GameScreen>
                                 lossReason: _lossReasonText(),
                                 comebackHook: _comebackHookText(),
                                 lostByTime: _lostByTime,
+                                lostByTrap: _lostByTrap,
+                                trapDeathQuote: _trapDeathQuote,
                                 adActionInProgress: _adActionInProgress,
                                 onRevivePressed: _onReviveFromLoss,
                                 onRestartPressed: _onRestartFromLoss,
@@ -1545,12 +2012,18 @@ class _GameScreenState extends State<GameScreen>
   }
 
   String _lossReasonText() {
+    if (_lostByTrap) {
+      return 'The floor collapsed beneath your return step.';
+    }
     return _lostByTime
         ? 'Clock hit zero before extraction.'
         : 'Devil intercepted your route.';
   }
 
   String _comebackHookText() {
+    if (_lostByTrap) {
+      return 'Remember where you cracked the floor. Reroute and punish the maze.';
+    }
     final percent = _escapePercent();
     if (percent >= 90) {
       return 'You are inches away from the finish. Lock in and close it.';
@@ -1616,7 +2089,11 @@ class _GameScreenState extends State<GameScreen>
   void _restartCurrentStageFromStart() {
     _showLossOverlay = false;
     _lostByTime = false;
+    _lostByTrap = false;
+    _trapDeathQuote = null;
+    _trapDeathInProgress = false;
     _adActionInProgress = false;
+    _trapDeathSequence.cancel();
 
     _playerController.resetForMaze(_maze);
     _applyStageRule(resetMaze: false);
@@ -1641,6 +2118,10 @@ class _GameScreenState extends State<GameScreen>
     _isStageTransition = false;
     _showLossOverlay = false;
     _lostByTime = false;
+    _lostByTrap = false;
+    _trapDeathQuote = null;
+    _trapDeathInProgress = false;
+    _trapDeathSequence.cancel();
 
     _playerController.resetForMaze(_maze);
     _applyStageRule(resetMaze: false);
@@ -1672,6 +2153,10 @@ class _GameScreenState extends State<GameScreen>
     _isTimeUpHandling = false;
     _showLossOverlay = false;
     _lostByTime = false;
+    _lostByTrap = false;
+    _trapDeathQuote = null;
+    _trapDeathInProgress = false;
+    _trapDeathSequence.cancel();
     _adActionInProgress = false;
 
     _playerController.resetForMaze(_maze);
@@ -1713,31 +2198,57 @@ class _GameScreenState extends State<GameScreen>
         animation: _playerController,
         builder: (context, _) {
           final pulse = (_stageElapsedSeconds * 1.25) % 1.0;
-          return CustomPaint(
-            painter: MazePainter(
-              maze: _maze,
-              pathPoints: _playerController.pathPoints,
-              playerCellPosition: _playerController.renderPosition,
-              direction: _playerController.direction,
-              currentFrame: _playerController.currentFrame,
-              isMoving: _playerController.isMoving,
-              pulse: pulse,
-              playerSprite: _playerSprite,
-              spriteFrameCount: _spriteColumns,
-              spriteRows: _spriteRows,
-              spriteRowIndex: widget.selectedCharacterIndex + 1,
-              devilCell: _devilCell,
-              devilSprite: _playerSprite,
-              devilSpriteRowIndex: 0,
-              safeZones: _safeZones,
-              playerSafe: _playerSafe,
-              isFlippedMode: _controlsInverted,
-            ),
+          final trapTiles = List<TrapTile>.unmodifiable(
+            _trapStateController.activeTiles,
+          );
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              CustomPaint(
+                key: _gameSurfaceSizeKey,
+                painter: MazePainter(
+                  maze: _maze,
+                  pathPoints: _playerController.pathPoints,
+                  playerCellPosition: _playerController.renderPosition,
+                  direction: _playerController.direction,
+                  currentFrame: _playerController.currentFrame,
+                  isMoving: _playerController.isMoving,
+                  pulse: pulse,
+                  playerSprite: _playerSprite,
+                  spriteFrameCount: _spriteColumns,
+                  spriteRows: _spriteRows,
+                  spriteRowIndex: widget.selectedCharacterIndex + 1,
+                  devilCell: _devilCell,
+                  devilSprite: _playerSprite,
+                  devilSpriteRowIndex: 0,
+                  safeZones: _safeZones,
+                  playerSafe: _playerSafe,
+                  isFlippedMode: _controlsInverted,
+                  trapTiles: trapTiles,
+                  trapHiddenCueLevel: _trapStageConfig.hiddenCueLevel,
+                  breakingTrapTexture: _breakingTrapTexture,
+                  hidePlayer: _trapDeathInProgress,
+                ),
+              ),
+              if (_trapDeathInProgress)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(painter: _trapDeathSequence.painter),
+                  ),
+                ),
+            ],
           );
         },
       ),
     );
   }
+}
+
+class _TrapSurfaceMetrics {
+  const _TrapSurfaceMetrics({required this.origin, required this.cellSize});
+
+  final Offset origin;
+  final double cellSize;
 }
 
 class _DebugStageDropdown extends StatelessWidget {
@@ -2463,6 +2974,8 @@ class _RunFailedDialog extends StatelessWidget {
     required this.lossReason,
     required this.comebackHook,
     required this.lostByTime,
+    required this.lostByTrap,
+    required this.trapDeathQuote,
     required this.adActionInProgress,
     required this.onRevivePressed,
     required this.onRestartPressed,
@@ -2477,13 +2990,20 @@ class _RunFailedDialog extends StatelessWidget {
   final String lossReason;
   final String comebackHook;
   final bool lostByTime;
+  final bool lostByTrap;
+  final String? trapDeathQuote;
   final bool adActionInProgress;
   final Future<void> Function() onRevivePressed;
   final Future<void> Function() onRestartPressed;
 
   @override
   Widget build(BuildContext context) {
-    final accent = lostByTime ? AppPalette.danger : const Color(0xFFFF938B);
+    final accent = lostByTrap
+        ? const Color(0xFFFF6A5F)
+        : (lostByTime ? AppPalette.danger : const Color(0xFFFF938B));
+    final threatTag = lostByTrap
+        ? 'TRAP FALL'
+        : (lostByTime ? 'TIME OUT' : 'DEVIL THREAT');
     final progress = (escapePercent / 100).clamp(0.0, 1.0);
 
     return Container(
@@ -2616,7 +3136,7 @@ class _RunFailedDialog extends StatelessWidget {
                           border: Border.all(color: accent.withAlpha(180)),
                         ),
                         child: Text(
-                          lostByTime ? 'TIME OUT' : 'DEVIL THREAT',
+                          threatTag,
                           style: TextStyle(
                             color: accent,
                             fontWeight: FontWeight.w900,
@@ -2672,6 +3192,30 @@ class _RunFailedDialog extends StatelessWidget {
                       height: 1.28,
                     ),
                   ),
+                  if (trapDeathQuote != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0x26111111),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: accent.withAlpha(150)),
+                      ),
+                      child: Text(
+                        '"$trapDeathQuote"',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppPalette.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          height: 1.25,
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   Container(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),

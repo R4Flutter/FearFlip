@@ -19,6 +19,12 @@ enum GameAudioEvent {
   timeChanged,
   playerWon,
   playerLost,
+  trapStepWarning,
+  trapProximityTension,
+  trapDeathCrack,
+  trapDeathFall,
+  trapDeathImpact,
+  trapDeath,
 }
 
 @immutable

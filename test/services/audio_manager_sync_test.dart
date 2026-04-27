@@ -422,6 +422,44 @@ void main() {
       );
     });
 
+    test(
+      'trap reveal plays glass break and trap collapse plays loss',
+      () async {
+        await manager.handlePayload(GameAudioEventPayload.matchStart());
+
+        await manager.handlePayload(
+          const GameAudioEventPayload(GameAudioEvent.trapStepWarning),
+        );
+
+        expect(
+          _hasSourceUrlContaining(fakeAudioPlatform, 'glass_break.mp3'),
+          isTrue,
+        );
+        expect(
+          _hasAnySourceUrlContaining(fakeAudioPlatform, const <String>[
+            'gamelost_soundeffect.mp3',
+            'playerlost_soundeffect.mp3',
+            'game_lost_soundeffect.mp3',
+          ]),
+          isFalse,
+        );
+
+        await manager.handlePayload(
+          const GameAudioEventPayload(GameAudioEvent.trapDeath),
+        );
+
+        expect(manager.isLost, isTrue);
+        expect(
+          _hasAnySourceUrlContaining(fakeAudioPlatform, const <String>[
+            'gamelost_soundeffect.mp3',
+            'playerlost_soundeffect.mp3',
+            'game_lost_soundeffect.mp3',
+          ]),
+          isTrue,
+        );
+      },
+    );
+
     test('restart/revive/exit after loss clears state and channels', () async {
       await manager.handlePayload(GameAudioEventPayload.matchStart());
       await manager.handlePayload(

@@ -35,4 +35,26 @@ void main() {
     expect(issues, contains(contains('ADMOB_REWARDED_AD_UNIT_ID')));
     expect(issues, contains(contains('ADMOB_INTERSTITIAL_AD_UNIT_ID')));
   });
+
+  test('non-release builds enable stage one trap testing hook', () {
+    expect(AppRuntimeConfig.stageOneSixthTileTrapEnabled, isTrue);
+  });
+
+  test('release builds reject forced stage one trap test mode', () {
+    final issues = AppRuntimeConfig.productionReadinessIssues(
+      releaseMode: true,
+      adsEnabled: false,
+      rewardedEnabled: false,
+      interstitialEnabled: false,
+      forceStageOneTestTrap: true,
+      rewardedAdUnitId: 'ok',
+      interstitialAdUnitId: 'ok',
+      googleServerClientId: 'ok',
+      privacyPolicyUrlValue: 'https://example.com/privacy',
+      termsUrlValue: 'https://example.com/terms',
+      accountDeletionUrlValue: 'https://example.com/delete',
+    );
+
+    expect(issues, contains(contains('FORCE_STAGE1_TEST_TRAP')));
+  });
 }

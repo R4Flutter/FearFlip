@@ -8,6 +8,8 @@ class ConsentService {
 
   static final ConsentService instance = ConsentService._();
 
+  static bool get _supportsMobileAds => !kIsWeb;
+
   bool _consentFlowCompleted = false;
   bool _canRequestAds = false;
 
@@ -15,6 +17,11 @@ class ConsentService {
   bool get canRequestAds => _canRequestAds;
 
   Future<bool> showPrivacyOptions() async {
+    if (!_supportsMobileAds) {
+      debugPrint('[Consent] Privacy options unavailable on web');
+      return false;
+    }
+
     try {
       final complete = Completer<bool>();
       await ConsentForm.showPrivacyOptionsForm((formError) {
@@ -50,6 +57,13 @@ class ConsentService {
   }
 
   Future<void> gatherConsentAndInitializeAds() async {
+    if (!_supportsMobileAds) {
+      _consentFlowCompleted = true;
+      _canRequestAds = false;
+      debugPrint('[Consent] Mobile ads unsupported on web; skipping init');
+      return;
+    }
+
     await gatherConsent();
 
     if (!_canRequestAds) {
@@ -69,6 +83,12 @@ class ConsentService {
   }
 
   Future<void> gatherConsent() async {
+    if (!_supportsMobileAds) {
+      _consentFlowCompleted = true;
+      _canRequestAds = false;
+      return;
+    }
+
     if (_consentFlowCompleted) {
       return;
     }

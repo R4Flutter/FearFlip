@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../game/trap/trap_fx_renderer.dart';
+import '../../game/trap/trap_tile.dart';
 import 'maze_generator.dart';
 
 class MazePainter extends CustomPainter {
@@ -24,6 +26,10 @@ class MazePainter extends CustomPainter {
     this.safeZones = const <Point<int>, double>{},
     this.playerSafe = false,
     this.isFlippedMode = false,
+    this.trapTiles = const <TrapTile>[],
+    this.trapHiddenCueLevel = 0.0,
+    this.breakingTrapTexture,
+    this.hidePlayer = false,
   });
 
   final MazeGrid maze;
@@ -43,6 +49,10 @@ class MazePainter extends CustomPainter {
   final Map<Point<int>, double> safeZones;
   final bool playerSafe;
   final bool isFlippedMode;
+  final List<TrapTile> trapTiles;
+  final double trapHiddenCueLevel;
+  final ui.Image? breakingTrapTexture;
+  final bool hidePlayer;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -92,6 +102,20 @@ class MazePainter extends CustomPainter {
           canvas.drawLine(rightTop, rightBottom, wallPaint);
         }
       }
+    }
+
+    // ── Trap tiles (rendered between walls and entities) ──
+    if (trapTiles.isNotEmpty) {
+      const trapRenderer = TrapFxRenderer();
+      trapRenderer.renderTiles(
+        canvas,
+        origin: origin,
+        cellSize: cellSize,
+        tiles: trapTiles,
+        isFlippedMode: isFlippedMode,
+        hiddenCueLevel: trapHiddenCueLevel,
+        revealedTileTexture: breakingTrapTexture,
+      );
     }
 
     final startCenter = _cellCenter(origin, cellSize, maze.start);
@@ -154,23 +178,25 @@ class MazePainter extends CustomPainter {
     );
     final playerSide = cellSize * 0.78;
 
-    if (playerSprite != null) {
-      _drawSpriteCharacter(canvas, playerCenter, playerSide);
-    } else {
-      final playerGlow = Paint()
-        ..color = const Color(0x8800FFAA)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-      final playerCore = Paint()..color = const Color(0xFF00FFAA);
-      canvas.drawCircle(playerCenter, playerSide * 0.35, playerGlow);
-      canvas.drawCircle(playerCenter, playerSide * 0.28, playerCore);
-    }
+    if (!hidePlayer) {
+      if (playerSprite != null) {
+        _drawSpriteCharacter(canvas, playerCenter, playerSide);
+      } else {
+        final playerGlow = Paint()
+          ..color = const Color(0x8800FFAA)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+        final playerCore = Paint()..color = const Color(0xFF00FFAA);
+        canvas.drawCircle(playerCenter, playerSide * 0.35, playerGlow);
+        canvas.drawCircle(playerCenter, playerSide * 0.28, playerCore);
+      }
 
-    if (playerSafe) {
-      final ring = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.4
-        ..color = const Color(0xFF00FF9D);
-      canvas.drawCircle(playerCenter, playerSide * 0.42, ring);
+      if (playerSafe) {
+        final ring = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.4
+          ..color = const Color(0xFF00FF9D);
+        canvas.drawCircle(playerCenter, playerSide * 0.42, ring);
+      }
     }
 
     final devil = devilCell;
@@ -286,6 +312,10 @@ class MazePainter extends CustomPainter {
         oldDelegate.playerSafe != playerSafe ||
         oldDelegate.isFlippedMode != isFlippedMode ||
         oldDelegate.safeZones != safeZones ||
+        oldDelegate.trapTiles != trapTiles ||
+        oldDelegate.trapHiddenCueLevel != trapHiddenCueLevel ||
+        oldDelegate.breakingTrapTexture != breakingTrapTexture ||
+        oldDelegate.hidePlayer != hidePlayer ||
         oldDelegate.pulse != pulse;
   }
 }
