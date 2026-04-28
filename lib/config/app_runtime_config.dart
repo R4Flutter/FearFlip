@@ -41,6 +41,10 @@ class AppRuntimeConfig {
     'FORCE_STAGE1_TEST_TRAP',
     defaultValue: false,
   );
+  static const bool _debugStageDropdown = bool.fromEnvironment(
+    'DEBUG_STAGE_DROPDOWN',
+    defaultValue: false,
+  );
 
   static const String _googleServerClientId = String.fromEnvironment(
     'GOOGLE_SERVER_CLIENT_ID',
@@ -100,6 +104,10 @@ class AppRuntimeConfig {
   /// [productionReadinessIssues].
   static bool get stageOneSixthTileTrapEnabled =>
       _forceStageOneTestTrap || !kReleaseMode;
+
+  /// Keeps the stage jumper hidden unless explicitly enabled in debug builds.
+  static bool get debugStageDropdownEnabled =>
+      kDebugMode && _debugStageDropdown;
 
   static Duration get interstitialCooldown =>
       Duration(seconds: interstitialCooldownSeconds.clamp(30, 3600).toInt());

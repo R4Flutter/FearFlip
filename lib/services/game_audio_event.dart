@@ -20,6 +20,7 @@ enum GameAudioEvent {
   playerWon,
   playerLost,
   trapStepWarning,
+  trapCrackReveal,
   trapProximityTension,
   trapDeathCrack,
   trapDeathFall,

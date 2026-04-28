@@ -66,5 +66,26 @@ void main() {
       expect(tile.pulsePhase, 0);
       expect(tile.particlePhase, greaterThan(0));
     });
+
+    test('hidden trap fires one suspicion cue while player is nearby', () {
+      final controller = TrapStateController();
+      final tile = TrapTile(cell: const Point<int>(2, 2), crackSeed: 91);
+      controller.reset(<TrapTile>[tile]);
+
+      var cueCount = 0;
+      controller.onHiddenSuspicionCue = (_) {
+        cueCount += 1;
+      };
+
+      controller.update(0.16, const Point<int>(2, 1), hiddenCueLevel: 1);
+      controller.update(0.16, const Point<int>(1, 2), hiddenCueLevel: 1);
+
+      expect(cueCount, 1);
+
+      controller.update(0.16, const Point<int>(6, 6), hiddenCueLevel: 1);
+      controller.update(0.16, const Point<int>(2, 1), hiddenCueLevel: 1);
+
+      expect(cueCount, 2);
+    });
   });
 }

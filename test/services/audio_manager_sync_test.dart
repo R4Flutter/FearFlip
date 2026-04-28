@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:audioplayers_platform_interface/audioplayers_platform_interface.dart';
 import 'package:fearflipgame/services/audio_manager.dart';
@@ -796,7 +795,7 @@ class _FakeJustAudioPlatform extends JustAudioPlatform
 }
 
 class _FakeJustAudioPlayer extends AudioPlayerPlatform {
-  _FakeJustAudioPlayer(String id) : super(id);
+  _FakeJustAudioPlayer(super.id);
 
   final StreamController<PlaybackEventMessage> _eventController =
       StreamController<PlaybackEventMessage>.broadcast();

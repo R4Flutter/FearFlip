@@ -16,6 +16,18 @@ enum TrapState {
   collapsed,
 }
 
+/// Design intent tags assigned when a trap is placed.
+///
+/// These tags make balancing and analytics more useful than raw coordinates.
+enum TrapPressureTag {
+  decisionFork,
+  memoryReturn,
+  panicRoute,
+  falseConfidence,
+  chokepoint,
+  loop,
+}
+
 /// Classification of a walkable cell's topological role in the maze.
 enum TileTopology {
   corridor,
@@ -31,7 +43,15 @@ enum TileTopology {
 
 /// Pure data model for a single trap tile. No logic, no rendering.
 class TrapTile {
-  TrapTile({required this.cell, required this.crackSeed, this.topology});
+  TrapTile({
+    required this.cell,
+    required this.crackSeed,
+    this.topology,
+    this.placementScore = 0,
+    this.revisitScore = 0,
+    this.pathIndex,
+    Set<TrapPressureTag> pressureTags = const <TrapPressureTag>{},
+  }) : pressureTags = Set<TrapPressureTag>.unmodifiable(pressureTags);
 
   /// Maze-grid coordinate of this trap.
   final Point<int> cell;
@@ -41,6 +61,18 @@ class TrapTile {
 
   /// Topological classification used during placement.
   final TileTopology? topology;
+
+  /// Weighted placement score produced by the trap-placement engine.
+  final double placementScore;
+
+  /// Estimated chance that a careless player will need to revisit this tile.
+  final double revisitScore;
+
+  /// Index on the start-to-goal route when the tile is on that route.
+  final int? pathIndex;
+
+  /// High-level design role used for analytics and future balancing.
+  final Set<TrapPressureTag> pressureTags;
 
   /// Current lifecycle state.
   TrapState state = TrapState.hidden;
@@ -62,6 +94,21 @@ class TrapTile {
 
   /// The game-step count when this tile was first revealed (Hidden→Cracked).
   int? revealedAtStep;
+
+  /// The game-step count when this tile escalated to Critical.
+  int? criticalAtStep;
+
+  /// The game-step count when this tile collapsed.
+  int? collapsedAtStep;
+
+  /// Prevents hidden cue audio from firing every frame while nearby.
+  bool suspicionCuePrimed = false;
+
+  int? stepsSinceReveal(int currentStep) {
+    final revealed = revealedAtStep;
+    if (revealed == null) return null;
+    return currentStep - revealed;
+  }
 }
 
 /// The result of a player stepping onto a cell that may or may not be a trap.

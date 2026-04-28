@@ -138,7 +138,6 @@ class GlitchEffectOverlay extends StatelessWidget {
       return child;
     }
 
-    final shift = controller.rgbShiftPx;
     final jitter = controller.horizontalJitterPx;
 
     return Stack(
@@ -149,30 +148,11 @@ class GlitchEffectOverlay extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Transform.translate(
-                offset: Offset(-shift, 0),
-                child: Opacity(
+              CustomPaint(
+                painter: _RgbGlitchPainter(
                   opacity: controller.channelOpacity,
-                  child: ColorFiltered(
-                    colorFilter: ColorFilter.mode(
-                      Colors.red.withValues(alpha: 0.75),
-                      BlendMode.modulate,
-                    ),
-                    child: child,
-                  ),
-                ),
-              ),
-              Transform.translate(
-                offset: Offset(shift, 0),
-                child: Opacity(
-                  opacity: controller.channelOpacity,
-                  child: ColorFiltered(
-                    colorFilter: ColorFilter.mode(
-                      const Color(0xFF66E0FF).withValues(alpha: 0.75),
-                      BlendMode.modulate,
-                    ),
-                    child: child,
-                  ),
+                  phase: controller.scanlinePhase,
+                  shiftPx: controller.rgbShiftPx,
                 ),
               ),
               Opacity(
@@ -191,6 +171,67 @@ class GlitchEffectOverlay extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _RgbGlitchPainter extends CustomPainter {
+  const _RgbGlitchPainter({
+    required this.opacity,
+    required this.phase,
+    required this.shiftPx,
+  });
+
+  final double opacity;
+  final double phase;
+  final double shiftPx;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (opacity <= 0 || shiftPx <= 0 || size.isEmpty) {
+      return;
+    }
+
+    final redPaint = Paint()
+      ..blendMode = BlendMode.screen
+      ..color = Colors.red.withValues(alpha: opacity);
+    final cyanPaint = Paint()
+      ..blendMode = BlendMode.screen
+      ..color = const Color(0xFF66E0FF).withValues(alpha: opacity);
+
+    final bandHeight = max(6.0, size.height / 18);
+    final gap = bandHeight * 1.65;
+    final startOffset = -gap + (phase * gap * 2);
+
+    for (var y = startOffset; y < size.height + gap; y += gap) {
+      final height = min(
+        bandHeight,
+        size.height - y,
+      ).clamp(0.0, bandHeight).toDouble();
+      if (height <= 0) {
+        continue;
+      }
+
+      canvas.drawRect(
+        Rect.fromLTWH(-shiftPx, y, size.width + shiftPx, height),
+        redPaint,
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(
+          shiftPx,
+          y + bandHeight * 0.35,
+          size.width,
+          height * 0.65,
+        ),
+        cyanPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RgbGlitchPainter oldDelegate) {
+    return oldDelegate.opacity != opacity ||
+        oldDelegate.phase != phase ||
+        oldDelegate.shiftPx != shiftPx;
   }
 }
 

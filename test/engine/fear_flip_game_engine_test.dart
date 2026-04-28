@@ -8,7 +8,7 @@ import 'package:fearflipgame/domain/rules/gravity_rule.dart';
 import 'package:fearflipgame/engine/fear_flip_game.dart';
 
 void main() {
-  Future<FearFlipGameEngine> _buildEngine({
+  Future<FearFlipGameEngine> buildEngine({
     List<GameRule>? rules,
     int seed = 42,
   }) async {
@@ -21,7 +21,7 @@ void main() {
   }
 
   test('gravity updates vertical velocity and position', () async {
-    final engine = await _buildEngine(
+    final engine = await buildEngine(
       rules: const <GameRule>[GravityRule(deathY: 9999)],
     );
 
@@ -33,7 +33,7 @@ void main() {
   });
 
   test('flip mechanic toggles controls after interval', () async {
-    final engine = await _buildEngine(rules: const <GameRule>[FlipRule()]);
+    final engine = await buildEngine(rules: const <GameRule>[FlipRule()]);
 
     expect(engine.state.controlsInverted, isFalse);
     await engine.update(5.1);
@@ -41,7 +41,7 @@ void main() {
   });
 
   test('collision threshold triggers game over', () async {
-    final engine = await _buildEngine(
+    final engine = await buildEngine(
       rules: const <GameRule>[GravityRule(deathY: 1.0)],
     );
 
@@ -51,7 +51,7 @@ void main() {
   });
 
   test('difficulty increases over time', () async {
-    final engine = await _buildEngine(
+    final engine = await buildEngine(
       rules: const <GameRule>[DifficultyRule(growthPerSecond: 0.1)],
     );
 
@@ -61,7 +61,7 @@ void main() {
   });
 
   test('simulation remains valid for 1000 frames', () async {
-    final engine = await _buildEngine();
+    final engine = await buildEngine();
 
     for (var i = 0; i < 1000; i++) {
       await engine.update(0.016);
@@ -73,8 +73,8 @@ void main() {
   });
 
   test('seeded start is deterministic', () async {
-    final first = await _buildEngine(seed: 42);
-    final second = await _buildEngine(seed: 42);
+    final first = await buildEngine(seed: 42);
+    final second = await buildEngine(seed: 42);
 
     expect(
       first.state.flipCooldownSeconds,

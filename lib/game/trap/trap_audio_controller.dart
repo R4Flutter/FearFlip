@@ -7,7 +7,7 @@ import '../../services/game_audio_event.dart';
 /// while respecting cooldowns and priority rules.
 class TrapAudioController {
   TrapAudioController({required AudioManager audioManager})
-      : _audioManager = audioManager;
+    : _audioManager = audioManager;
 
   final AudioManager _audioManager;
 
@@ -28,9 +28,9 @@ class TrapAudioController {
     unawaited(_audioManager.handle(GameAudioEvent.trapStepWarning));
   }
 
-  /// Play the warning crack when a Hidden tile transitions to Cracked.
+  /// Play the break_glass SFX when a Hidden tile transitions to Cracked.
   void playCrackReveal() {
-    unawaited(_audioManager.handle(GameAudioEvent.trapStepWarning));
+    unawaited(_audioManager.handle(GameAudioEvent.trapCrackReveal));
   }
 
   /// Play the escalation sound when a Cracked tile becomes Critical.
@@ -58,6 +58,12 @@ class TrapAudioController {
   /// This fires the composite death event — the AudioManager should
   /// interpret it as: crack burst → fall whoosh → bass impact → sting.
   Future<void> playTrapDeath() async {
+    playDeathCrack();
+    await Future<void>.delayed(const Duration(milliseconds: 260));
+    playDeathFall();
+    await Future<void>.delayed(const Duration(milliseconds: 360));
+    playDeathImpact();
+    await Future<void>.delayed(const Duration(milliseconds: 120));
     await _audioManager.handle(GameAudioEvent.trapDeath);
   }
 

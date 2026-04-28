@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fearflipgame/presentation/gameplay/glitch_effect_controller.dart';
@@ -23,5 +24,26 @@ void main() {
     controller.update(0.4);
 
     expect(controller.isActive, isFalse);
+  });
+
+  testWidgets('active glitch overlay renders a keyed child once', (
+    tester,
+  ) async {
+    final controller = GlitchEffectController();
+    final key = GlobalKey();
+
+    controller.trigger(durationSeconds: 0.3);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GlitchEffectOverlay(
+          controller: controller,
+          child: SizedBox(key: key, width: 24, height: 24),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(key), findsOneWidget);
   });
 }

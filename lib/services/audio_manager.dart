@@ -19,6 +19,7 @@ enum _AudioCue {
   winning,
   playerLost,
   trapBreak,
+  breakGlass,
 }
 
 class _ResolvedAsset {
@@ -253,6 +254,7 @@ class AudioManager {
           'game_lost_soundeffect.mp3',
         ],
         _AudioCue.trapBreak: <String>['glass_break.mp3', 'glass_break.wav'],
+        _AudioCue.breakGlass: <String>['glass_break.mp3', 'glass_break.wav'],
       };
 
   static Future<void> configureGlobalAudio({
@@ -287,18 +289,16 @@ class AudioManager {
     await _prepareLoopChannel(_lowTimeLoop, _AudioCue.lowTimeAlarm);
 
     for (final voice in _allOneShotVoices()) {
-      if (voice.completionSubscription == null) {
-        voice.completionSubscription = voice.player.onPlayerComplete.listen((
-          _,
-        ) {
-          final completedCue = voice.cue;
-          voice.inUse = false;
-          voice.cue = null;
-          if (completedCue == _AudioCue.mazeShift && _mazeShiftPriorityActive) {
-            unawaited(_onMazeShiftEnded());
-          }
-        });
-      }
+      voice.completionSubscription ??= voice.player.onPlayerComplete.listen((
+        _,
+      ) {
+        final completedCue = voice.cue;
+        voice.inUse = false;
+        voice.cue = null;
+        if (completedCue == _AudioCue.mazeShift && _mazeShiftPriorityActive) {
+          unawaited(_onMazeShiftEnded());
+        }
+      });
       await _safe('oneshot.setReleaseMode', () async {
         await voice.player.setReleaseMode(ap.ReleaseMode.stop);
       });
@@ -407,6 +407,7 @@ class AudioManager {
         payload.type == GameAudioEvent.trapDeathCrack ||
         payload.type == GameAudioEvent.trapDeathFall ||
         payload.type == GameAudioEvent.trapDeathImpact ||
+        payload.type == GameAudioEvent.trapCrackReveal ||
         payload.type == GameAudioEvent.matchExit) {
       _queue.addFirst(queued);
     } else {
@@ -602,6 +603,17 @@ class AudioManager {
             bus: AudioBus.action,
             baseVolume: 0.58,
             playbackRate: 0.96 + (Random().nextDouble() * 0.12),
+          );
+        }
+        break;
+      case GameAudioEvent.trapCrackReveal:
+        // Dedicated break_glass SFX for first-step crack reveal (Hidden→Cracked).
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.breakGlass,
+            bus: AudioBus.action,
+            baseVolume: 0.78,
+            playbackRate: 0.94 + (Random().nextDouble() * 0.10),
           );
         }
         break;

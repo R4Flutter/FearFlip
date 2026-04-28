@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -163,6 +162,7 @@ class _GameScreenState extends State<GameScreen>
       onComplete: _onTrapDeathSequenceComplete,
     );
     _trapStateController.onCriticalTrigger = _onTrapCriticalTriggered;
+    _trapStateController.onHiddenSuspicionCue = _onTrapHiddenSuspicionCue;
 
     _stageClearController = AnimationController(
       vsync: this,
@@ -489,6 +489,10 @@ class _GameScreenState extends State<GameScreen>
                 devilActive: _devilSpawned && _devilCell != null,
                 controlsInverted: _controlsInverted,
                 trapsTriggeredThisRun: _trapStateController.triggeredCount,
+                secondsRemaining: _remainingSeconds,
+                placementScore: tile.placementScore,
+                revisitScore: tile.revisitScore,
+                pressureTags: tile.pressureTags,
                 distanceToGoal: _maze.shortestPathDistance(
                   playerCell,
                   _maze.end,
@@ -512,6 +516,10 @@ class _GameScreenState extends State<GameScreen>
         dt,
         _playerController.position,
         criticalDistance: _trapStageConfig.criticalTriggerDistance,
+        playerStepCount: _playerStepCount,
+        panicMode: _isPanic,
+        devilCell: _devilCell,
+        hiddenCueLevel: _trapStageConfig.hiddenCueLevel,
       );
       shouldRebuild = true;
     }
@@ -730,7 +738,11 @@ class _GameScreenState extends State<GameScreen>
         .toList(growable: true);
 
     if (forceStageOneTestTrap) {
-      _injectStageOneTestTrap(filteredTiles, stageSeed: seed);
+      _injectStageOneTestTrap(
+        filteredTiles,
+        stageSeed: seed,
+        maxTiles: _trapDifficultyScaler.config.maxTrapCount,
+      );
     }
 
     _trapStateController.reset(filteredTiles.toList(growable: false));
@@ -740,7 +752,11 @@ class _GameScreenState extends State<GameScreen>
     return _stage == 1 && AppRuntimeConfig.stageOneSixthTileTrapEnabled;
   }
 
-  void _injectStageOneTestTrap(List<TrapTile> tiles, {required int stageSeed}) {
+  void _injectStageOneTestTrap(
+    List<TrapTile> tiles, {
+    required int stageSeed,
+    required int maxTiles,
+  }) {
     final targetCell = _stageOneTestTrapCell();
     if (targetCell == null) {
       return;
@@ -748,6 +764,21 @@ class _GameScreenState extends State<GameScreen>
     _safeZones.remove(targetCell);
     if (tiles.any((tile) => tile.cell == targetCell)) {
       return;
+    }
+
+    if (maxTiles <= 0) {
+      return;
+    }
+
+    if (tiles.length >= maxTiles) {
+      final removalIndex = tiles.indexWhere(
+        (tile) => tile.topology != TileTopology.tJunction,
+      );
+      if (removalIndex >= 0) {
+        tiles.removeAt(removalIndex);
+      } else if (tiles.isNotEmpty) {
+        tiles.removeLast();
+      }
     }
 
     tiles.add(
@@ -842,6 +873,29 @@ class _GameScreenState extends State<GameScreen>
         endHash;
   }
 
+  void _onTrapHiddenSuspicionCue(TrapTile tile) {
+    _trapAudioController.playHiddenCreak();
+    _trapAnalytics.record(
+      stage: _stage,
+      eventType: 'hidden_suspicion_cue',
+      cell: tile.cell,
+      topology: tile.topology,
+      playerStepCount: _playerStepCount,
+      secondsElapsed: _stageElapsedSeconds,
+      devilActive: _devilSpawned && _devilCell != null,
+      controlsInverted: _controlsInverted,
+      trapsTriggeredThisRun: _trapStateController.triggeredCount,
+      secondsRemaining: _remainingSeconds,
+      placementScore: tile.placementScore,
+      revisitScore: tile.revisitScore,
+      pressureTags: tile.pressureTags,
+      distanceToGoal: _maze.shortestPathDistance(
+        _playerController.position,
+        _maze.end,
+      ),
+    );
+  }
+
   void _onTrapCriticalTriggered(TrapTile tile) {
     _trapAudioController.playCriticalEscalation();
     final distanceToGoal = _maze.shortestPathDistance(
@@ -858,6 +912,11 @@ class _GameScreenState extends State<GameScreen>
       devilActive: _devilSpawned && _devilCell != null,
       controlsInverted: _controlsInverted,
       trapsTriggeredThisRun: _trapStateController.triggeredCount,
+      secondsRemaining: _remainingSeconds,
+      stepsSinceReveal: tile.stepsSinceReveal(_playerStepCount),
+      placementScore: tile.placementScore,
+      revisitScore: tile.revisitScore,
+      pressureTags: tile.pressureTags,
       distanceToGoal: distanceToGoal,
     );
     _trapAnalytics.record(
@@ -870,6 +929,11 @@ class _GameScreenState extends State<GameScreen>
       devilActive: _devilSpawned && _devilCell != null,
       controlsInverted: _controlsInverted,
       trapsTriggeredThisRun: _trapStateController.triggeredCount,
+      secondsRemaining: _remainingSeconds,
+      stepsSinceReveal: tile.stepsSinceReveal(_playerStepCount),
+      placementScore: tile.placementScore,
+      revisitScore: tile.revisitScore,
+      pressureTags: tile.pressureTags,
       distanceToGoal: distanceToGoal,
     );
     if (mounted) {
@@ -910,6 +974,11 @@ class _GameScreenState extends State<GameScreen>
       devilActive: _devilSpawned && _devilCell != null,
       controlsInverted: _controlsInverted,
       trapsTriggeredThisRun: _trapStateController.triggeredCount,
+      secondsRemaining: _remainingSeconds,
+      stepsSinceReveal: tile.stepsSinceReveal(_playerStepCount),
+      placementScore: tile.placementScore,
+      revisitScore: tile.revisitScore,
+      pressureTags: tile.pressureTags,
       distanceToGoal: distanceToGoal,
     );
 
@@ -1109,6 +1178,19 @@ class _GameScreenState extends State<GameScreen>
     }
 
     unawaited(_audioManager.handle(GameAudioEvent.mazeShiftStarted));
+
+    // When glitch effects are disabled the controller deactivates immediately,
+    // so the tick-loop's wasGlitchActive→!isActive transition never fires
+    // mazeShiftEnded.  Emit it after a short delay so the stinger SFX plays
+    // through and the AudioManager's priority resets reliably.
+    if (!_glitchEffectController.isActive) {
+      Future<void>.delayed(const Duration(milliseconds: 600), () {
+        if (mounted && !_roundResolved && !_isStageTransition) {
+          unawaited(_audioManager.handle(GameAudioEvent.mazeShiftEnded));
+        }
+      });
+    }
+
     _rebuildPathMetrics();
     _mazeShiftManager.updateTotalSteps(_mazeShiftTotalSteps);
     _devilMoveAccumulator = 0;
@@ -1864,7 +1946,7 @@ class _GameScreenState extends State<GameScreen>
                   onPauseTap: _togglePause,
                 ),
               ),
-              if (kDebugMode)
+              if (AppRuntimeConfig.debugStageDropdownEnabled)
                 Positioned(
                   top: floatingTop + (2 * uiScale).clamp(1.0, 8.0),
                   left: 0,
@@ -2086,7 +2168,33 @@ class _GameScreenState extends State<GameScreen>
     });
   }
 
+  void _recordTrapRecoveryIntent(String eventType) {
+    if (!_lostByTrap) {
+      return;
+    }
+    final playerCell = _playerController.position;
+    final tile = _trapStateController.trapAt(playerCell);
+    _trapAnalytics.record(
+      stage: _stage,
+      eventType: eventType,
+      cell: tile?.cell ?? playerCell,
+      topology: tile?.topology,
+      playerStepCount: _playerStepCount,
+      secondsElapsed: _stageElapsedSeconds,
+      devilActive: _devilSpawned && _devilCell != null,
+      controlsInverted: _controlsInverted,
+      trapsTriggeredThisRun: _trapStateController.triggeredCount,
+      secondsRemaining: _remainingSeconds,
+      stepsSinceReveal: tile?.stepsSinceReveal(_playerStepCount),
+      placementScore: tile?.placementScore,
+      revisitScore: tile?.revisitScore,
+      pressureTags: tile?.pressureTags,
+      distanceToGoal: _maze.shortestPathDistance(playerCell, _maze.end),
+    );
+  }
+
   void _restartCurrentStageFromStart() {
+    _recordTrapRecoveryIntent('restart_after_trap_death');
     _showLossOverlay = false;
     _lostByTime = false;
     _lostByTrap = false;
@@ -2106,6 +2214,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _resetToCheckpoint() {
+    _recordTrapRecoveryIntent('checkpoint_reset_after_trap_death');
     final checkpointStage = _checkpoint == 0 ? 1 : _checkpoint;
     final targetStage = checkpointStage.clamp(1, _maxStage);
 

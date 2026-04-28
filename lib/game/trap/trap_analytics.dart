@@ -21,21 +21,35 @@ class TrapAnalytics {
     bool controlsInverted = false,
     int trapsTriggeredThisRun = 0,
     int? distanceToGoal,
+    int? secondsRemaining,
+    int? stepsSinceReveal,
+    double? placementScore,
+    double? revisitScore,
+    Set<TrapPressureTag>? pressureTags,
   }) {
-    _buffer.add(TrapAnalyticsEvent(
-      stage: stage,
-      eventType: eventType,
-      cellX: cell.x,
-      cellY: cell.y,
-      topology: topology?.name ?? 'unknown',
-      playerStepCount: playerStepCount,
-      secondsElapsed: secondsElapsed,
-      devilActive: devilActive,
-      controlsInverted: controlsInverted,
-      trapsTriggeredThisRun: trapsTriggeredThisRun,
-      distanceToGoal: distanceToGoal,
-      timestamp: DateTime.now(),
-    ));
+    _buffer.add(
+      TrapAnalyticsEvent(
+        stage: stage,
+        eventType: eventType,
+        cellX: cell.x,
+        cellY: cell.y,
+        topology: topology?.name ?? 'unknown',
+        playerStepCount: playerStepCount,
+        secondsElapsed: secondsElapsed,
+        devilActive: devilActive,
+        controlsInverted: controlsInverted,
+        trapsTriggeredThisRun: trapsTriggeredThisRun,
+        distanceToGoal: distanceToGoal,
+        secondsRemaining: secondsRemaining,
+        stepsSinceReveal: stepsSinceReveal,
+        placementScore: placementScore,
+        revisitScore: revisitScore,
+        pressureTags: pressureTags == null
+            ? const <String>[]
+            : pressureTags.map((tag) => tag.name).toList(growable: false),
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   /// All recorded events since last flush.
@@ -78,6 +92,11 @@ class TrapAnalyticsEvent {
     required this.controlsInverted,
     required this.trapsTriggeredThisRun,
     required this.timestamp,
+    this.secondsRemaining,
+    this.stepsSinceReveal,
+    this.placementScore,
+    this.revisitScore,
+    this.pressureTags = const <String>[],
     this.distanceToGoal,
   });
 
@@ -92,6 +111,11 @@ class TrapAnalyticsEvent {
   final bool controlsInverted;
   final int trapsTriggeredThisRun;
   final int? distanceToGoal;
+  final int? secondsRemaining;
+  final int? stepsSinceReveal;
+  final double? placementScore;
+  final double? revisitScore;
+  final List<String> pressureTags;
   final DateTime timestamp;
 }
 

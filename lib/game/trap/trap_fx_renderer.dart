@@ -34,9 +34,14 @@ class TrapFxRenderer {
       final rect = _cellRect(origin, cellSize, tile.cell);
       switch (tile.state) {
         case TrapState.hidden:
-          if (revealedTileTexture == null && hiddenCueLevel > 0.01) {
-            _drawHiddenDust(canvas, rect, tile.particlePhase, hiddenCueLevel,
-                isFlippedMode);
+          if (hiddenCueLevel > 0.01) {
+            _drawHiddenSuspicion(
+              canvas,
+              rect,
+              tile.particlePhase,
+              hiddenCueLevel,
+              isFlippedMode,
+            );
           }
           break;
         case TrapState.cracked:
@@ -47,10 +52,15 @@ class TrapFxRenderer {
               texture: revealedTileTexture,
               critical: false,
             );
-          } else {
-            _drawCrackLines(canvas, rect, tile, cellSize, isFlippedMode,
-                widened: false);
           }
+          _drawCrackLines(
+            canvas,
+            rect,
+            tile,
+            cellSize,
+            isFlippedMode,
+            widened: false,
+          );
           _drawCrackDust(canvas, rect, tile.particlePhase, isFlippedMode);
           break;
         case TrapState.critical:
@@ -62,14 +72,24 @@ class TrapFxRenderer {
               texture: revealedTileTexture,
               critical: true,
             );
-          } else {
-            _drawCrackLines(canvas, rect, tile, cellSize, isFlippedMode,
-                widened: true);
           }
+          _drawCrackLines(
+            canvas,
+            rect,
+            tile,
+            cellSize,
+            isFlippedMode,
+            widened: true,
+          );
           _drawWarningDebris(canvas, rect, tile.particlePhase, isFlippedMode);
           break;
         case TrapState.collapsed:
-          _drawCollapsedVoid(canvas, rect, tile.collapseProgress, isFlippedMode);
+          _drawCollapsedVoid(
+            canvas,
+            rect,
+            tile.collapseProgress,
+            isFlippedMode,
+          );
           break;
       }
     }
@@ -77,7 +97,7 @@ class TrapFxRenderer {
 
   // ── Hidden state: ultra-subtle dust ────────────────────────────────
 
-  void _drawHiddenDust(
+  void _drawHiddenSuspicion(
     Canvas canvas,
     Rect rect,
     double phase,
@@ -85,9 +105,34 @@ class TrapFxRenderer {
     bool flipped,
   ) {
     final rng = Random(rect.left.toInt() * 31 + rect.top.toInt() * 17);
+    final cueColor = flipped
+        ? const Color(0xFF111111)
+        : const Color(0xFFE8E8E8);
+    final hairlinePaint = Paint()
+      ..color = cueColor.withValues(alpha: 0.10 * intensity)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(0.7, rect.shortestSide * 0.018)
+      ..strokeCap = StrokeCap.round;
+
+    final start = Offset(
+      rect.left + rect.width * (0.22 + rng.nextDouble() * 0.16),
+      rect.top + rect.height * (0.36 + rng.nextDouble() * 0.10),
+    );
+    final end = Offset(
+      rect.left + rect.width * (0.62 + rng.nextDouble() * 0.16),
+      rect.top + rect.height * (0.50 + rng.nextDouble() * 0.12),
+    );
+    canvas.drawLine(start, end, hairlinePaint);
+
+    final pulse = 0.55 + sin(phase * 1.8) * 0.25;
+    final edgePaint = Paint()
+      ..color = cueColor.withValues(alpha: 0.035 * intensity * pulse)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(0.6, rect.shortestSide * 0.014);
+    canvas.drawRect(rect.deflate(rect.shortestSide * 0.10), edgePaint);
+
     final dotPaint = Paint()
-      ..color = (flipped ? const Color(0xFF999999) : const Color(0xFF444444))
-          .withValues(alpha: 0.08 * intensity);
+      ..color = cueColor.withValues(alpha: 0.07 * intensity);
 
     for (var i = 0; i < 3; i++) {
       final dx = rect.left + rng.nextDouble() * rect.width;
@@ -124,11 +169,10 @@ class TrapFxRenderer {
     }
 
     final shade = Paint()
-      ..shader = Gradient.linear(
-        dst.topCenter,
-        dst.bottomCenter,
-        const [Color(0x00000000), Color(0x44000000)],
-      );
+      ..shader = Gradient.linear(dst.topCenter, dst.bottomCenter, const [
+        Color(0x00000000),
+        Color(0x44000000),
+      ]);
     canvas.drawRect(dst, shade);
   }
 
@@ -151,17 +195,18 @@ class TrapFxRenderer {
   }) {
     tile.cachedCrackPath ??= _buildCrackPath(tile.crackSeed, rect);
     if (widened) {
-      tile.cachedCrackPathWide ??= _buildCrackPath(tile.crackSeed, rect,
-          widthScale: 1.3);
+      tile.cachedCrackPathWide ??= _buildCrackPath(
+        tile.crackSeed,
+        rect,
+        widthScale: 1.3,
+      );
     }
 
     final path = widened
         ? (tile.cachedCrackPathWide ?? tile.cachedCrackPath!)
         : tile.cachedCrackPath!;
 
-    final color = flipped
-        ? const Color(0xFF333333)
-        : const Color(0xFFDDDDDD);
+    final color = flipped ? const Color(0xFF333333) : const Color(0xFFDDDDDD);
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
@@ -172,19 +217,16 @@ class TrapFxRenderer {
 
     // Subtle glow behind cracks
     final glow = Paint()
-      ..color = (widened ? const Color(0x44FF1744) : color.withValues(alpha: 0.15))
+      ..color = (widened
+          ? const Color(0x44FF1744)
+          : color.withValues(alpha: 0.15))
       ..style = PaintingStyle.stroke
       ..strokeWidth = widened ? 4.0 : 2.5
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
     canvas.drawPath(path, glow);
   }
 
-  void _drawCrackDust(
-    Canvas canvas,
-    Rect rect,
-    double phase,
-    bool flipped,
-  ) {
+  void _drawCrackDust(Canvas canvas, Rect rect, double phase, bool flipped) {
     final rng = Random(rect.left.toInt() * 53 + rect.top.toInt() * 7);
     final dustColor = flipped
         ? const Color(0xFF666666)
@@ -192,11 +234,11 @@ class TrapFxRenderer {
 
     for (var i = 0; i < 4; i++) {
       final dx = rect.left + rng.nextDouble() * rect.width;
-      final baseY = rect.top + rect.height * 0.3 + rng.nextDouble() * rect.height * 0.5;
+      final baseY =
+          rect.top + rect.height * 0.3 + rng.nextDouble() * rect.height * 0.5;
       final drift = -((phase * 12 + i * 30) % rect.height) * 0.04;
       final opacity = (0.3 - (drift.abs() / rect.height)).clamp(0.0, 0.3);
-      final paint = Paint()
-        ..color = dustColor.withValues(alpha: opacity);
+      final paint = Paint()..color = dustColor.withValues(alpha: opacity);
       canvas.drawCircle(Offset(dx, baseY + drift), 0.9, paint);
     }
   }
@@ -210,9 +252,7 @@ class TrapFxRenderer {
     bool flipped,
   ) {
     final pulse = 0.3 + (sin(phase * 4 * pi) + 1) * 0.2; // 0.3–0.7
-    final color = flipped
-        ? const Color(0xFFB71C1C)
-        : const Color(0xFFFF1744);
+    final color = flipped ? const Color(0xFFB71C1C) : const Color(0xFFFF1744);
 
     // Full-tile glow
     final glowPaint = Paint()
@@ -247,8 +287,7 @@ class TrapFxRenderer {
       final cy = rect.center.dy + sin(angle) * radius;
       final opacity = (0.5 + sin(phase * 5 + i * 1.7) * 0.3).clamp(0.1, 0.7);
 
-      final paint = Paint()
-        ..color = debrisColor.withValues(alpha: opacity);
+      final paint = Paint()..color = debrisColor.withValues(alpha: opacity);
       canvas.drawCircle(Offset(cx, cy), 1.0 + rng.nextDouble() * 0.5, paint);
     }
   }
