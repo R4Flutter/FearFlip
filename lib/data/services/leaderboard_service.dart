@@ -16,4 +16,32 @@ class LeaderboardDataService {
   }) {
     return _delegate.getLeaderboard(mode: mode, limit: limit);
   }
+
+  Future<void> upsertGlobalPanicProgress({
+    required int maxStage,
+    required int totalTrophies,
+  }) {
+    return _delegate.upsertGlobalPanicProgress(
+      maxStage: maxStage,
+      totalTrophies: totalTrophies,
+    );
+  }
+
+  Future<infra.LeaderboardSnapshot> getGlobalPanicLeaderboard({
+    int limit = 20,
+  }) {
+    return _delegate.getGlobalPanicLeaderboard(limit: limit);
+  }
+
+  /// Real-time stream of Global Panic standings. The stream seeds from the
+  /// offline cache immediately, then updates with live Firestore data.
+  Stream<infra.LeaderboardSnapshot> globalPanicLeaderboardStream({
+    int limit = 20,
+  }) {
+    return _delegate.globalPanicLeaderboardStream(limit: limit);
+  }
+
+  Future<int?> getGlobalPanicRank() {
+    return _delegate.getGlobalPanicRank();
+  }
 }

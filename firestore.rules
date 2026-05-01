@@ -64,7 +64,11 @@ service cloud.firestore {
           && validDisplayName()
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.mode == mode
+          // Enforce non-negative score floor; negative values indicate tampering.
+          && request.resource.data.scoreSeconds >= 0
           && request.resource.data.createdAt == request.time;
+      // TODO(anti-cheat): once submitScore Cloud Function is deployed,
+      // replace the create rule above with: allow write: if false;
       allow update, delete: if false;
     }
 

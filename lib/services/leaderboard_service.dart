@@ -1,78 +1,12 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 
-class _DummyGlobalPanicEntry {
-  const _DummyGlobalPanicEntry({
-    required this.displayName,
-    required this.maxStage,
-    required this.totalTrophies,
-  });
+import 'leaderboard_cache.dart';
 
-  final String displayName;
-  final int maxStage;
-  final int totalTrophies;
-}
-
-const List<_DummyGlobalPanicEntry> _kDummyGlobalPanicEntries =
-    <_DummyGlobalPanicEntry>[
-      _DummyGlobalPanicEntry(
-        displayName: 'NightRunner',
-        maxStage: 19,
-        totalTrophies: 84,
-      ),
-      _DummyGlobalPanicEntry(
-        displayName: 'ZeroPulse',
-        maxStage: 18,
-        totalTrophies: 91,
-      ),
-      _DummyGlobalPanicEntry(
-        displayName: 'EchoDash',
-        maxStage: 17,
-        totalTrophies: 98,
-      ),
-      _DummyGlobalPanicEntry(
-        displayName: 'GhostLane',
-        maxStage: 16,
-        totalTrophies: 102,
-      ),
-      _DummyGlobalPanicEntry(
-        displayName: 'NeonWisp',
-        maxStage: 15,
-        totalTrophies: 110,
-      ),
-      _DummyGlobalPanicEntry(
-        displayName: 'DarkShift',
-        maxStage: 14,
-        totalTrophies: 117,
-      ),
-      _DummyGlobalPanicEntry(
-        displayName: 'PanicFox',
-        maxStage: 12,
-        totalTrophies: 130,
-      ),
-      _DummyGlobalPanicEntry(
-        displayName: 'TrailByte',
-        maxStage: 10,
-        totalTrophies: 145,
-      ),
-    ];
-
-List<LeaderboardEntry> _buildDummyGlobalPanicLeaderboardEntries(int limit) {
-  final safeLimit = limit.clamp(1, _kDummyGlobalPanicEntries.length).toInt();
-  return List<LeaderboardEntry>.generate(safeLimit, (index) {
-    final profile = _kDummyGlobalPanicEntries[index];
-    return LeaderboardEntry(
-      rank: index + 1,
-      scoreSeconds: 0,
-      maxStage: profile.maxStage,
-      totalTrophies: profile.totalTrophies,
-      uid: 'dummy_${index + 1}',
-      displayName: profile.displayName,
-    );
-  });
-}
 
 class LeaderboardEntry {
   const LeaderboardEntry({
@@ -124,6 +58,11 @@ abstract class LeaderboardService {
 
   Future<LeaderboardSnapshot> getGlobalPanicLeaderboard({int limit = 20});
 
+  /// Emits an updated [LeaderboardSnapshot] every time the Global Panic
+  /// profiles collection changes in Firestore. The stream immediately yields
+  /// a cached snapshot (if one exists) so the UI never starts blank.
+  Stream<LeaderboardSnapshot> globalPanicLeaderboardStream({int limit = 20});
+
   Future<int?> getGlobalPanicRank();
 
   Future<LeaderboardSnapshot> getLeaderboard({
@@ -153,13 +92,22 @@ class StubLeaderboardService implements LeaderboardService {
   Future<LeaderboardSnapshot> getGlobalPanicLeaderboard({
     int limit = 20,
   }) async {
-    final entries = _buildDummyGlobalPanicLeaderboardEntries(limit);
+    // StubLeaderboardService intentionally returns empty data.
+    // Dummy names only existed for UI preview; with a real Firebase project
+    // the FirestoreLeaderboardService is always used in production.
     return LeaderboardSnapshot(
       mode: 'global_panic',
-      entries: entries,
-      totalPlayers: entries.length,
+      entries: const <LeaderboardEntry>[],
+      totalPlayers: 0,
       fetchedAt: DateTime.now(),
     );
+  }
+
+  @override
+  Stream<LeaderboardSnapshot> globalPanicLeaderboardStream({
+    int limit = 20,
+  }) {
+    return Stream.fromFuture(getGlobalPanicLeaderboard(limit: limit));
   }
 
   @override
@@ -194,11 +142,14 @@ class FirestoreLeaderboardService implements LeaderboardService {
   FirestoreLeaderboardService({
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
+    LeaderboardCache? cache,
   }) : _firestore = firestore ?? FirebaseFirestore.instance,
-       _auth = auth ?? FirebaseAuth.instance;
+       _auth = auth ?? FirebaseAuth.instance,
+       _cache = cache ?? LeaderboardCache();
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
+  final LeaderboardCache _cache;
 
   CollectionReference<Map<String, dynamic>> _globalPanicProfiles() {
     return _firestore
@@ -414,6 +365,127 @@ class FirestoreLeaderboardService implements LeaderboardService {
     }
   }
 
+  // ── Stream API ─────────────────────────────────────────────────────────────
+
+  @override
+  Stream<LeaderboardSnapshot> globalPanicLeaderboardStream({int limit = 20}) {
+    final safeLimit = limit.clamp(1, 100).toInt();
+    final profiles = _globalPanicProfiles();
+
+    // Seed the stream with the cached snapshot first so the UI is never blank
+    // while waiting for Firestore.
+    Future<LeaderboardSnapshot?> seedFuture() => _cache.load('global_panic');
+
+    final firestoreStream = profiles
+        .orderBy('maxStage', descending: true)
+        .orderBy('totalTrophies', descending: false)
+        .limit(safeLimit)
+        .snapshots()
+        .asyncMap((snap) => _mapProfileSnapshot(snap, safeLimit));
+
+    return () async* {
+      final cached = await seedFuture();
+      if (cached != null) {
+        yield cached;
+      }
+      yield* firestoreStream;
+    }();
+  }
+
+  Future<LeaderboardSnapshot> _mapProfileSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snap,
+    int safeLimit,
+  ) async {
+    final user = _auth.currentUser;
+    final uid = user?.uid;
+    final profiles = _globalPanicProfiles();
+
+    final docs = snap.docs.toList(growable: false);
+    final ranked = docs.map((d) => d.data()).toList(growable: false)
+      ..sort((a, b) {
+        final stageA = (a['maxStage'] as num?)?.toInt() ?? 1;
+        final stageB = (b['maxStage'] as num?)?.toInt() ?? 1;
+        if (stageA != stageB) {
+          return stageB.compareTo(stageA);
+        }
+        final trophiesA = (a['totalTrophies'] as num?)?.toInt() ?? 0;
+        final trophiesB = (b['totalTrophies'] as num?)?.toInt() ?? 0;
+        return trophiesA.compareTo(trophiesB);
+      });
+
+    final top = ranked.take(safeLimit).toList(growable: false);
+    final entries = <LeaderboardEntry>[];
+    for (var i = 0; i < top.length; i++) {
+      final data = top[i];
+      entries.add(
+        LeaderboardEntry(
+          rank: i + 1,
+          scoreSeconds: 0,
+          maxStage: (data['maxStage'] as num?)?.toInt() ?? 1,
+          totalTrophies: (data['totalTrophies'] as num?)?.toInt() ?? 0,
+          uid: data['uid'] as String?,
+          displayName: data['displayName'] as String?,
+        ),
+      );
+    }
+
+    int totalPlayers = 0;
+    try {
+      totalPlayers = (await profiles.count().get()).count ?? 0;
+    } catch (_) {}
+
+    int? myRank;
+    int? myStage;
+    int? myTrophies;
+    if (uid != null) {
+      try {
+        final myDoc = await profiles.doc(uid).get();
+        if (myDoc.exists) {
+          final data = myDoc.data();
+          myStage = (data?['maxStage'] as num?)?.toInt() ?? 1;
+          myTrophies = (data?['totalTrophies'] as num?)?.toInt() ?? 0;
+          final higherStageCount =
+              (await profiles
+                      .where('maxStage', isGreaterThan: myStage)
+                      .count()
+                      .get())
+                  .count ??
+              0;
+          var sameStageLowerTrophyCount = 0;
+          try {
+            sameStageLowerTrophyCount =
+                (await profiles
+                        .where('maxStage', isEqualTo: myStage)
+                        .where('totalTrophies', isLessThan: myTrophies)
+                        .count()
+                        .get())
+                    .count ??
+                0;
+          } catch (_) {
+            sameStageLowerTrophyCount = 0;
+          }
+          myRank = higherStageCount + sameStageLowerTrophyCount + 1;
+        }
+      } catch (_) {}
+    }
+
+    final snapshot = LeaderboardSnapshot(
+      mode: 'global_panic',
+      entries: entries,
+      totalPlayers: totalPlayers,
+      myRank: myRank,
+      myMaxStage: myStage,
+      myTotalTrophies: myTrophies,
+      fetchedAt: DateTime.now(),
+    );
+
+    // Persist successful fetch for offline use.
+    unawaited(_cache.save(snapshot));
+    return snapshot;
+  }
+
+  // ── Future API ─────────────────────────────────────────────────────────────
+
   @override
   Future<LeaderboardSnapshot> getGlobalPanicLeaderboard({
     int limit = 20,
@@ -487,17 +559,6 @@ class FirestoreLeaderboardService implements LeaderboardService {
 
       final totalPlayers = (await profiles.count().get()).count ?? 0;
 
-      if (!kReleaseMode && entries.isEmpty && totalPlayers == 0) {
-        final dummyEntries = _buildDummyGlobalPanicLeaderboardEntries(
-          safeLimit,
-        );
-        return LeaderboardSnapshot(
-          mode: 'global_panic',
-          entries: dummyEntries,
-          totalPlayers: dummyEntries.length,
-          fetchedAt: DateTime.now(),
-        );
-      }
 
       int? myRank;
       int? myStage;
@@ -535,7 +596,7 @@ class FirestoreLeaderboardService implements LeaderboardService {
         }
       }
 
-      return LeaderboardSnapshot(
+      final result = LeaderboardSnapshot(
         mode: 'global_panic',
         entries: entries,
         totalPlayers: totalPlayers,
@@ -544,6 +605,9 @@ class FirestoreLeaderboardService implements LeaderboardService {
         myTotalTrophies: myTrophies,
         fetchedAt: DateTime.now(),
       );
+      // Cache the complete snapshot (including myRank) for offline use.
+      unawaited(_cache.save(result));
+      return result;
     } catch (error, stackTrace) {
       await _reportFailure(
         reason: 'global_panic_fetch_failed',
@@ -552,14 +616,16 @@ class FirestoreLeaderboardService implements LeaderboardService {
         context: <String, Object?>{'limit': safeLimit, 'has_uid': uid != null},
       );
 
-      final fallbackEntries = !kReleaseMode
-          ? _buildDummyGlobalPanicLeaderboardEntries(safeLimit)
-          : const <LeaderboardEntry>[];
+      // Try the disk cache before showing empty/dummy data.
+      final cached = await _cache.load('global_panic');
+      if (cached != null) {
+        return cached;
+      }
 
       return LeaderboardSnapshot(
         mode: 'global_panic',
-        entries: fallbackEntries,
-        totalPlayers: fallbackEntries.length,
+        entries: const <LeaderboardEntry>[],
+        totalPlayers: 0,
         fetchedAt: DateTime.now(),
       );
     }

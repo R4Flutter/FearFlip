@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../config/app_runtime_config.dart';
 import '../../services/leaderboard_service.dart';
 
 class LeaderboardNextLevelScreen extends StatefulWidget {
@@ -23,17 +24,41 @@ class LeaderboardNextLevelScreen extends StatefulWidget {
 
 class _LeaderboardNextLevelScreenState extends State<LeaderboardNextLevelScreen>
     with SingleTickerProviderStateMixin {
+  // Future path (default when realtime flag is off).
   late Future<LeaderboardSnapshot> _future;
+
+  // Stream path (used when leaderboardRealtimeEnabled is true).
+  Stream<LeaderboardSnapshot>? _stream;
+
   late final AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
-    _future = _load();
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 4200),
     )..repeat();
+
+    if (AppRuntimeConfig.leaderboardRealtimeEnabled) {
+      _stream = _buildStream();
+      // Keep _future as a completed placeholder so FutureBuilder is never used.
+      _future = Future.value(
+        LeaderboardSnapshot(
+          mode: 'global_panic',
+          entries: const [],
+          totalPlayers: 0,
+          fetchedAt: DateTime.now(),
+        ),
+      );
+    } else {
+      _future = _load();
+    }
+  }
+
+  Stream<LeaderboardSnapshot> _buildStream() {
+    final safeLimit = widget.limit.clamp(1, 100);
+    return widget.service.globalPanicLeaderboardStream(limit: safeLimit);
   }
 
   @override
@@ -48,10 +73,17 @@ class _LeaderboardNextLevelScreenState extends State<LeaderboardNextLevelScreen>
   }
 
   Future<void> _refresh() async {
-    setState(() {
-      _future = _load();
-    });
-    await _future;
+    if (AppRuntimeConfig.leaderboardRealtimeEnabled) {
+      // The stream auto-updates; rebuild it to force a fresh Firestore fetch.
+      setState(() {
+        _stream = _buildStream();
+      });
+    } else {
+      setState(() {
+        _future = _load();
+      });
+      await _future;
+    }
   }
 
   String _formatClock(DateTime value) {
@@ -120,71 +152,15 @@ class _LeaderboardNextLevelScreenState extends State<LeaderboardNextLevelScreen>
                   _HeaderBar(onRefresh: _refresh),
                   const SizedBox(height: 10),
                   Expanded(
-                    child: FutureBuilder<LeaderboardSnapshot>(
-                      future: _future,
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return const _StatusPanel(
-                            icon: Icons.bolt_rounded,
-                            title: 'Syncing Arena Rankings',
-                            message:
-                                'Compiling live panic standings and trophy signals...',
-                            showLoader: true,
-                            accent: _V2Palette.energyBlue,
-                          );
-                        }
-
-                        if (snapshot.hasError) {
-                          return _StatusPanel(
-                            icon: Icons.wifi_off_rounded,
-                            title: 'Signal Lost',
-                            message:
-                                'The leaderboard feed is not reachable right now.',
-                            accent: _V2Palette.alert,
-                            action: FilledButton.icon(
-                              onPressed: () {
-                                unawaited(_refresh());
-                              },
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Reconnect'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: _V2Palette.alert,
-                                foregroundColor: Colors.black,
-                              ),
-                            ),
-                          );
-                        }
-
-                        final data = snapshot.data;
-                        if (data == null || data.entries.isEmpty) {
-                          return _StatusPanel(
-                            icon: Icons.rocket_launch_rounded,
-                            title: 'No Champions Yet',
-                            message:
-                                'Be the first player to claim the global panic throne.',
-                            accent: _V2Palette.energyBlue,
-                            action: FilledButton.icon(
-                              onPressed: () {
-                                unawaited(_refresh());
-                              },
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Refresh'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: _V2Palette.energyBlue,
-                                foregroundColor: Colors.black,
-                              ),
-                            ),
-                          );
-                        }
-
-                        return _LeaderboardBody(
-                          data: data,
-                          formatClock: _formatClock,
-                          onRefresh: _refresh,
-                        );
-                      },
-                    ),
+                    child: AppRuntimeConfig.leaderboardRealtimeEnabled
+                        ? StreamBuilder<LeaderboardSnapshot>(
+                            stream: _stream,
+                            builder: _buildSnapshot,
+                          )
+                        : FutureBuilder<LeaderboardSnapshot>(
+                            future: _future,
+                            builder: _buildSnapshot,
+                          ),
                   ),
                 ],
               ),
@@ -194,7 +170,73 @@ class _LeaderboardNextLevelScreenState extends State<LeaderboardNextLevelScreen>
       ),
     );
   }
+
+  Widget _buildSnapshot(
+    BuildContext context,
+    AsyncSnapshot<LeaderboardSnapshot> snapshot,
+  ) {
+    // Show loader only when there is truly no data yet (stream hasn't seeded).
+    if (snapshot.connectionState == ConnectionState.waiting &&
+        !snapshot.hasData) {
+      return const _StatusPanel(
+        icon: Icons.bolt_rounded,
+        title: 'Syncing Arena Rankings',
+        message: 'Compiling live panic standings and trophy signals...',
+        showLoader: true,
+        accent: _V2Palette.energyBlue,
+      );
+    }
+
+    // Surface errors only when there is no cached / previous data to show.
+    if (snapshot.hasError && !snapshot.hasData) {
+      return _StatusPanel(
+        icon: Icons.wifi_off_rounded,
+        title: 'Signal Lost',
+        message: 'The leaderboard feed is not reachable right now.',
+        accent: _V2Palette.alert,
+        action: FilledButton.icon(
+          onPressed: () {
+            unawaited(_refresh());
+          },
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Reconnect'),
+          style: FilledButton.styleFrom(
+            backgroundColor: _V2Palette.alert,
+            foregroundColor: Colors.black,
+          ),
+        ),
+      );
+    }
+
+    final data = snapshot.data;
+    if (data == null || data.entries.isEmpty) {
+      return _StatusPanel(
+        icon: Icons.rocket_launch_rounded,
+        title: 'No Champions Yet',
+        message: 'Be the first player to claim the global panic throne.',
+        accent: _V2Palette.energyBlue,
+        action: FilledButton.icon(
+          onPressed: () {
+            unawaited(_refresh());
+          },
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Refresh'),
+          style: FilledButton.styleFrom(
+            backgroundColor: _V2Palette.energyBlue,
+            foregroundColor: Colors.black,
+          ),
+        ),
+      );
+    }
+
+    return _LeaderboardBody(
+      data: data,
+      formatClock: _formatClock,
+      onRefresh: _refresh,
+    );
+  }
 }
+
 
 class _HeaderBar extends StatelessWidget {
   const _HeaderBar({required this.onRefresh});

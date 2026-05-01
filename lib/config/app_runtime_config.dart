@@ -46,6 +46,14 @@ class AppRuntimeConfig {
     defaultValue: false,
   );
 
+  /// When true, [LeaderboardNextLevelScreen] uses a real-time Firestore
+  /// [Stream] instead of a one-shot [Future]. Disable if Firestore stream
+  /// costs are a concern; the [Future] path still refreshes on pull-to-refresh.
+  static const bool leaderboardRealtimeEnabled = bool.fromEnvironment(
+    'LEADERBOARD_REALTIME_ENABLED',
+    defaultValue: true,
+  );
+
   static const String _googleServerClientId = String.fromEnvironment(
     'GOOGLE_SERVER_CLIENT_ID',
     defaultValue:

@@ -27,6 +27,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "profiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "maxStage",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "totalTrophies",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []
