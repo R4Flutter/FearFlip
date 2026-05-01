@@ -13,6 +13,7 @@ import '../presentation/screens/global_panic_leaderboard_screen.dart';
 import '../presentation/screens/landing_screen.dart';
 import '../presentation/screens/privacy_policy_screen.dart';
 import '../presentation/theme/app_palette.dart';
+import '../presentation/widgets/remove_ads_dialog.dart';
 import '../services/account_deletion_service.dart';
 import '../services/ads_service.dart';
 import '../services/consent_service.dart';
@@ -1416,42 +1417,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
   }
 
   Future<void> _openRemoveAdsDialog(BuildContext context) async {
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: AppPalette.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: const BorderSide(color: AppPalette.borderSoft),
-          ),
-          title: const Text(
-            'Remove Ads',
-            style: TextStyle(
-              color: AppPalette.textPrimary,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          content: const Text(
-            'Purchase flow can be connected here to permanently remove ads from gameplay.',
-            style: TextStyle(color: AppPalette.textMuted),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text(
-                'Close',
-                style: TextStyle(
-                  color: AppPalette.accentPink,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+    await showRemoveAdsDialog(context);
   }
 
   Future<void> _openPrivacyPolicyDashbar(BuildContext context) async {

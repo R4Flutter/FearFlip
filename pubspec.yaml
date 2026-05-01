@@ -48,10 +48,15 @@ dependencies:
   google_sign_in: ^7.2.0
   shared_preferences: ^2.5.3
   google_fonts: ^8.0.2
+  in_app_purchase: ^3.2.3
+  in_app_purchase_android: ^0.4.0+10
+  cloud_functions: ^6.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  flutter_launcher_icons: ^0.13.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -63,6 +68,11 @@ dev_dependencies:
   just_audio_platform_interface: ^4.6.0
   path_provider_platform_interface: ^2.1.2
   plugin_platform_interface: ^2.1.8
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/app_icon.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

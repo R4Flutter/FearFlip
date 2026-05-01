@@ -8,6 +8,7 @@ import 'app/fear_flip_app.dart';
 import 'config/app_runtime_config.dart';
 import 'firebase_options.dart';
 import 'services/consent_service.dart';
+import 'services/purchase_service.dart';
 
 export 'app/fear_flip_app.dart';
 
@@ -43,6 +44,14 @@ Future<void> main() async {
       ),
     );
   };
+
+  // Initialise subscription service before ads – ensures paying users never
+  // see ads on cold start (cached status is applied synchronously).
+  try {
+    await PurchaseService.instance.init();
+  } catch (e) {
+    debugPrint('[Startup][WARN] PurchaseService init failed: $e');
+  }
 
   try {
     await ConsentService.instance

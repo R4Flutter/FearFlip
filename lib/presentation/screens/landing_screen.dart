@@ -279,157 +279,195 @@ class _TopMetaBar extends StatelessWidget {
   final String playerName;
   final int totalTrophies;
 
-  @override
-  Widget build(BuildContext context) {
-    final titleSize = (17 * widthScale).clamp(13.0, 20.0).toDouble();
-    final bodySize = (12 * widthScale).clamp(10.0, 14.0).toDouble();
-
-    return Row(
-      children: [
-        Expanded(
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: _ArcadeTrophyBadge(
-              trophies: totalTrophies,
-              scale: widthScale,
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppPalette.surfaceSoft,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppPalette.accentPurple.withAlpha(130)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  playerName.toUpperCase(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppPalette.accentPurple,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.8,
-                    fontSize: bodySize,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'FLIP IN & ESCAPE',
-                  style: TextStyle(
-                    color: AppPalette.neonGreen,
-                    fontWeight: FontWeight.w800,
-                    fontSize: titleSize,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
+  String get _initials {
+    final n = playerName.trim();
+    if (n.isEmpty) return '?';
+    final parts = n.split(' ');
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    return n[0].toUpperCase();
   }
-}
-
-class _ArcadeTrophyBadge extends StatelessWidget {
-  const _ArcadeTrophyBadge({required this.trophies, required this.scale});
-
-  final int trophies;
-  final double scale;
 
   @override
   Widget build(BuildContext context) {
-    final safeTrophies = trophies < 0 ? 0 : trophies;
-    final titleSize = (9 * scale).clamp(8.0, 11.0);
-    final valueSize = (16 * scale).clamp(13.0, 20.0);
-    final iconSize = (16 * scale).clamp(13.0, 19.0);
+    final safeTrophies = totalTrophies < 0 ? 0 : totalTrophies;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(
-        (10 * scale).clamp(8.0, 12.0),
-        (7 * scale).clamp(6.0, 9.0),
-        (12 * scale).clamp(10.0, 14.0),
-        (7 * scale).clamp(6.0, 9.0),
+      padding: EdgeInsets.symmetric(
+        horizontal: (14 * widthScale).clamp(10.0, 18.0),
+        vertical: (12 * widthScale).clamp(9.0, 15.0),
       ),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular((14 * scale).clamp(11.0, 18.0)),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF24153D), Color(0xFF0C0A16)],
-        ),
-        border: Border.all(color: const Color(0xFF4DEFFF), width: 1.2),
-        boxShadow: const [
+        color: const Color(0xFF0C0A16),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppPalette.neonGreen.withAlpha(100)),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x884DEFFF),
-            blurRadius: 16,
-            spreadRadius: -2,
-            offset: Offset(0, 1),
-          ),
-          BoxShadow(
-            color: Color(0x552A8FFF),
+            color: AppPalette.neonGreen.withAlpha(30),
             blurRadius: 18,
-            offset: Offset(0, 8),
+            spreadRadius: -2,
+            offset: const Offset(0, 2),
+          ),
+          const BoxShadow(
+            color: Color(0x40000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
         ],
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
+          // ── Avatar circle
           Container(
-            width: (26 * scale).clamp(20.0, 32.0),
-            height: (26 * scale).clamp(20.0, 32.0),
-            decoration: const BoxDecoration(
+            width: (42 * widthScale).clamp(34.0, 50.0),
+            height: (42 * widthScale).clamp(34.0, 50.0),
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFFFD86A), Color(0xFFFFA93D)],
+              color: AppPalette.neonGreen.withAlpha(18),
+              border: Border.all(
+                color: AppPalette.neonGreen.withAlpha(180),
+                width: 1.6,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Color(0x88FFCB46),
-                  blurRadius: 10,
-                  offset: Offset(0, 2),
+                  color: AppPalette.neonGreen.withAlpha(60),
+                  blurRadius: 12,
                 ),
               ],
             ),
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.emoji_events_rounded,
-              size: iconSize,
-              color: const Color(0xFF3A2200),
+            child: Center(
+              child: Text(
+                _initials,
+                style: TextStyle(
+                  color: AppPalette.neonGreen,
+                  fontWeight: FontWeight.w900,
+                  fontSize: (16 * widthScale).clamp(12.0, 20.0),
+                ),
+              ),
             ),
           ),
-          SizedBox(width: (8 * scale).clamp(6.0, 10.0)),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'TROPHIES',
-                style: TextStyle(
-                  color: const Color(0xFF7FF8FF),
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.8,
-                  fontSize: titleSize,
+          SizedBox(width: (10 * widthScale).clamp(8.0, 14.0)),
+          // ── Name + tagline
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ShaderMask(
+                  shaderCallback: (r) => const LinearGradient(
+                    colors: [Colors.white, AppPalette.accentPurple],
+                  ).createShader(r),
+                  child: Text(
+                    playerName.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2,
+                      fontSize: (14 * widthScale).clamp(11.0, 17.0),
+                    ),
+                  ),
                 ),
-              ),
-              Text(
-                '$safeTrophies',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: valueSize,
-                  height: 1,
+                SizedBox(height: (3 * widthScale).clamp(2.0, 4.0)),
+                Row(
+                  children: [
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: const BoxDecoration(
+                        color: AppPalette.neonGreen,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'FLIP IN & ESCAPE',
+                      style: TextStyle(
+                        color: AppPalette.neonGreen,
+                        fontWeight: FontWeight.w800,
+                        fontSize: (9 * widthScale).clamp(8.0, 11.0),
+                        letterSpacing: 1.6,
+                      ),
+                    ),
+                  ],
                 ),
+              ],
+            ),
+          ),
+          SizedBox(width: (8 * widthScale).clamp(6.0, 12.0)),
+          // ── Trophy chip
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: (10 * widthScale).clamp(8.0, 14.0),
+              vertical: (8 * widthScale).clamp(6.0, 10.0),
+            ),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF24153D), Color(0xFF0C0A16)],
               ),
-            ],
+              borderRadius: BorderRadius.circular(
+                (10 * widthScale).clamp(8.0, 14.0),
+              ),
+              border: Border.all(
+                color: const Color(0xFFFFD86A).withAlpha(120),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFFFCB46).withAlpha(40),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: (22 * widthScale).clamp(18.0, 28.0),
+                  height: (22 * widthScale).clamp(18.0, 28.0),
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFFFD86A), Color(0xFFFFA93D)],
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.emoji_events_rounded,
+                    size: (12 * widthScale).clamp(10.0, 15.0),
+                    color: const Color(0xFF3A2200),
+                  ),
+                ),
+                SizedBox(width: (6 * widthScale).clamp(4.0, 8.0)),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'TROPHIES',
+                      style: TextStyle(
+                        color: const Color(0xFF7FF8FF),
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.6,
+                        fontSize: (7 * widthScale).clamp(6.0, 9.0),
+                      ),
+                    ),
+                    Text(
+                      '$safeTrophies',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: (14 * widthScale).clamp(12.0, 18.0),
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),

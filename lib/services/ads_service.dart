@@ -5,6 +5,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../config/app_runtime_config.dart';
 import 'ad_placement_policy.dart';
 import 'consent_service.dart';
+import 'purchase_service.dart';
 
 class AdsService {
   AdsService({AdPlacementPolicy? placementPolicy, DateTime Function()? clock})
@@ -25,8 +26,12 @@ class AdsService {
   RewardedAd? _rewardedAd;
   InterstitialAd? _interstitialAd;
 
+  /// Whether ads are suppressed because the user has an active subscription.
+  bool get _subscriberBlocked => PurchaseService.instance.isSubscribed;
+
   Future<void> preload() async {
-    if (!AppRuntimeConfig.adsEnabled ||
+    if (_subscriberBlocked ||
+        !AppRuntimeConfig.adsEnabled ||
         !ConsentService.instance.canRequestAds) {
       return;
     }
@@ -87,7 +92,8 @@ class AdsService {
   }
 
   Future<bool> showRewardedForRevive() async {
-    if (!AppRuntimeConfig.rewardedAdsEnabled ||
+    if (_subscriberBlocked ||
+        !AppRuntimeConfig.rewardedAdsEnabled ||
         !ConsentService.instance.canRequestAds) {
       return false;
     }
@@ -131,7 +137,8 @@ class AdsService {
 
   Future<bool> showInterstitialAfterGameOver() async {
     _placementPolicy.recordGameOver();
-    if (!AppRuntimeConfig.interstitialAdsEnabled ||
+    if (_subscriberBlocked ||
+        !AppRuntimeConfig.interstitialAdsEnabled ||
         !ConsentService.instance.canRequestAds ||
         !_placementPolicy.canShowInterstitial(_clock())) {
       return false;
