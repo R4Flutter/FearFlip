@@ -1,160 +1,153 @@
 import 'dart:async';
-
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart'
-    hide PurchaseStatus; // avoid clash with SubscriptionStatus
-import 'package:in_app_purchase/in_app_purchase.dart' as iap
+    hide PurchaseStatus; // avoid clash with our own PurchaseStatus
+import 'package:in_app_purchase/in_app_purchase.dart'
+    as iap
     show PurchaseStatus;
 import 'package:in_app_purchase_android/in_app_purchase_android.dart'
     show GooglePlayPurchaseDetails, GooglePlayPurchaseParam;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/app_runtime_config.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Subscription product ID — must match Google Play Console exactly.
-const String kRemoveAdsProductId = 'remove_ads_monthly';
+/// SharedPreferences key that stores the permanent premium unlock flag.
+/// Setting this to `true` disables all ads permanently.
+const String _kIsPremiumKey = 'iap_remove_ads_unlocked';
 
-// SharedPreferences keys.
-const String _kSubActiveKey = 'sub_remove_ads_active';
-const String _kSubExpiryKey = 'sub_remove_ads_expiry_ms';
-const String _kSubLastVerifiedKey = 'sub_remove_ads_last_verified_ms';
-const String _kSubAutoRenewKey = 'sub_remove_ads_auto_renew';
+const String _kProcessedTokensKey = 'iap_processed_tokens';
 
-/// Grace period: if the server is unreachable, trust the cached status for
-/// this long after the last successful server verification.
-const Duration _kGracePeriod = Duration(hours: 24);
-
-/// How long to wait for the IAP stream to deliver a restore result before
-/// declaring "no active subscription found".
-const Duration _kRestoreStreamTimeout = Duration(seconds: 8);
+/// How long the IAP stream has to respond before we declare "nothing found"
+/// during a restore flow.
+const Duration _kRestoreTimeout = Duration(seconds: 8);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// UI-facing subscription status.
-enum SubscriptionStatus {
+/// UI-facing purchase status.
+enum PurchaseStatus {
+  /// Service is still initialising (checking cached flag, loading products).
   initialising,
-  notSubscribed,
-  subscribed,
+
+  /// User has not purchased Remove Ads.
+  notPurchased,
+
+  /// User has permanently unlocked Remove Ads.
+  purchased,
+
+  /// A purchase or restore is in progress — disable buy/restore buttons.
   purchasing,
-  /// Restore is in progress — do NOT show "no subscription found" yet.
+
+  /// Restore is in progress — show dedicated "checking…" UI.
   restoring,
+
+  /// An error occurred. See [PurchaseService.errorMessage].
   error,
 }
 
-/// Result returned from buy / restore / verify operations.
+/// Result returned from [PurchaseService.buyRemoveAds] and
+/// [PurchaseService.restorePurchases].
 class PurchaseResult {
   const PurchaseResult({required this.success, this.message = ''});
   final bool success;
   final String message;
 }
 
-/// Server verification response (matches Cloud Function return shape).
-class _ServerVerification {
-  const _ServerVerification({
-    required this.isActive,
-    required this.expiryTimeMillis,
-    required this.autoRenewing,
-    this.cached = false,
-  });
-
-  final bool isActive;
-  final int expiryTimeMillis;
-  final bool autoRenewing;
-  final bool cached;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Service
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Production-grade subscription service with server-side verification.
+/// Production-grade one-time non-consumable "Remove Ads" purchase service.
 ///
-/// **Security model:**
-///   1. After every purchase / restore, the purchase token is sent to the
-///      `verifySubscription` Cloud Function, which calls the Google Play
-///      Developer API and only returns `isActive: true` if the payment is
-///      confirmed.  The entitlement is NEVER granted from client-only data.
-///   2. On every app launch, `checkSubscriptionStatus` is called to
-///      re-verify the cached subscription status against Play.
-///   3. If the server is unreachable, a time-limited grace period allows
-///      the cached status to persist — but only if the last verification
-///      was within [_kGracePeriod] AND the expiry date has not passed.
-///   4. Clearing app data clears the cache; the next launch calls the
-///      server which returns the Firestore-stored status — so the user
-///      cannot unlock ads by clearing data unless they also bypass the
-///      server check (which requires network).
-///   5. Guest / unauthenticated users skip the server check entirely —
-///      they never subscribed, so there is nothing to verify.
+/// **Security model**
+///   1. On Android, after `purchased` / `restored` status, the purchase token
+///      is sent to the `verifyOneTimePurchase` Cloud Function which validates
+///      it against the Google Play Developer API. Entitlement is only granted
+///      if the server returns `{ isValid: true }`.
+///   2. On iOS the plugin's signed `verificationData` is trusted
+///      (StoreKit 2 handles on-device receipt verification). Server-side
+///      validation can be added behind the same Cloud Function interface.
+///   3. `completePurchase()` is called **before** writing the local flag, so
+///      we never ack a purchase without also recording the entitlement.
+///   4. Idempotency: we track the last processed token in SharedPreferences —
+///      duplicate stream events for the same purchase are silently skipped.
+///   5. The local `isPremiumUnlocked` flag is the source of truth offline.
+///      Clearing app data clears the flag; the server re-grants on next
+///      successful restore.
 class PurchaseService extends ChangeNotifier {
-  // ── Singleton ────────────────────────────────────────────────────────────
+  // ── Singleton ──────────────────────────────────────────────────────────────
   static final PurchaseService instance = PurchaseService._();
   PurchaseService._();
 
-  // ── State ────────────────────────────────────────────────────────────────
-  SubscriptionStatus _status = SubscriptionStatus.initialising;
+  // ── Internal state ─────────────────────────────────────────────────────────
+  PurchaseStatus _status = PurchaseStatus.initialising;
   String _errorMessage = '';
   ProductDetails? _productDetails;
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   bool _disposed = false;
 
-  // Used to track an in-progress restore so the stream handler doesn't
-  // show "no subscription found" before the stream has had time to respond.
+  // Restore coordination: prevents premature "nothing found" before the
+  // stream has had time to emit.
   bool _restoreInProgress = false;
   Completer<void>? _restoreCompleter;
 
-  // Used to prevent concurrent product-detail loads racing each other.
+  // Prevents concurrent product-detail queries racing each other.
   bool _loadingProductDetails = false;
 
-  // Cached expiry & verification timestamps.
-  int _expiryTimeMillis = 0;
-  int _lastVerifiedMillis = 0;
-  bool _autoRenewing = false;
-
-  // ── Public getters ───────────────────────────────────────────────────────
-  SubscriptionStatus get status => _status;
+  // ── Public getters ─────────────────────────────────────────────────────────
+  PurchaseStatus get status => _status;
   String get errorMessage => _errorMessage;
   ProductDetails? get productDetails => _productDetails;
-  bool get isSubscribed => _status == SubscriptionStatus.subscribed;
+
+  /// `true` when the user owns the Remove Ads entitlement.
+  /// This is the flag that [AdsService] should check.
+  bool get isSubscribed => _status == PurchaseStatus.purchased;
+
+  /// `true` while any purchase or restore operation is in flight.
   bool get isPurchasing =>
-      _status == SubscriptionStatus.purchasing ||
-      _status == SubscriptionStatus.restoring;
+      _status == PurchaseStatus.purchasing ||
+      _status == PurchaseStatus.restoring;
+
   bool get isRestoring => _restoreInProgress;
-  int get expiryTimeMillis => _expiryTimeMillis;
-  bool get autoRenewing => _autoRenewing;
 
-  /// Human-readable expiry date for UI display.
-  DateTime? get expiryDate => _expiryTimeMillis > 0
-      ? DateTime.fromMillisecondsSinceEpoch(_expiryTimeMillis)
-      : null;
+  /// Platform-correct product ID resolved from [AppRuntimeConfig].
+  String get _productId {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      return AppRuntimeConfig.removeAdsIosProductId;
+    }
+    return AppRuntimeConfig.removeAdsProductId;
+  }
 
-  // ── Initialisation ───────────────────────────────────────────────────────
+  // ── Initialisation ─────────────────────────────────────────────────────────
 
-  /// Call once at app start.
+  /// Call once at app startup (already done in `main.dart`).
   ///
-  /// 1. Loads cached status instantly (no flicker for paying users).
-  /// 2. Starts the IAP purchase stream.
-  /// 3. Calls the server to re-verify (handles expiry / refunds / data clears).
+  /// 1. Reads the persisted premium flag immediately → no ad flash for payers.
+  /// 2. Starts the billing stream.
+  /// 3. Loads product details in the background (for price display).
   Future<void> init() async {
-    _setStatus(SubscriptionStatus.initialising);
+    _setStatus(PurchaseStatus.initialising);
 
-    // ── Step 1: Apply cached status immediately ──────────────────────────
+    // ── Step 1: Apply cached flag immediately ──────────────────────────────
     final prefs = await SharedPreferences.getInstance();
-    _loadCachedState(prefs);
+    final cached = prefs.getBool(_kIsPremiumKey) ?? false;
 
-    if (_isCacheValid()) {
-      _setStatus(SubscriptionStatus.subscribed);
-      debugPrint('[PurchaseService] Cache valid — subscribed (fast path).');
+    if (cached) {
+      _setStatus(PurchaseStatus.purchased);
+      debugPrint('[PurchaseService] Cached premium = true → fast path.');
     } else {
-      _setStatus(SubscriptionStatus.notSubscribed);
+      _setStatus(PurchaseStatus.notPurchased);
     }
 
-    // ── Step 2: Start billing stream ─────────────────────────────────────
+    // ── Step 2: Billing availability ──────────────────────────────────────
     bool billingAvailable = false;
     try {
       billingAvailable = await InAppPurchase.instance.isAvailable();
@@ -167,33 +160,39 @@ class PurchaseService extends ChangeNotifier {
         _onPurchaseUpdate,
         onError: _onStreamError,
       );
-      // Load product details in background — don't block init.
       unawaited(_loadProductDetails());
     } else {
       debugPrint('[PurchaseService] Billing unavailable on this device.');
     }
 
-    // ── Step 3: Server-side re-verification ──────────────────────────────
-    // Skip for guests — they have no Firestore subscription record.
-    if (_isUserAuthenticated()) {
-      await _serverCheckOnLaunch(prefs);
-    } else {
-      debugPrint('[PurchaseService] Guest user — skipping server check.');
+    // ── Step 3: Server re-verify for authenticated users ──────────────────
+    // Only worthwhile if user has the cached flag set — avoids a server round-
+    // trip for users who have never purchased.
+    if (cached && _isUserAuthenticated()) {
+      unawaited(_serverCheckOnLaunch(prefs));
     }
   }
 
-  // ── Purchase flow ─────────────────────────────────────────────────────────
+  // ── Purchase flow ──────────────────────────────────────────────────────────
 
-  /// Starts the Google Play purchase sheet.
+  /// Launches the store purchase sheet for the Remove Ads non-consumable.
   Future<PurchaseResult> buyRemoveAds() async {
     if (_disposed) {
       return const PurchaseResult(success: false, message: 'Service disposed.');
     }
 
+    // Telemetry: remove_ads_click
+    _logEvent('remove_ads_click');
+
     if (isSubscribed) {
+      return const PurchaseResult(success: true, message: 'Already purchased.');
+    }
+
+    if (_status == PurchaseStatus.purchasing ||
+        _status == PurchaseStatus.restoring) {
       return const PurchaseResult(
-        success: true,
-        message: 'Already subscribed.',
+        success: false,
+        message: 'A purchase is already in progress. Please wait.',
       );
     }
 
@@ -201,44 +200,42 @@ class PurchaseService extends ChangeNotifier {
     try {
       available = await InAppPurchase.instance.isAvailable();
     } catch (e) {
-      return PurchaseResult(success: false, message: e.toString());
+      _logEvent('purchase_fail', params: {'error': e.toString()});
+      return PurchaseResult(success: false, message: _friendlyError(e));
     }
 
     if (!available) {
-      return const PurchaseResult(
-        success: false,
-        message:
-            'Google Play Billing is not available on this device. '
-            'Please check your Play Store account.',
-      );
+      const msg =
+          'Store billing is not available on this device. '
+          'Check your Play Store / App Store account.';
+      _logEvent('purchase_fail', params: {'error': 'billing_unavailable'});
+      return const PurchaseResult(success: false, message: msg);
     }
 
-    // Ensure product details are loaded before buying.
     if (_productDetails == null) {
       await _loadProductDetails();
       if (_productDetails == null) {
-        return const PurchaseResult(
-          success: false,
-          message:
-              'Subscription product not found. '
-              'Check your internet connection and try again.',
-        );
+        const msg =
+            'Remove Ads product not found. '
+            'Check your internet connection and try again.';
+        _logEvent('purchase_fail', params: {'error': 'product_not_found'});
+        return const PurchaseResult(success: false, message: msg);
       }
     }
 
-    if (_status == SubscriptionStatus.purchasing ||
-        _status == SubscriptionStatus.restoring) {
-      return const PurchaseResult(
-        success: false,
-        message: 'A purchase is already in progress. Please wait.',
-      );
-    }
-
-    _setStatus(SubscriptionStatus.purchasing);
+    _setStatus(PurchaseStatus.purchasing);
+    // Telemetry: purchase_started
+    _logEvent(
+      'purchase_started',
+      params: {
+        'product_id': _productId,
+        'platform': defaultTargetPlatform.name,
+      },
+    );
 
     try {
       final PurchaseParam param;
-      if (defaultTargetPlatform == TargetPlatform.android) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
         param = GooglePlayPurchaseParam(
           productDetails: _productDetails!,
           changeSubscriptionParam: null,
@@ -252,14 +249,15 @@ class PurchaseService extends ChangeNotifier {
       );
 
       if (!launched) {
-        _setStatus(SubscriptionStatus.notSubscribed);
+        _setStatus(PurchaseStatus.notPurchased);
+        _logEvent('purchase_fail', params: {'error': 'launch_failed'});
         return const PurchaseResult(
           success: false,
           message: 'Could not launch the purchase sheet. Please try again.',
         );
       }
 
-      // Status will move to subscribed/error via the stream — return pending.
+      // Status will move to purchased / error via the stream.
       return const PurchaseResult(
         success: true,
         message: 'Purchase sheet opened.',
@@ -268,69 +266,72 @@ class PurchaseService extends ChangeNotifier {
       debugPrint('[PurchaseService] buyRemoveAds exception: $e');
       if (kDebugMode) debugPrint(st.toString());
       _errorMessage = _friendlyError(e);
-      _setStatus(SubscriptionStatus.error);
+      _setStatus(PurchaseStatus.error);
+      _logEvent('purchase_fail', params: {'error': _errorMessage});
       return PurchaseResult(success: false, message: _errorMessage);
     }
   }
 
-  /// Restores purchases from the current Google account.
+  /// Restores any previous Remove Ads purchase.
   ///
-  /// Returns after the IAP stream has had [_kRestoreStreamTimeout] to deliver
-  /// results — so the UI never shows "nothing found" prematurely on slow networks.
+  /// Waits up to [_kRestoreTimeout] for the billing stream to deliver results,
+  /// so the UI never shows "nothing found" prematurely on slow networks.
   Future<PurchaseResult> restorePurchases() async {
     if (_disposed) {
       return const PurchaseResult(success: false, message: 'Service disposed.');
     }
 
+    // Telemetry: purchase_restore_started
+    _logEvent('purchase_restore_started');
+
     bool available = false;
     try {
       available = await InAppPurchase.instance.isAvailable();
     } catch (e) {
-      return PurchaseResult(success: false, message: e.toString());
+      return PurchaseResult(success: false, message: _friendlyError(e));
     }
 
     if (!available) {
+      _logEvent(
+        'purchase_restore_fail',
+        params: {'error': 'billing_unavailable'},
+      );
       return const PurchaseResult(
         success: false,
-        message: 'Google Play Billing is not available.',
+        message: 'Store billing is not available.',
       );
     }
 
     _restoreInProgress = true;
     _restoreCompleter = Completer<void>();
-    _setStatus(SubscriptionStatus.restoring);
+    _setStatus(PurchaseStatus.restoring);
 
     try {
       await InAppPurchase.instance.restorePurchases();
 
-      // Wait for the stream to resolve (up to timeout).
-      await _restoreCompleter!.future
-          .timeout(_kRestoreStreamTimeout)
-          .catchError((_) {
-            // Timeout is fine — stream just didn't fire within the window.
-            debugPrint('[PurchaseService] Restore stream timeout — no items.');
-          });
+      // Wait for the stream to settle (or timeout gracefully).
+      await _restoreCompleter!.future.timeout(_kRestoreTimeout).catchError((_) {
+        debugPrint(
+          '[PurchaseService] Restore stream timeout — no items found.',
+        );
+      });
 
       return const PurchaseResult(success: true, message: 'Restore complete.');
     } catch (e, st) {
       debugPrint('[PurchaseService] restorePurchases exception: $e');
       if (kDebugMode) debugPrint(st.toString());
       _setStatus(
-        isSubscribed
-            ? SubscriptionStatus.subscribed
-            : SubscriptionStatus.notSubscribed,
+        isSubscribed ? PurchaseStatus.purchased : PurchaseStatus.notPurchased,
       );
-      return PurchaseResult(
-        success: false,
-        message: _friendlyError(e),
-      );
+      _logEvent('purchase_restore_fail', params: {'error': e.toString()});
+      return PurchaseResult(success: false, message: _friendlyError(e));
     } finally {
       _restoreInProgress = false;
       _restoreCompleter = null;
     }
   }
 
-  // ── IAP stream handler ────────────────────────────────────────────────────
+  // ── IAP stream ─────────────────────────────────────────────────────────────
 
   void _onPurchaseUpdate(List<PurchaseDetails> purchases) {
     for (final p in purchases) {
@@ -339,300 +340,263 @@ class PurchaseService extends ChangeNotifier {
   }
 
   Future<void> _handlePurchaseDetails(PurchaseDetails purchase) async {
-    if (purchase.productID != kRemoveAdsProductId) return;
+    if (purchase.productID != _productId) return;
 
     debugPrint(
-      '[PurchaseService] Stream update: status=${purchase.status} '
+      '[PurchaseService] Stream → status=${purchase.status.name} '
       'productId=${purchase.productID}',
     );
 
     switch (purchase.status) {
       case iap.PurchaseStatus.pending:
-        _setStatus(SubscriptionStatus.purchasing);
+        _setStatus(PurchaseStatus.purchasing);
 
       case iap.PurchaseStatus.purchased:
       case iap.PurchaseStatus.restored:
-        await _completePurchase(purchase);
-        // Signal restore completer if waiting.
-        if (!(_restoreCompleter?.isCompleted ?? true)) {
-          _restoreCompleter!.complete();
-        }
+        await _verifyAndComplete(purchase);
+        _resolveRestoreCompleter();
 
       case iap.PurchaseStatus.error:
         _errorMessage =
             purchase.error?.message ?? 'An unknown billing error occurred.';
         debugPrint('[PurchaseService] IAP error: $_errorMessage');
+
+        // Must always call completePurchase for errored purchases.
         if (purchase.pendingCompletePurchase) {
           try {
             await InAppPurchase.instance.completePurchase(purchase);
           } catch (_) {}
         }
-        // Signal restore completer on error too.
-        if (!(_restoreCompleter?.isCompleted ?? true)) {
-          _restoreCompleter!.complete();
-        }
+
+        _resolveRestoreCompleter();
         _setStatus(
-          isSubscribed
-              ? SubscriptionStatus.subscribed
-              : SubscriptionStatus.error,
+          isSubscribed ? PurchaseStatus.purchased : PurchaseStatus.error,
         );
+        _logEvent('purchase_fail', params: {'error': _errorMessage});
 
       case iap.PurchaseStatus.canceled:
-        // Signal restore completer — user cancelled.
-        if (!(_restoreCompleter?.isCompleted ?? true)) {
-          _restoreCompleter!.complete();
-        }
+        _resolveRestoreCompleter();
         _setStatus(
-          isSubscribed
-              ? SubscriptionStatus.subscribed
-              : SubscriptionStatus.notSubscribed,
+          isSubscribed ? PurchaseStatus.purchased : PurchaseStatus.notPurchased,
         );
+        _logEvent('purchase_fail', params: {'error': 'user_cancelled'});
     }
   }
 
-  /// Core purchase completion path — validates server-side before granting.
-  Future<void> _completePurchase(PurchaseDetails purchase) async {
-    // ── Step 1: Basic local sanity check ──────────────────────────────────
-    if (!_localSanityCheck(purchase)) {
-      debugPrint('[PurchaseService] Local sanity check failed — bad token.');
-      _setStatus(SubscriptionStatus.notSubscribed);
+  // ── Verify & deliver ───────────────────────────────────────────────────────
+
+  /// Core path: validates the purchase server-side, then grants entitlement.
+  Future<void> _verifyAndComplete(PurchaseDetails purchase) async {
+    final token = _extractToken(purchase);
+
+    // ── Idempotency check ──────────────────────────────────────────────────
+    final prefs = await SharedPreferences.getInstance();
+    final tokensList = prefs.getStringList(_kProcessedTokensKey) ?? <String>[];
+    final processedTokens = tokensList.toSet();
+
+    if (token != null && token.isNotEmpty) {
+      if (processedTokens.contains(token)) {
+        debugPrint(
+          '[PurchaseService] Duplicate token — already processed. Skipping.',
+        );
+        if (prefs.getBool(_kIsPremiumKey) ?? false) {
+          _setStatus(PurchaseStatus.purchased);
+        }
+        return;
+      }
+    }
+
+    // ── Local sanity check ─────────────────────────────────────────────────
+    if (token == null || token.isEmpty) {
+      debugPrint('[PurchaseService] Empty token — cannot verify.');
+      _setStatus(PurchaseStatus.notPurchased);
       return;
     }
 
-    // ── Step 2: Acknowledge purchase (Google Play requirement) ────────────
+    // ── Acknowledge with the store (MUST happen before granting) ───────────
     if (purchase.pendingCompletePurchase) {
       try {
         await InAppPurchase.instance.completePurchase(purchase);
-        debugPrint('[PurchaseService] Purchase acknowledged with Play.');
+        debugPrint('[PurchaseService] completePurchase() acknowledged.');
       } catch (e) {
-        debugPrint('[PurchaseService] completePurchase error: $e');
-        // Continue to verify — acknowledgement can be retried later.
+        debugPrint('[PurchaseService] completePurchase() error: $e');
+        // Continue to server verify — ack can be retried; don't block grant.
       }
     }
 
-    // ── Step 3: Server-side verification (THE AUTHORITY) ─────────────────
-    final token = _extractToken(purchase);
-    if (token == null || token.isEmpty) {
-      debugPrint('[PurchaseService] No token — cannot verify with server.');
-      _setStatus(SubscriptionStatus.notSubscribed);
-      return;
-    }
+    // ── Server-side verification (Mode A & Mode B) ─────────────────────────
+    final isValid = await _serverVerifyPurchase(token);
 
-    final verification = await _callVerifySubscription(token);
-
-    if (verification != null && verification.isActive) {
-      await _applyVerification(verification);
-      debugPrint('[PurchaseService] Server verified — subscription GRANTED.');
-    } else if (verification != null && !verification.isActive) {
-      await _revokeSubscription();
-      debugPrint('[PurchaseService] Server says NOT active — REVOKED.');
+    if (isValid == true) {
+      // ✅ Mode A: Backend validation successful
+      await _grantPremium(token, prefs, processedTokens);
+      _logEvent(
+        'purchase_success',
+        params: {
+          'product_id': _productId,
+          'platform': defaultTargetPlatform.name,
+        },
+      );
+    } else if (isValid == false) {
+      // Server explicitly says invalid — do NOT grant.
+      debugPrint('[PurchaseService] Server says INVALID — not granting.');
+      _setStatus(PurchaseStatus.notPurchased);
+      _logEvent('purchase_fail', params: {'error': 'server_invalid'});
     } else {
-      // Server unreachable — do NOT grant on a fresh purchase.
-      _errorMessage =
-          'Could not verify your purchase with our server. '
-          'Check your internet connection and try again.';
-      _setStatus(SubscriptionStatus.error);
-      debugPrint('[PurchaseService] Server unreachable — NOT granting.');
-    }
-  }
-
-  // ── Server-side verification ──────────────────────────────────────────────
-
-  /// Calls the `verifySubscription` Cloud Function.
-  Future<_ServerVerification?> _callVerifySubscription(String token) async {
-    try {
-      final callable = FirebaseFunctions.instance.httpsCallable(
-        'verifySubscription',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
-      );
-
-      final result = await callable.call<Map<String, dynamic>>({
-        'purchaseToken': token,
-        'productId': kRemoveAdsProductId,
-      });
-
-      final data = result.data;
-      return _ServerVerification(
-        isActive: data['isActive'] as bool? ?? false,
-        expiryTimeMillis: (data['expiryTimeMillis'] as num?)?.toInt() ?? 0,
-        autoRenewing: data['autoRenewing'] as bool? ?? false,
-        cached: data['cached'] as bool? ?? false,
-      );
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint(
-        '[PurchaseService] verifySubscription Cloud Function error: '
-        'code=${e.code} message=${e.message}',
-      );
-      return null;
-    } catch (e, st) {
-      debugPrint('[PurchaseService] verifySubscription exception: $e');
-      if (kDebugMode) debugPrint(st.toString());
-      return null;
-    }
-  }
-
-  /// Calls the `checkSubscriptionStatus` Cloud Function (no token needed).
-  Future<_ServerVerification?> _callCheckSubscriptionStatus() async {
-    try {
-      final callable = FirebaseFunctions.instance.httpsCallable(
-        'checkSubscriptionStatus',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
-      );
-
-      final result = await callable.call<Map<String, dynamic>>();
-
-      final data = result.data;
-      return _ServerVerification(
-        isActive: data['isActive'] as bool? ?? false,
-        expiryTimeMillis: (data['expiryTimeMillis'] as num?)?.toInt() ?? 0,
-        autoRenewing: data['autoRenewing'] as bool? ?? false,
-        cached: data['cached'] as bool? ?? false,
-      );
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint(
-        '[PurchaseService] checkSubscriptionStatus Cloud Function error: '
-        'code=${e.code} message=${e.message}',
-      );
-      return null;
-    } catch (e, st) {
-      debugPrint('[PurchaseService] checkSubscriptionStatus exception: $e');
-      if (kDebugMode) debugPrint(st.toString());
-      return null;
-    }
-  }
-
-  // ── Launch-time server check ──────────────────────────────────────────────
-
-  /// Called once at init — re-verifies subscription with the server.
-  ///
-  /// This catches:
-  ///   - Expired subscriptions (expiry date passed)
-  ///   - Refunds / cancellations processed server-side
-  ///   - Users who cleared app data (server still has Firestore record)
-  ///   - Renewals that extended the expiry
-  Future<void> _serverCheckOnLaunch(SharedPreferences prefs) async {
-    try {
-      final verification = await _callCheckSubscriptionStatus();
-
-      if (verification == null) {
-        // Server unreachable — use grace period logic.
-        _applyGracePeriod();
-        return;
-      }
-
-      if (verification.isActive) {
-        await _applyVerification(verification);
-        debugPrint('[PurchaseService] Launch check: SUBSCRIBED.');
+      // ⚠️ Mode B: Fallback (Server unreachable but we have local verification)
+      if (purchase.status == iap.PurchaseStatus.purchased) {
+        debugPrint(
+          '[PurchaseService] Mode B: Client-only validation fallback.',
+        );
+        _logEvent('purchase_validation_mode', params: {'mode': 'client_only'});
+        await _grantPremium(token, prefs, processedTokens);
+        _logEvent(
+          'purchase_success',
+          params: {
+            'product_id': _productId,
+            'platform': defaultTargetPlatform.name,
+            'fallback': 'true',
+          },
+        );
       } else {
-        await _revokeSubscription();
-        debugPrint('[PurchaseService] Launch check: NOT subscribed.');
+        // For restores or missing tokens, we apply grace: if already cached, keep it.
+        final alreadyHas = prefs.getBool(_kIsPremiumKey) ?? false;
+        if (alreadyHas) {
+          _setStatus(PurchaseStatus.purchased);
+          debugPrint(
+            '[PurchaseService] Server unreachable but cache says premium — kept.',
+          );
+        } else {
+          _errorMessage =
+              'Could not verify your purchase. '
+              'Please check your internet connection and try again.';
+          _setStatus(PurchaseStatus.error);
+          _logEvent('purchase_fail', params: {'error': 'server_unreachable'});
+        }
       }
-    } catch (e, st) {
-      debugPrint('[PurchaseService] _serverCheckOnLaunch error: $e');
-      if (kDebugMode) debugPrint(st.toString());
-      _applyGracePeriod();
     }
   }
 
-  // ── State management ──────────────────────────────────────────────────────
+  // ── Entitlement management ─────────────────────────────────────────────────
 
-  Future<void> _applyVerification(_ServerVerification v) async {
-    _expiryTimeMillis = v.expiryTimeMillis;
-    _autoRenewing = v.autoRenewing;
-    _lastVerifiedMillis = DateTime.now().millisecondsSinceEpoch;
-
+  Future<void> _grantPremium(
+    String? processedToken,
+    SharedPreferences prefs,
+    Set<String> processedTokens,
+  ) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      if (processedToken != null) {
+        processedTokens.add(processedToken);
+      }
       await Future.wait([
-        prefs.setBool(_kSubActiveKey, true),
-        prefs.setInt(_kSubExpiryKey, _expiryTimeMillis),
-        prefs.setInt(_kSubLastVerifiedKey, _lastVerifiedMillis),
-        prefs.setBool(_kSubAutoRenewKey, _autoRenewing),
+        prefs.setBool(_kIsPremiumKey, true),
+        prefs.setStringList(_kProcessedTokensKey, processedTokens.toList()),
       ]);
     } catch (e) {
       debugPrint('[PurchaseService] SharedPreferences write error: $e');
     }
 
-    _setStatus(SubscriptionStatus.subscribed);
+    _setStatus(PurchaseStatus.purchased);
+    _logEvent('premium_unlocked', params: {'product_id': _productId});
+    debugPrint('[PurchaseService] ✅ Premium granted — ads disabled.');
   }
 
-  Future<void> _revokeSubscription() async {
-    _expiryTimeMillis = 0;
-    _autoRenewing = false;
-    _lastVerifiedMillis = 0;
-
+  Future<void> _revokePremium() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await Future.wait([
-        prefs.setBool(_kSubActiveKey, false),
-        prefs.setInt(_kSubExpiryKey, 0),
-        prefs.setInt(_kSubLastVerifiedKey, 0),
-        prefs.setBool(_kSubAutoRenewKey, false),
+        prefs.setBool(_kIsPremiumKey, false),
+        // Do not clear processed tokens on revoke, they remain valid historical records
       ]);
     } catch (e) {
       debugPrint('[PurchaseService] SharedPreferences revoke error: $e');
     }
 
-    _setStatus(SubscriptionStatus.notSubscribed);
+    _setStatus(PurchaseStatus.notPurchased);
+    debugPrint('[PurchaseService] Premium revoked.');
   }
 
-  // ── Cache / Grace period ──────────────────────────────────────────────────
+  // ── Server verification ────────────────────────────────────────────────────
 
-  void _loadCachedState(SharedPreferences prefs) {
-    final active = prefs.getBool(_kSubActiveKey) ?? false;
-    _expiryTimeMillis = prefs.getInt(_kSubExpiryKey) ?? 0;
-    _lastVerifiedMillis = prefs.getInt(_kSubLastVerifiedKey) ?? 0;
-    _autoRenewing = prefs.getBool(_kSubAutoRenewKey) ?? false;
+  /// Returns `true` = valid, `false` = invalid, `null` = server unreachable.
+  Future<bool?> _serverVerifyPurchase(String token) async {
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'verifyOneTimePurchase',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+      );
 
-    if (!active) {
-      _expiryTimeMillis = 0;
-      _lastVerifiedMillis = 0;
+      final result = await callable.call<Map<String, dynamic>>({
+        'purchaseToken': token,
+        'productId': _productId,
+        'platform': defaultTargetPlatform.name,
+      });
+
+      final isValid = result.data['isValid'] as bool? ?? false;
+      debugPrint(
+        '[PurchaseService] Server verification result: isValid=$isValid',
+      );
+      return isValid;
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint(
+        '[PurchaseService] verifyOneTimePurchase error: '
+        'code=${e.code} message=${e.message}',
+      );
+      return null; // treat as unreachable
+    } catch (e, st) {
+      debugPrint('[PurchaseService] _serverVerifyPurchase exception: $e');
+      if (kDebugMode) debugPrint(st.toString());
+      return null;
     }
   }
 
-  /// Returns `true` if the cached subscription data is still trustworthy.
-  ///
-  /// Trust requires ALL of:
-  ///   1. A last-verified timestamp exists (non-zero).
-  ///   2. The last verification was within the grace period.
-  ///   3. The subscription expiry date has not passed.
-  bool _isCacheValid() {
-    if (_lastVerifiedMillis == 0) return false;
+  // ── Launch-time server check ───────────────────────────────────────────────
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final withinGrace =
-        (now - _lastVerifiedMillis) < _kGracePeriod.inMilliseconds;
-    final notExpired = _expiryTimeMillis > now;
-
-    return withinGrace && notExpired;
-  }
-
-  /// When the server is unreachable, decide whether to trust the cache.
-  void _applyGracePeriod() {
-    if (_isCacheValid()) {
-      debugPrint(
-        '[PurchaseService] Server unreachable — grace period active. '
-        'Trusting cached subscription.',
+  /// Re-validates cached premium status on launch (handles refunds / revocations).
+  Future<void> _serverCheckOnLaunch(SharedPreferences prefs) async {
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'checkOneTimePurchaseStatus',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
       );
-      _setStatus(SubscriptionStatus.subscribed);
-    } else {
+
+      final result = await callable.call<Map<String, dynamic>>({
+        'productId': _productId,
+      });
+
+      final isValid = result.data['isValid'] as bool? ?? false;
+
+      if (isValid) {
+        _setStatus(PurchaseStatus.purchased);
+        debugPrint('[PurchaseService] Launch check: PREMIUM confirmed.');
+      } else {
+        await _revokePremium();
+        debugPrint(
+          '[PurchaseService] Launch check: Premium revoked by server.',
+        );
+      }
+    } on FirebaseFunctionsException catch (e) {
+      // Server unreachable or function error → trust local cache.
       debugPrint(
-        '[PurchaseService] Server unreachable — grace period expired. '
-        'Treating as not subscribed.',
+        '[PurchaseService] Launch check Cloud Function error: '
+        'code=${e.code} — trusting cache.',
       );
-      _setStatus(SubscriptionStatus.notSubscribed);
+    } catch (e, st) {
+      debugPrint('[PurchaseService] _serverCheckOnLaunch error: $e');
+      if (kDebugMode) debugPrint(st.toString());
+      // Leave status as-is (cached value already applied in init()).
     }
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
   Future<void> _loadProductDetails() async {
-    if (_loadingProductDetails) return; // prevent concurrent loads
+    if (_loadingProductDetails) return;
     _loadingProductDetails = true;
     try {
-      final response = await InAppPurchase.instance.queryProductDetails(
-        {kRemoveAdsProductId},
-      );
+      final response = await InAppPurchase.instance.queryProductDetails({
+        _productId,
+      });
       if (response.error != null) {
         debugPrint(
           '[PurchaseService] queryProductDetails error: ${response.error}',
@@ -641,8 +605,8 @@ class PurchaseService extends ChangeNotifier {
       }
       if (response.productDetails.isEmpty) {
         debugPrint(
-          '[PurchaseService] No product found for "$kRemoveAdsProductId". '
-          'Ensure the product is published in Google Play Console.',
+          '[PurchaseService] No product found for "$_productId". '
+          'Ensure it is published in the store console.',
         );
         return;
       }
@@ -651,8 +615,7 @@ class PurchaseService extends ChangeNotifier {
         '[PurchaseService] Product loaded: ${_productDetails!.title} '
         '@ ${_productDetails!.price}',
       );
-      // Notify UI so price chip updates.
-      notifyListeners();
+      notifyListeners(); // update price chip in UI
     } catch (e, st) {
       debugPrint('[PurchaseService] _loadProductDetails error: $e');
       if (kDebugMode) debugPrint(st.toString());
@@ -661,14 +624,14 @@ class PurchaseService extends ChangeNotifier {
     }
   }
 
-  /// Safely extracts the purchase token from a [PurchaseDetails].
+  /// Extracts the purchase token, handling both Android and iOS.
   String? _extractToken(PurchaseDetails purchase) {
     try {
-      if (defaultTargetPlatform == TargetPlatform.android &&
+      if (!kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.android &&
           purchase is GooglePlayPurchaseDetails) {
         return purchase.billingClientPurchase.purchaseToken;
       }
-      // iOS / other platforms use serverVerificationData.
       final token = purchase.verificationData.serverVerificationData;
       return token.isNotEmpty ? token : null;
     } catch (e) {
@@ -677,25 +640,26 @@ class PurchaseService extends ChangeNotifier {
     }
   }
 
-  /// Quick client-side sanity check (NOT the authority — server is).
-  bool _localSanityCheck(PurchaseDetails purchase) {
-    if (purchase.productID != kRemoveAdsProductId) return false;
-    final token = _extractToken(purchase);
-    return token != null && token.isNotEmpty;
+  void _resolveRestoreCompleter() {
+    if (!(_restoreCompleter?.isCompleted ?? true)) {
+      _restoreCompleter!.complete();
+    }
+    // Emit restore_fail telemetry if we're restoring and end up not purchased.
+    if (_restoreInProgress && !isSubscribed) {
+      _logEvent('purchase_restore_fail', params: {'reason': 'not_found'});
+    } else if (_restoreInProgress && isSubscribed) {
+      _logEvent('purchase_restored');
+    }
   }
 
-  /// Returns true when a real Firebase Auth user (not guest/anonymous) is
-  /// signed in. Used to decide whether the server check makes sense.
   bool _isUserAuthenticated() {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      return user != null;
+      return FirebaseAuth.instance.currentUser != null;
     } catch (_) {
       return false;
     }
   }
 
-  /// Maps raw exceptions to short, user-friendly strings.
   String _friendlyError(Object e) {
     final msg = e.toString().toLowerCase();
     if (msg.contains('network') || msg.contains('timeout')) {
@@ -705,36 +669,44 @@ class PurchaseService extends ChangeNotifier {
       return 'Purchase was cancelled.';
     }
     if (msg.contains('already owned')) {
-      return 'You already own this subscription. Try "Restore Purchases".';
+      return 'You already own this. Try "Restore Purchases".';
     }
     if (msg.contains('item unavailable')) {
-      return 'This subscription is currently unavailable in your region.';
+      return 'Remove Ads is currently unavailable in your region.';
     }
     return 'Something went wrong. Please try again.';
+  }
+
+  /// Logs a Firebase Analytics event, swallowing any errors so telemetry
+  /// never crashes the purchase flow.
+  void _logEvent(String name, {Map<String, Object>? params}) {
+    try {
+      FirebaseAnalytics.instance.logEvent(name: name, parameters: params);
+    } catch (_) {
+      // Telemetry must never block or crash the purchase flow.
+    }
   }
 
   void _onStreamError(Object error) {
     debugPrint('[PurchaseService] Purchase stream error: $error');
     _errorMessage = _friendlyError(error);
-    // Signal restore completer on stream error.
-    if (!(_restoreCompleter?.isCompleted ?? true)) {
-      _restoreCompleter!.complete();
-    }
-    _setStatus(SubscriptionStatus.error);
+    _resolveRestoreCompleter();
+    _setStatus(PurchaseStatus.error);
+    _logEvent('purchase_fail', params: {'error': 'stream_error'});
   }
 
-  void _setStatus(SubscriptionStatus status) {
+  void _setStatus(PurchaseStatus status) {
     if (_disposed) return;
     _status = status;
     notifyListeners();
   }
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   @override
   void dispose() {
     _disposed = true;
-    _restoreCompleter?.complete(); // unblock any waiting caller
+    _restoreCompleter?.complete();
     _purchaseSubscription?.cancel();
     super.dispose();
   }

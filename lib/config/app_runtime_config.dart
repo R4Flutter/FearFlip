@@ -88,6 +88,33 @@ class AppRuntimeConfig {
     defaultValue: '',
   );
 
+  /// Google Play product ID for the "Remove Ads" one-time non-consumable IAP.
+  ///
+  /// Set at build time:
+  /// ```
+  /// flutter run --dart-define=REMOVE_ADS_PRODUCT_ID=com.example.fearflip.remove_ads
+  /// ```
+  static const String removeAdsProductId = String.fromEnvironment(
+    'REMOVE_ADS_PRODUCT_ID',
+    defaultValue: 'remove_ads_prod_android',
+  );
+
+  /// App Store product ID for the "Remove Ads" non-consumable (iOS/macOS).
+  ///
+  /// Defaults to the same value as [removeAdsProductId] when not supplied
+  /// (many developers use the same SKU on both stores).
+  static const String _removeAdsIosProductIdRaw = String.fromEnvironment(
+    'REMOVE_ADS_IOS_ID',
+    defaultValue: '',
+  );
+
+  /// Resolves the iOS product ID: uses [_removeAdsIosProductIdRaw] if set,
+  /// otherwise falls back to [removeAdsProductId].
+  static String get removeAdsIosProductId =>
+      _removeAdsIosProductIdRaw.trim().isNotEmpty
+          ? _removeAdsIosProductIdRaw.trim()
+          : removeAdsProductId;
+
   static const String _rewardedTestId =
       'ca-app-pub-3940256099942544/5224354917';
   static const String _interstitialTestId =
@@ -168,6 +195,7 @@ class AppRuntimeConfig {
     String privacyPolicyUrlValue = AppRuntimeConfig.privacyPolicyUrl,
     String termsUrlValue = AppRuntimeConfig.termsUrl,
     String accountDeletionUrlValue = AppRuntimeConfig.accountDeletionUrl,
+    String removeAdsProductIdValue = AppRuntimeConfig.removeAdsProductId,
   }) {
     if (!releaseMode) {
       return const <String>[];
@@ -201,10 +229,18 @@ class AppRuntimeConfig {
         'ADMOB_INTERSTITIAL_AD_UNIT_ID is required when interstitial ads are enabled.',
       );
     }
+    if (removeAdsProductIdValue.trim().isEmpty ||
+        removeAdsProductIdValue.trim() == 'remove_ads_prod_android') {
+      issues.add(
+        'REMOVE_ADS_PRODUCT_ID must be set to the real Play Store / App Store '
+        'product ID for release builds (current: "$removeAdsProductIdValue").',
+      );
+    }
     return issues;
   }
 
   static void assertProductionReady() {
+    assert(removeAdsProductId.isNotEmpty);
     final issues = productionReadinessIssues();
     if (issues.isEmpty) {
       return;

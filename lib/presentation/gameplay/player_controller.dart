@@ -1,18 +1,21 @@
-import 'dart:async';
+import 'dart:collection';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'maze_generator.dart';
 
 class PlayerController extends ChangeNotifier {
   PlayerController({
     required this.maze,
+    required TickerProvider vsync,
     this.onWin,
     this.animationFrameCount = 8,
     this.animationFrameStepMs = 100,
     this.baseMoveDurationMs = 120,
   }) {
+    _ticker = vsync.createTicker(_handleTick);
     resetForMaze(maze);
   }
 
@@ -24,9 +27,10 @@ class PlayerController extends ChangeNotifier {
 
   late Point<int> _position;
   final List<Offset> _pathPoints = <Offset>[];
+  late final List<Offset> _pathPointsView = UnmodifiableListView(_pathPoints);
   Direction4? _heldDirection;
-  Timer? _tickTimer;
-  final Stopwatch _clock = Stopwatch();
+  late final Ticker _ticker;
+  Duration? _lastTickElapsed;
   Point<int>? _segmentFrom;
   Point<int>? _segmentTo;
   double _segmentProgress = 0;
@@ -43,7 +47,7 @@ class PlayerController extends ChangeNotifier {
   int get currentFrame => _currentFrame;
   bool get isMoving => _segmentTo != null;
 
-  List<Offset> get pathPoints => List<Offset>.unmodifiable(_pathPoints);
+  List<Offset> get pathPoints => _pathPointsView;
 
   Offset get renderPosition {
     final from = _segmentFrom;
@@ -93,31 +97,35 @@ class PlayerController extends ChangeNotifier {
 
   void stop() {
     _heldDirection = null;
-    _tickTimer?.cancel();
-    _tickTimer = null;
-    _clock
-      ..stop()
-      ..reset();
+    if (_ticker.isActive) {
+      _ticker.stop();
+    }
+    _lastTickElapsed = null;
     _currentFrame = 0;
     _frameElapsedMs = 0;
     notifyListeners();
   }
 
   void _ensureTicking() {
-    if (_tickTimer != null) {
+    if (_ticker.isActive) {
       return;
     }
 
-    _clock
-      ..reset()
-      ..start();
-    _tickTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
-      final dt = _clock.elapsedMicroseconds / 1000000.0;
-      _clock
-        ..reset()
-        ..start();
-      _tick(dt);
-    });
+    _lastTickElapsed = null;
+    _ticker.start();
+  }
+
+  void _handleTick(Duration elapsed) {
+    final lastElapsed = _lastTickElapsed;
+    _lastTickElapsed = elapsed;
+
+    if (lastElapsed == null) {
+      _tick(0);
+      return;
+    }
+
+    final dt = (elapsed - lastElapsed).inMicroseconds / 1000000.0;
+    _tick(dt.clamp(0.0, 0.05).toDouble());
   }
 
   void _tick(double dt) {
@@ -141,8 +149,7 @@ class PlayerController extends ChangeNotifier {
     }
 
     if (_segmentTo == null && _heldDirection != null) {
-      _tryStartStep(_heldDirection!);
-      changed = true;
+      changed = _tryStartStep(_heldDirection!) || changed;
     }
 
     if (_segmentTo != null) {
@@ -168,9 +175,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  void _tryStartStep(Direction4 direction) {
+  bool _tryStartStep(Direction4 direction) {
     if (!maze.canMove(_position, direction)) {
-      return;
+      return false;
     }
 
     final next = maze.move(_position, direction);
@@ -178,6 +185,7 @@ class PlayerController extends ChangeNotifier {
     _segmentFrom = _position;
     _segmentTo = next;
     _segmentProgress = 0;
+    return true;
   }
 
   void _commitPath(Point<int> next) {
@@ -194,8 +202,7 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _tickTimer?.cancel();
-    _clock.stop();
+    _ticker.dispose();
     super.dispose();
   }
 }

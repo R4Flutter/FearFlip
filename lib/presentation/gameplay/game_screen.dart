@@ -75,6 +75,7 @@ class _GameScreenState extends State<GameScreen>
   final GlobalKey _gameSurfaceSizeKey = GlobalKey(
     debugLabel: 'game_surface_size',
   );
+  final ValueNotifier<int> _gameSurfaceRevision = ValueNotifier<int>(0);
   late PlayerController _playerController;
   late AnimationController _stageClearController;
   late final TrapAudioController _trapAudioController;
@@ -152,6 +153,7 @@ class _GameScreenState extends State<GameScreen>
     _rebuildPathMetrics();
     _playerController = PlayerController(
       maze: _maze,
+      vsync: this,
       onWin: _loadNextMaze,
       animationFrameCount: _spriteColumns,
       animationFrameStepMs: 80,
@@ -401,6 +403,13 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
+  void _markGameSurfaceDirty() {
+    if (!mounted) {
+      return;
+    }
+    _gameSurfaceRevision.value += 1;
+  }
+
   void _onStageTick() {
     if (!mounted ||
         _roundResolved ||
@@ -414,7 +423,7 @@ class _GameScreenState extends State<GameScreen>
     }
 
     final dt = _stageTickSeconds;
-    var shouldRebuild = false;
+    var shouldRepaintSurface = false;
     _audioFrameId += 1;
     _stageElapsedSeconds += dt;
 
@@ -431,7 +440,7 @@ class _GameScreenState extends State<GameScreen>
       unawaited(_audioManager.handle(GameAudioEvent.mazeShiftEnded));
     }
     if (wasGlitchActive || _glitchEffectController.isActive) {
-      shouldRebuild = true;
+      shouldRepaintSurface = true;
     }
 
     final timeToFlip = _nextFlipAtSeconds - _stageElapsedSeconds;
@@ -447,17 +456,17 @@ class _GameScreenState extends State<GameScreen>
         ),
       );
       _nextFlipAtSeconds = _stageElapsedSeconds + _nextFlipInterval();
-      shouldRebuild = true;
+      shouldRepaintSurface = true;
     }
 
     final wasPlayerSafe = _playerSafe;
     _updateSafeZones();
     if (!wasPlayerSafe && _playerSafe) {
       _onSafeZoneEntered();
-      shouldRebuild = true;
+      shouldRepaintSurface = true;
     } else if (wasPlayerSafe && !_playerSafe) {
       unawaited(_audioManager.handle(GameAudioEvent.safeZoneExited));
-      shouldRebuild = true;
+      shouldRepaintSurface = true;
     }
 
     final playerMoved = _trackPlayerSteps();
@@ -499,7 +508,7 @@ class _GameScreenState extends State<GameScreen>
                 ),
               );
             }
-            shouldRebuild = true;
+            shouldRepaintSurface = true;
             break;
           case TrapStepResult.trapCollapsed:
             final tile = _trapStateController.trapAt(playerCell);
@@ -507,7 +516,7 @@ class _GameScreenState extends State<GameScreen>
               tile.collapseProgress = 1;
               pendingTrapCollapse = tile;
             }
-            shouldRebuild = true;
+            shouldRepaintSurface = true;
             break;
         }
       }
@@ -521,16 +530,18 @@ class _GameScreenState extends State<GameScreen>
         devilCell: _devilCell,
         hiddenCueLevel: _trapStageConfig.hiddenCueLevel,
       );
-      shouldRebuild = true;
+      shouldRepaintSurface = true;
     }
 
-    _maybeTriggerMazeShift();
+    if (_maybeTriggerMazeShift()) {
+      shouldRepaintSurface = true;
+    }
 
     final hazardGraceActive = _mazeShiftManager.hazardGraceActive;
     if (_canSpawnDevilNow()) {
       _devilSpawned = true;
       _devilCell = _spawnDevilCell();
-      shouldRebuild = true;
+      shouldRepaintSurface = true;
     }
 
     if (_devilSpawned && _devilCell != null) {
@@ -547,14 +558,13 @@ class _GameScreenState extends State<GameScreen>
         // ── Distance-based rubber-band speed factor ──
         // Devil slows when very close (breathing room) and sprints when far
         // (aggressive chase). Piecewise-linear between nearDist and farDist.
-        final double dx =
-            (_devilCell!.x - _playerController.position.x).toDouble();
-        final double dy =
-            (_devilCell!.y - _playerController.position.y).toDouble();
+        final double dx = (_devilCell!.x - _playerController.position.x)
+            .toDouble();
+        final double dy = (_devilCell!.y - _playerController.position.y)
+            .toDouble();
         final double euclideanDist = sqrt(dx * dx + dy * dy);
         final double mapDiag = sqrt(
-          pow(_maze.cols - 1, 2).toDouble() +
-              pow(_maze.rows - 1, 2).toDouble(),
+          pow(_maze.cols - 1, 2).toDouble() + pow(_maze.rows - 1, 2).toDouble(),
         );
         final double nearDist = 0.25 * mapDiag;
         final double farDist = 0.75 * mapDiag;
@@ -566,12 +576,13 @@ class _GameScreenState extends State<GameScreen>
         } else if (euclideanDist >= farDist) {
           distanceFactor = maxFactor;
         } else {
-          final double t =
-              (euclideanDist - nearDist) / (farDist - nearDist);
+          final double t = (euclideanDist - nearDist) / (farDist - nearDist);
           distanceFactor = minFactor + (maxFactor - minFactor) * t;
         }
-        final devilStepsPerSecond =
-            (baseDevilSpeed * distanceFactor).clamp(0.2, 4.0);
+        final devilStepsPerSecond = (baseDevilSpeed * distanceFactor).clamp(
+          0.2,
+          4.0,
+        );
         final stepInterval = 1.0 / devilStepsPerSecond;
         while (_devilMoveAccumulator >= stepInterval) {
           _devilMoveAccumulator -= stepInterval;
@@ -582,7 +593,7 @@ class _GameScreenState extends State<GameScreen>
       }
 
       if (_devilCell != previousDevilCell) {
-        shouldRebuild = true;
+        shouldRepaintSurface = true;
       }
 
       _devilDistanceSampleElapsed += dt;
@@ -620,14 +631,14 @@ class _GameScreenState extends State<GameScreen>
 
     if (pendingTrapCollapse != null && !_roundResolved) {
       unawaited(_onTrapCollapsed(pendingTrapCollapse));
-      if (shouldRebuild && mounted) {
-        setState(() {});
+      if (shouldRepaintSurface) {
+        _markGameSurfaceDirty();
       }
       return;
     }
 
-    if (shouldRebuild && mounted) {
-      setState(() {});
+    if (shouldRepaintSurface) {
+      _markGameSurfaceDirty();
     }
   }
 
@@ -964,9 +975,7 @@ class _GameScreenState extends State<GameScreen>
       pressureTags: tile.pressureTags,
       distanceToGoal: distanceToGoal,
     );
-    if (mounted) {
-      setState(() {});
-    }
+    _markGameSurfaceDirty();
   }
 
   Future<void> _onTrapCollapsed(TrapTile? tile) async {
@@ -1186,10 +1195,10 @@ class _GameScreenState extends State<GameScreen>
     return max(8, _startToGoalDistance);
   }
 
-  void _maybeTriggerMazeShift() {
+  bool _maybeTriggerMazeShift() {
     final phase = _mazeShiftManager.pendingPhase;
     if (phase == MazeShiftPhase.none) {
-      return;
+      return false;
     }
 
     _mazeShiftManager.markPhaseTriggered(phase);
@@ -1202,7 +1211,7 @@ class _GameScreenState extends State<GameScreen>
       exitPosition: _maze.end,
     );
     if (!outcome.applied) {
-      return;
+      return _glitchEffectController.isActive;
     }
 
     unawaited(_audioManager.handle(GameAudioEvent.mazeShiftStarted));
@@ -1222,6 +1231,7 @@ class _GameScreenState extends State<GameScreen>
     _rebuildPathMetrics();
     _mazeShiftManager.updateTotalSteps(_mazeShiftTotalSteps);
     _devilMoveAccumulator = 0;
+    return true;
   }
 
   void _rebuildPathMetrics() {
@@ -1748,9 +1758,8 @@ class _GameScreenState extends State<GameScreen>
       if (!mounted) {
         return;
       }
-      setState(() {
-        _playerSprite = frameInfo.image;
-      });
+      _playerSprite = frameInfo.image;
+      _markGameSurfaceDirty();
     } catch (_) {
       // Fallback to circle rendering if sprite is not available.
     }
@@ -1770,9 +1779,8 @@ class _GameScreenState extends State<GameScreen>
       if (!mounted) {
         return;
       }
-      setState(() {
-        _breakingTrapTexture = frameInfo.image;
-      });
+      _breakingTrapTexture = frameInfo.image;
+      _markGameSurfaceDirty();
     } catch (_) {
       // Keep trap rendering crash-safe by falling back to vector cracks.
     }
@@ -1786,6 +1794,7 @@ class _GameScreenState extends State<GameScreen>
     _stageClearController.dispose();
     _trapDeathSequence.dispose();
     _playerController.dispose();
+    _gameSurfaceRevision.dispose();
     unawaited(_audioManager.handle(GameAudioEvent.matchExit));
     super.dispose();
   }
@@ -1804,9 +1813,8 @@ class _GameScreenState extends State<GameScreen>
     final floatingValueSize = (20 * uiScale).clamp(15.0, 24.0);
     final floatingSubValueSize = (14 * uiScale).clamp(11.0, 18.0);
     final floatingTop = (4 * uiScale).clamp(2.0, 8.0);
-    final floatingDrift = sin(_stageElapsedSeconds * pi * 2) * (1.8 * uiScale);
+    const floatingDrift = 0.0;
     final timeDigits = _timeLabel.replaceFirst('TIME: ', '');
-
 
     return Material(
       color: AppPalette.backgroundDark,
@@ -1848,10 +1856,7 @@ class _GameScreenState extends State<GameScreen>
                             borderRadius: BorderRadius.circular(
                               (12 * uiScale).clamp(10.0, 16.0),
                             ),
-                            child: GlitchEffectOverlay(
-                              controller: _glitchEffectController,
-                              child: _buildGameSurface(),
-                            ),
+                            child: _buildGameSurface(),
                           ),
                         ),
                       ),
@@ -2294,48 +2299,53 @@ class _GameScreenState extends State<GameScreen>
     return RepaintBoundary(
       key: GameScreen.gameSurfaceKey,
       child: AnimatedBuilder(
-        animation: _playerController,
+        animation: Listenable.merge(<Listenable>[
+          _playerController,
+          _gameSurfaceRevision,
+        ]),
         builder: (context, _) {
           final pulse = (_stageElapsedSeconds * 1.25) % 1.0;
           final trapTiles = List<TrapTile>.unmodifiable(
             _trapStateController.activeTiles,
           );
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              CustomPaint(
-                key: _gameSurfaceSizeKey,
-                painter: MazePainter(
-                  maze: _maze,
-                  pathPoints: _playerController.pathPoints,
-                  playerCellPosition: _playerController.renderPosition,
-                  direction: _playerController.direction,
-                  currentFrame: _playerController.currentFrame,
-                  isMoving: _playerController.isMoving,
-                  pulse: pulse,
-                  playerSprite: _playerSprite,
-                  spriteFrameCount: _spriteColumns,
-                  spriteRows: _spriteRows,
-                  spriteRowIndex: widget.selectedCharacterIndex + 1,
-                  devilCell: _devilCell,
-                  devilSprite: _playerSprite,
-                  devilSpriteRowIndex: 0,
-                  safeZones: _safeZones,
-                  playerSafe: _playerSafe,
-                  isFlippedMode: _controlsInverted,
-                  trapTiles: trapTiles,
-                  trapHiddenCueLevel: _trapStageConfig.hiddenCueLevel,
-                  breakingTrapTexture: _breakingTrapTexture,
-                  hidePlayer: _trapDeathInProgress,
-                ),
-              ),
-              if (_trapDeathInProgress)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: CustomPaint(painter: _trapDeathSequence.painter),
+          return GlitchEffectOverlay(
+            controller: _glitchEffectController,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CustomPaint(
+                  key: _gameSurfaceSizeKey,
+                  painter: MazePainter(
+                    maze: _maze,
+                    playerCellPosition: _playerController.renderPosition,
+                    direction: _playerController.direction,
+                    currentFrame: _playerController.currentFrame,
+                    isMoving: _playerController.isMoving,
+                    pulse: pulse,
+                    playerSprite: _playerSprite,
+                    spriteFrameCount: _spriteColumns,
+                    spriteRows: _spriteRows,
+                    spriteRowIndex: widget.selectedCharacterIndex + 1,
+                    devilCell: _devilCell,
+                    devilSprite: _playerSprite,
+                    devilSpriteRowIndex: 0,
+                    safeZones: _safeZones,
+                    playerSafe: _playerSafe,
+                    isFlippedMode: _controlsInverted,
+                    trapTiles: trapTiles,
+                    trapHiddenCueLevel: _trapStageConfig.hiddenCueLevel,
+                    breakingTrapTexture: _breakingTrapTexture,
+                    hidePlayer: _trapDeathInProgress,
                   ),
                 ),
-            ],
+                if (_trapDeathInProgress)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: CustomPaint(painter: _trapDeathSequence.painter),
+                    ),
+                  ),
+              ],
+            ),
           );
         },
       ),
@@ -3804,59 +3814,84 @@ class _StageClearOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bgFade    = CurvedAnimation(parent: controller,
-        curve: const Interval(0.00, 0.25, curve: Curves.easeIn));
-    final burstAnim = CurvedAnimation(parent: controller,
-        curve: const Interval(0.00, 0.55, curve: Curves.easeOutCubic));
-    final slideIn   = CurvedAnimation(parent: controller,
-        curve: const Interval(0.15, 0.55, curve: Curves.easeOutBack));
-    final textFade  = CurvedAnimation(parent: controller,
-        curve: const Interval(0.20, 0.55, curve: Curves.easeOut));
-    final subFade   = CurvedAnimation(parent: controller,
-        curve: const Interval(0.45, 0.72, curve: Curves.easeOut));
-    final starsFade = CurvedAnimation(parent: controller,
-        curve: const Interval(0.50, 0.82, curve: Curves.easeOut));
+    final bgFade = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0.00, 0.25, curve: Curves.easeIn),
+    );
+    final burstAnim = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0.00, 0.55, curve: Curves.easeOutCubic),
+    );
+    final slideIn = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0.15, 0.55, curve: Curves.easeOutBack),
+    );
+    final textFade = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0.20, 0.55, curve: Curves.easeOut),
+    );
+    final subFade = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0.45, 0.72, curve: Curves.easeOut),
+    );
+    final starsFade = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0.50, 0.82, curve: Curves.easeOut),
+    );
 
-    return IgnorePointer(
-      child: Positioned.fill(
+    return Positioned.fill(
+      child: IgnorePointer(
         child: AnimatedBuilder(
           animation: controller,
           builder: (ctx, _) {
             final t = controller.value;
-            return Stack(fit: StackFit.expand, children: [
-              Opacity(
-                opacity: (bgFade.value * 0.80).clamp(0.0, 1.0),
-                child: const ColoredBox(color: Colors.black),
-              ),
-              Center(
-                child: Opacity(
-                  opacity: burstAnim.value,
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Opacity(
+                  opacity: (bgFade.value * 0.80).clamp(0.0, 1.0),
+                  child: const ColoredBox(color: Colors.black),
+                ),
+                Center(
+                  child: Opacity(
+                    opacity: burstAnim.value,
+                    child: CustomPaint(
+                      size: const Size(340, 340),
+                      painter: _BurstPainter(burstAnim.value),
+                    ),
+                  ),
+                ),
+                Opacity(
+                  opacity: (t < 0.6 ? t / 0.6 : 1 - (t - 0.6) / 0.4).clamp(
+                    0,
+                    1,
+                  ),
                   child: CustomPaint(
-                    size: const Size(340, 340),
-                    painter: _BurstPainter(burstAnim.value),
+                    size: Size.infinite,
+                    painter: _ScanPainter(t),
                   ),
                 ),
-              ),
-              Opacity(
-                opacity: (t < 0.6 ? t / 0.6 : 1 - (t - 0.6) / 0.4).clamp(0, 1),
-                child: CustomPaint(size: Size.infinite, painter: _ScanPainter(t)),
-              ),
-              Center(
-                child: FadeTransition(
-                  opacity: textFade,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0, 0.5), end: Offset.zero,
-                    ).animate(slideIn),
-                    child: _ClearCard(stage: stage, subFade: subFade),
+                Center(
+                  child: FadeTransition(
+                    opacity: textFade,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.5),
+                        end: Offset.zero,
+                      ).animate(slideIn),
+                      child: _ClearCard(stage: stage, subFade: subFade),
+                    ),
                   ),
                 ),
-              ),
-              Opacity(
-                opacity: starsFade.value,
-                child: CustomPaint(size: Size.infinite, painter: _ParticlePainter(t)),
-              ),
-            ]);
+                Opacity(
+                  opacity: starsFade.value,
+                  child: CustomPaint(
+                    size: Size.infinite,
+                    painter: _ParticlePainter(t),
+                  ),
+                ),
+              ],
+            );
           },
         ),
       ),
@@ -3879,83 +3914,147 @@ class _ClearCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppPalette.neonGreen, width: 2),
         boxShadow: [
-          BoxShadow(color: AppPalette.neonGreen.withAlpha(110), blurRadius: 32, spreadRadius: 4),
-          BoxShadow(color: AppPalette.accentPurple.withAlpha(60), blurRadius: 48, spreadRadius: 8),
+          BoxShadow(
+            color: AppPalette.neonGreen.withAlpha(110),
+            blurRadius: 32,
+            spreadRadius: 4,
+          ),
+          BoxShadow(
+            color: AppPalette.accentPurple.withAlpha(60),
+            blurRadius: 48,
+            spreadRadius: 8,
+          ),
         ],
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          width: 60, height: 60,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppPalette.neonGreen.withAlpha(20),
-            border: Border.all(color: AppPalette.neonGreen.withAlpha(160), width: 2),
-            boxShadow: [BoxShadow(color: AppPalette.neonGreen.withAlpha(80), blurRadius: 16)],
-          ),
-          child: const Icon(Icons.emoji_events_rounded, color: AppPalette.neonGreen, size: 32),
-        ),
-        const SizedBox(height: 16),
-        ShaderMask(
-          shaderCallback: (r) => const LinearGradient(
-            colors: [AppPalette.neonGreen, AppPalette.accentPurple],
-          ).createShader(r),
-          child: const Text('STAGE CLEARED',
-              style: TextStyle(color: Colors.white, fontSize: 13,
-                  fontWeight: FontWeight.w900, letterSpacing: 3.5)),
-        ),
-        const SizedBox(height: 6),
-        ShaderMask(
-          shaderCallback: (r) => const LinearGradient(
-            colors: [Colors.white, AppPalette.neonGreen],
-          ).createShader(r),
-          child: Text('$stage',
-              style: const TextStyle(color: Colors.white, fontSize: 72,
-                  fontWeight: FontWeight.w900, height: 1.0)),
-        ),
-        const SizedBox(height: 4),
-        FadeTransition(
-          opacity: subFade,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.4), end: Offset.zero,
-            ).animate(subFade),
-            child: Column(children: [
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppPalette.accentPurple.withAlpha(22),
-                  borderRadius: BorderRadius.circular(99),
-                  border: Border.all(color: AppPalette.accentPurple.withAlpha(120)),
-                ),
-                child: const Text('NEXT STAGE LOADING…',
-                    style: TextStyle(color: AppPalette.accentPurple,
-                        fontWeight: FontWeight.w800, fontSize: 10, letterSpacing: 1.8)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppPalette.neonGreen.withAlpha(20),
+              border: Border.all(
+                color: AppPalette.neonGreen.withAlpha(160),
+                width: 2,
               ),
-              const SizedBox(height: 12),
-              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                _MiniStat(icon: Icons.bolt, label: 'ESCAPED'),
-                const SizedBox(width: 16),
-                _MiniStat(icon: Icons.star_rounded, label: '+1 TROPHY'),
-              ]),
-            ]),
+              boxShadow: [
+                BoxShadow(
+                  color: AppPalette.neonGreen.withAlpha(80),
+                  blurRadius: 16,
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.emoji_events_rounded,
+              color: AppPalette.neonGreen,
+              size: 32,
+            ),
           ),
-        ),
-      ]),
+          const SizedBox(height: 16),
+          ShaderMask(
+            shaderCallback: (r) => const LinearGradient(
+              colors: [AppPalette.neonGreen, AppPalette.accentPurple],
+            ).createShader(r),
+            child: const Text(
+              'STAGE CLEARED',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 3.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          ShaderMask(
+            shaderCallback: (r) => const LinearGradient(
+              colors: [Colors.white, AppPalette.neonGreen],
+            ).createShader(r),
+            child: Text(
+              '$stage',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 72,
+                fontWeight: FontWeight.w900,
+                height: 1.0,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          FadeTransition(
+            opacity: subFade,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.4),
+                end: Offset.zero,
+              ).animate(subFade),
+              child: Column(
+                children: [
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppPalette.accentPurple.withAlpha(22),
+                      borderRadius: BorderRadius.circular(99),
+                      border: Border.all(
+                        color: AppPalette.accentPurple.withAlpha(120),
+                      ),
+                    ),
+                    child: const Text(
+                      'NEXT STAGE LOADING…',
+                      style: TextStyle(
+                        color: AppPalette.accentPurple,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10,
+                        letterSpacing: 1.8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _MiniStat(icon: Icons.bolt, label: 'ESCAPED'),
+                      const SizedBox(width: 16),
+                      _MiniStat(icon: Icons.star_rounded, label: '+1 TROPHY'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _MiniStat extends StatelessWidget {
   const _MiniStat({required this.icon, required this.label});
-  final IconData icon; final String label;
+  final IconData icon;
+  final String label;
   @override
-  Widget build(BuildContext ctx) => Row(mainAxisSize: MainAxisSize.min, children: [
-    Icon(icon, color: AppPalette.neonGreen, size: 13),
-    const SizedBox(width: 4),
-    Text(label, style: const TextStyle(color: AppPalette.textMuted,
-        fontWeight: FontWeight.w800, fontSize: 10, letterSpacing: 0.8)),
-  ]);
+  Widget build(BuildContext ctx) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, color: AppPalette.neonGreen, size: 13),
+      const SizedBox(width: 4),
+      Text(
+        label,
+        style: const TextStyle(
+          color: AppPalette.textMuted,
+          fontWeight: FontWeight.w800,
+          fontSize: 10,
+          letterSpacing: 0.8,
+        ),
+      ),
+    ],
+  );
 }
 
 class _BurstPainter extends CustomPainter {
@@ -3966,15 +4065,32 @@ class _BurstPainter extends CustomPainter {
     final cx = size.width / 2;
     final cy = size.height / 2;
     final maxR = size.width * 0.5 * t;
-    canvas.drawCircle(Offset(cx, cy), maxR,
-        Paint()..style = PaintingStyle.stroke..strokeWidth = 3
-          ..color = AppPalette.accentPurple.withAlpha(((1 - t) * 200).round().clamp(0, 255)));
-    canvas.drawCircle(Offset(cx, cy), maxR * 0.65,
-        Paint()..style = PaintingStyle.stroke..strokeWidth = 2
-          ..color = AppPalette.neonGreen.withAlpha(((1 - t) * 180).round().clamp(0, 255)));
+    canvas.drawCircle(
+      Offset(cx, cy),
+      maxR,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = AppPalette.accentPurple.withAlpha(
+          ((1 - t) * 200).round().clamp(0, 255),
+        ),
+    );
+    canvas.drawCircle(
+      Offset(cx, cy),
+      maxR * 0.65,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = AppPalette.neonGreen.withAlpha(
+          ((1 - t) * 180).round().clamp(0, 255),
+        ),
+    );
     const rays = 12;
-    final rp = Paint()..strokeWidth = 1.5
-      ..color = AppPalette.neonGreen.withAlpha(((1 - t) * 120).round().clamp(0, 255));
+    final rp = Paint()
+      ..strokeWidth = 1.5
+      ..color = AppPalette.neonGreen.withAlpha(
+        ((1 - t) * 120).round().clamp(0, 255),
+      );
     for (int i = 0; i < rays; i++) {
       final a = (i / rays) * pi * 2;
       canvas.drawLine(
@@ -3983,12 +4099,24 @@ class _BurstPainter extends CustomPainter {
         rp,
       );
     }
-    canvas.drawCircle(Offset(cx, cy), maxR * 0.3,
-        Paint()..shader = RadialGradient(colors: [
-          AppPalette.neonGreen.withAlpha(((1 - t) * 60).round().clamp(0, 255)),
-          Colors.transparent,
-        ]).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: maxR * 0.3)));
+    canvas.drawCircle(
+      Offset(cx, cy),
+      maxR * 0.3,
+      Paint()
+        ..shader =
+            RadialGradient(
+              colors: [
+                AppPalette.neonGreen.withAlpha(
+                  ((1 - t) * 60).round().clamp(0, 255),
+                ),
+                Colors.transparent,
+              ],
+            ).createShader(
+              Rect.fromCircle(center: Offset(cx, cy), radius: maxR * 0.3),
+            ),
+    );
   }
+
   @override
   bool shouldRepaint(_BurstPainter o) => o.t != t;
 }
@@ -3999,10 +4127,15 @@ class _ScanPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final y = t * size.height * 1.5 - size.height * 0.25;
-    canvas.drawRect(Rect.fromLTWH(0, y - 2, size.width, 3),
-        Paint()..color = AppPalette.neonGreen.withAlpha(60)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
-    final p = Paint()..color = const Color(0xFF1A1A1A)..strokeWidth = 0.5;
+    canvas.drawRect(
+      Rect.fromLTWH(0, y - 2, size.width, 3),
+      Paint()
+        ..color = AppPalette.neonGreen.withAlpha(60)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    final p = Paint()
+      ..color = const Color(0xFF1A1A1A)
+      ..strokeWidth = 0.5;
     const step = 36.0;
     for (double x = 0; x < size.width; x += step) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);
@@ -4011,6 +4144,7 @@ class _ScanPainter extends CustomPainter {
       canvas.drawLine(Offset(0, yy), Offset(size.width, yy), p);
     }
   }
+
   @override
   bool shouldRepaint(_ScanPainter o) => o.t != t;
 }
@@ -4033,14 +4167,16 @@ class _ParticlePainter extends CustomPainter {
       final color = i % 3 == 0
           ? AppPalette.neonGreen.withAlpha(alpha)
           : i % 3 == 1
-              ? AppPalette.accentPurple.withAlpha(alpha)
-              : AppPalette.accentPink.withAlpha(alpha);
+          ? AppPalette.accentPurple.withAlpha(alpha)
+          : AppPalette.accentPink.withAlpha(alpha);
       canvas.drawCircle(
         Offset(cx + r * cos(angle), cy + r * sin(angle)),
-        radius, Paint()..color = color,
+        radius,
+        Paint()..color = color,
       );
     }
   }
+
   @override
   bool shouldRepaint(_ParticlePainter o) => o.t != t;
 }

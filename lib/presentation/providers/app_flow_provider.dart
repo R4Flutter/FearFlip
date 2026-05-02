@@ -45,7 +45,7 @@ class AppFlowProvider extends ChangeNotifier {
            (enableAuthBootstrap ? AccountDeletionService() : null) {
     _sessionDatabase.markAppLaunch();
     game = FearFlipGame(
-      adsService: AdsService(),
+      adsService: AdsService.instance,
       audioManager: AudioManager.instance,
       leaderboardService:
           leaderboardService ??

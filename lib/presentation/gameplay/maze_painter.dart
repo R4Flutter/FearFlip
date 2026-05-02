@@ -10,7 +10,6 @@ import 'maze_generator.dart';
 class MazePainter extends CustomPainter {
   MazePainter({
     required this.maze,
-    required this.pathPoints,
     required this.playerCellPosition,
     required this.direction,
     required this.currentFrame,
@@ -33,7 +32,6 @@ class MazePainter extends CustomPainter {
   });
 
   final MazeGrid maze;
-  final List<Offset> pathPoints;
   final Offset playerCellPosition;
   final Direction4 direction;
   final int currentFrame;
@@ -297,7 +295,6 @@ class MazePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant MazePainter oldDelegate) {
     return oldDelegate.maze != maze ||
-        oldDelegate.pathPoints != pathPoints ||
         oldDelegate.playerCellPosition != playerCellPosition ||
         oldDelegate.direction != direction ||
         oldDelegate.currentFrame != currentFrame ||

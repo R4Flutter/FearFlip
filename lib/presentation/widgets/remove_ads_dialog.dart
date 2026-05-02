@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/ads_service.dart';
 import '../../services/purchase_service.dart';
 import '../theme/app_palette.dart';
 
-/// Full-featured "Remove Ads" subscription dialog.
+/// Full-featured "Remove Ads" one-time purchase dialog.
 ///
 /// Shows real product price, purchase button, restore button, loading states,
 /// success confirmation, and clear error messages.
@@ -57,6 +59,10 @@ class _RemoveAdsDialogState extends State<_RemoveAdsDialog>
 
     _service = PurchaseService.instance;
     _service.addListener(_onServiceChange);
+
+    try {
+      FirebaseAnalytics.instance.logEvent(name: 'purchase_screen_shown');
+    } catch (_) {}
   }
 
   @override
@@ -71,42 +77,47 @@ class _RemoveAdsDialogState extends State<_RemoveAdsDialog>
     final status = _service.status;
 
     switch (status) {
-      case SubscriptionStatus.subscribed:
+      case PurchaseStatus.purchased:
+        AdsService.instance.disableAdsPermanently();
         setState(() {
           _resultIsSuccess = true;
-          _resultMessage = '🎉 Subscription active! Ads have been removed.';
+          _resultMessage = '🎉 Ads removed! Enjoy uninterrupted gameplay.';
         });
+        _restoreWasTriggered = false;
+        break;
 
-      case SubscriptionStatus.error:
+      case PurchaseStatus.error:
         setState(() {
           _resultIsSuccess = false;
           _resultMessage = _service.errorMessage.isNotEmpty
               ? _service.errorMessage
               : 'Purchase failed. Please try again.';
         });
+        break;
 
-      case SubscriptionStatus.notSubscribed:
+      case PurchaseStatus.notPurchased:
         // Only show "nothing found" when a restore was explicitly triggered
-        // AND we are no longer in the restoring state. This prevents the
-        // message appearing prematurely while the stream is still settling.
+        // AND we are no longer in the restoring state.
         if (_restoreWasTriggered && !_service.isRestoring) {
           setState(() {
             _resultIsSuccess = false;
             _resultMessage =
-                'No active subscription found for this Google account. '
-                'If you purchased on a different account, switch accounts in '
-                'Google Play and try again.';
+                'No Remove Ads purchase found for this account. '
+                'If you purchased on a different account, sign in to that '
+                'account in the store and try again.';
           });
           _restoreWasTriggered = false;
         }
+        break;
 
-      case SubscriptionStatus.restoring:
-      case SubscriptionStatus.purchasing:
-      case SubscriptionStatus.initialising:
+      case PurchaseStatus.restoring:
+      case PurchaseStatus.purchasing:
+      case PurchaseStatus.initialising:
         // Clear stale result messages while an action is in progress.
         if (_resultMessage != null) {
           setState(() => _resultMessage = null);
         }
+        break;
     }
   }
 
@@ -171,9 +182,7 @@ class _RemoveAdsDialogState extends State<_RemoveAdsDialog>
                   children: [
                     // Background grid
                     CustomPaint(
-                      painter: _RemoveAdsGridPainter(
-                        progress: _glitch.value,
-                      ),
+                      painter: _RemoveAdsGridPainter(progress: _glitch.value),
                     ),
                     // Radial glow
                     IgnorePointer(
@@ -243,7 +252,7 @@ class _DialogContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final isSubscribed = service.isSubscribed;
     final isBusy = service.isPurchasing; // covers both purchasing + restoring
-    final isInitialising = service.status == SubscriptionStatus.initialising;
+    final isInitialising = service.status == PurchaseStatus.initialising;
 
     final product = service.productDetails;
     // Show real price from Play, or "Loading…" — never a hardcoded fallback.
@@ -282,10 +291,11 @@ class _DialogContent extends StatelessWidget {
                           letterSpacing: 0.8,
                           shadows: [
                             Shadow(
-                              color: (isSubscribed
-                                      ? AppPalette.neonGreen
-                                      : AppPalette.accentPink)
-                                  .withAlpha(120),
+                              color:
+                                  (isSubscribed
+                                          ? AppPalette.neonGreen
+                                          : AppPalette.accentPink)
+                                      .withAlpha(120),
                               blurRadius: 12,
                             ),
                           ],
@@ -293,8 +303,8 @@ class _DialogContent extends StatelessWidget {
                       ),
                       Text(
                         isSubscribed
-                            ? 'Your subscription is active'
-                            : 'Monthly subscription · Auto-renews',
+                            ? 'Permanently unlocked — no more ads'
+                            : 'One-time purchase · Permanent · Restores on reinstall',
                         style: const TextStyle(
                           color: AppPalette.textMuted,
                           fontSize: 12,
@@ -371,8 +381,8 @@ class _DialogContent extends StatelessWidget {
                 ),
               )
             else ...[
-              // Subscribe button
-              _SubscribeButton(
+              // Buy button
+              _BuyButton(
                 price: priceText,
                 isLoading: isBusy || isInitialising,
                 onPressed: (isBusy || isInitialising) ? null : onBuy,
@@ -402,12 +412,12 @@ class _DialogContent extends StatelessWidget {
 
             const SizedBox(height: 14),
 
-            // ── Legal / cancel policy note ───────────────────────────────────
+            // ── Legal / one-time purchase note ──────────────────────────────
             if (!isSubscribed)
               const Text(
-                'Subscription renews automatically at the listed price each month '
-                'unless cancelled at least 24 hours before the end of the billing '
-                'period. Manage or cancel anytime in Google Play → Subscriptions.',
+                'This is a one-time purchase. Once bought, Remove Ads is '
+                'permanently unlocked on all devices signed in to the same '
+                'store account. Restore anytime via "Restore Purchases".',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: AppPalette.textMuted,
@@ -442,9 +452,7 @@ class _GlowIcon extends StatelessWidget {
         color: color.withAlpha(28),
         shape: BoxShape.circle,
         border: Border.all(color: color.withAlpha(160), width: 1.6),
-        boxShadow: [
-          BoxShadow(color: color.withAlpha(80), blurRadius: 18),
-        ],
+        boxShadow: [BoxShadow(color: color.withAlpha(80), blurRadius: 18)],
       ),
       child: Icon(icon, color: color, size: 26),
     );
@@ -495,7 +503,7 @@ class _PriceChip extends StatelessWidget {
                   ),
                 ),
                 const Text(
-                  'Billed monthly · Cancel anytime',
+                  'One-time · Permanent · Restores on reinstall',
                   style: TextStyle(
                     color: AppPalette.textMuted,
                     fontSize: 11,
@@ -528,8 +536,10 @@ class _BenefitsList extends StatelessWidget {
   static const _benefits = [
     (Icons.block_rounded, 'No interstitial ads between stages'),
     (Icons.videocam_off_rounded, 'No rewarded video pop-ups'),
+    (Icons.web_asset_off_rounded, 'No banner ads on the dashboard'),
     (Icons.flash_on_rounded, 'Pure, uninterrupted gameplay'),
-    (Icons.loop_rounded, 'Automatically restored on reinstall'),
+    (Icons.all_inclusive_rounded, 'Permanent — never expires'),
+    (Icons.loop_rounded, 'Restores automatically on reinstall'),
   ];
 
   @override
@@ -652,8 +662,8 @@ class _LoadingRow extends StatelessWidget {
   }
 }
 
-class _SubscribeButton extends StatefulWidget {
-  const _SubscribeButton({
+class _BuyButton extends StatefulWidget {
+  const _BuyButton({
     required this.price,
     required this.isLoading,
     required this.onPressed,
@@ -665,10 +675,10 @@ class _SubscribeButton extends StatefulWidget {
   final VoidCallback? onPressed;
 
   @override
-  State<_SubscribeButton> createState() => _SubscribeButtonState();
+  State<_BuyButton> createState() => _BuyButtonState();
 }
 
-class _SubscribeButtonState extends State<_SubscribeButton>
+class _BuyButtonState extends State<_BuyButton>
     with SingleTickerProviderStateMixin {
   late final AnimationController _scale;
   late final Animation<double> _scaleAnim;
@@ -696,8 +706,8 @@ class _SubscribeButtonState extends State<_SubscribeButton>
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null && !widget.isLoading;
     final priceLabel = widget.price != null
-        ? 'Subscribe · ${widget.price}/month'
-        : 'Subscribe';
+        ? 'Buy Now · ${widget.price}'
+        : 'Buy Now';
 
     return GestureDetector(
       onTapDown: enabled ? (_) => _scale.reverse() : null,
@@ -807,25 +817,17 @@ class _RemoveAdsGridPainter extends CustomPainter {
     canvas.drawRect(scanRect, scanPaint);
 
     // Glitch lines
-    final glitchPaint = Paint()
-      ..color = AppPalette.accentPurple.withAlpha(60);
+    final glitchPaint = Paint()..color = AppPalette.accentPurple.withAlpha(60);
     for (var i = 0; i < 4; i++) {
       final wave = progress * math.pi * (6 + i * 2.1);
-      final top =
-          (size.height * (0.15 + 0.18 * i) + math.sin(wave) * 12).clamp(
-            0.0,
-            size.height - 3.0,
-          );
-      final left =
-          (size.width * (0.05 + i * 0.04) + math.cos(wave * 1.2) * 18).clamp(
-            0.0,
-            size.width - 80.0,
-          );
-      final w = (size.width * (0.28 + i * 0.06)).clamp(70.0, size.width - left);
-      canvas.drawRect(
-        Rect.fromLTWH(left, top, w, 2),
-        glitchPaint,
+      final top = (size.height * (0.15 + 0.18 * i) + math.sin(wave) * 12).clamp(
+        0.0,
+        size.height - 3.0,
       );
+      final left = (size.width * (0.05 + i * 0.04) + math.cos(wave * 1.2) * 18)
+          .clamp(0.0, size.width - 80.0);
+      final w = (size.width * (0.28 + i * 0.06)).clamp(70.0, size.width - left);
+      canvas.drawRect(Rect.fromLTWH(left, top, w, 2), glitchPaint);
     }
   }
 

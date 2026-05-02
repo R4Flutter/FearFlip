@@ -4,11 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../config/app_runtime_config.dart';
+import '../data/services/monetization_service.dart';
 import 'ad_placement_policy.dart';
 import 'consent_service.dart';
-import 'purchase_service.dart';
 
 class AdsService {
+  static final AdsService instance = AdsService();
+
   AdsService({AdPlacementPolicy? placementPolicy, DateTime Function()? clock})
     : _placementPolicy =
           placementPolicy ??
@@ -27,17 +29,29 @@ class AdsService {
 
   final AdPlacementPolicy _placementPolicy;
   final DateTime Function() _clock;
+  final MonetizationService _monetization = const FlutterMonetizationService();
 
   RewardedAd? _rewardedAd;
   InterstitialAd? _interstitialAd;
   BannerAd? _bannerAd;
   bool _bannerLoading = false;
+  bool _permanentlyDisabled = false;
 
   /// Whether ads are suppressed because the user has an active subscription.
-  bool get _subscriberBlocked => PurchaseService.instance.isSubscribed;
+  Future<bool> get isPremiumUnlocked => _monetization.isPremiumUnlocked();
+
+  void disableAdsPermanently() {
+    _permanentlyDisabled = true;
+    disposeAllAds();
+  }
+
+  void disposeAllAds() {
+    dispose();
+  }
 
   Future<void> preload() async {
-    if (_subscriberBlocked ||
+    if (_permanentlyDisabled ||
+        await isPremiumUnlocked ||
         !AppRuntimeConfig.adsEnabled ||
         !ConsentService.instance.canRequestAds) {
       return;
@@ -57,7 +71,8 @@ class AdsService {
 
   /// Loads a banner ad.  Call once when the dashboard mounts.
   Future<void> loadBanner() async {
-    if (_subscriberBlocked ||
+    if (_permanentlyDisabled ||
+        await isPremiumUnlocked ||
         !AppRuntimeConfig.bannerAdsEnabled ||
         !ConsentService.instance.canRequestAds ||
         _bannerLoading) {
@@ -152,7 +167,8 @@ class AdsService {
   }
 
   Future<bool> showRewardedForRevive() async {
-    if (_subscriberBlocked ||
+    if (_permanentlyDisabled ||
+        await isPremiumUnlocked ||
         !AppRuntimeConfig.rewardedAdsEnabled ||
         !ConsentService.instance.canRequestAds) {
       return false;
@@ -197,7 +213,8 @@ class AdsService {
 
   Future<bool> showInterstitialAfterGameOver() async {
     _placementPolicy.recordGameOver();
-    if (_subscriberBlocked ||
+    if (_permanentlyDisabled ||
+        await isPremiumUnlocked ||
         !AppRuntimeConfig.interstitialAdsEnabled ||
         !ConsentService.instance.canRequestAds ||
         !_placementPolicy.canShowInterstitial(_clock())) {
@@ -244,10 +261,11 @@ class AdsService {
   ///
   /// After the ad is dismissed, the next ad is preloaded automatically.
   Future<void> showInterstitialAfterStageCleared(int clearedStage) async {
-    if (_subscriberBlocked ||
+    if (_permanentlyDisabled ||
+        await isPremiumUnlocked ||
         !AppRuntimeConfig.interstitialAdsEnabled ||
         !ConsentService.instance.canRequestAds) {
-      debugPrint('[AdsService] Ad Skipped (subscriber/consent blocked)');
+      debugPrint('[AdsService] Ad Skipped (premium/consent blocked)');
       return;
     }
 

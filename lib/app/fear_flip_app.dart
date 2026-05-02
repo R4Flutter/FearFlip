@@ -1,9 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import '../config/app_runtime_config.dart';
 import '../data/database/local_session_database.dart';
 import '../domain/usecases/start_survival_use_case.dart';
 import '../presentation/gameplay/game_screen.dart';
@@ -16,7 +14,6 @@ import '../presentation/theme/app_palette.dart';
 import '../presentation/widgets/remove_ads_dialog.dart';
 import '../services/account_deletion_service.dart';
 import '../services/ads_service.dart';
-import '../services/consent_service.dart';
 
 class _CharacterOption {
   const _CharacterOption({
@@ -401,50 +398,6 @@ class _SettingsModeTile extends StatelessWidget {
   }
 }
 
-class _SettingsPolicyButton extends StatelessWidget {
-  const _SettingsPolicyButton({
-    required this.icon,
-    required this.label,
-    required this.url,
-    required this.onCopy,
-  });
-
-  final IconData icon;
-  final String label;
-  final String url;
-  final VoidCallback onCopy;
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      onPressed: onCopy,
-      icon: Icon(icon, size: 18),
-      label: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
-          Text(
-            url,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 10,
-              color: AppPalette.textMuted,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-      style: OutlinedButton.styleFrom(
-        alignment: Alignment.centerLeft,
-        minimumSize: const Size.fromHeight(50),
-        foregroundColor: AppPalette.textPrimary,
-        side: const BorderSide(color: AppPalette.borderSoft),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
-}
-
 class FearFlipApp extends StatefulWidget {
   const FearFlipApp({super.key});
 
@@ -454,7 +407,7 @@ class FearFlipApp extends StatefulWidget {
 
 class _FearFlipAppState extends State<FearFlipApp> {
   late final AppFlowProvider _flow;
-  final AdsService _restartAdsService = AdsService();
+  AdsService get _restartAdsService => AdsService.instance;
   static const List<_CharacterOption> _characterOptions = <_CharacterOption>[
     _CharacterOption(
       title: 'Steel Sentinel',
@@ -660,21 +613,6 @@ class _FearFlipAppState extends State<FearFlipApp> {
           ),
         );
       },
-    );
-  }
-
-  Future<void> _copyUrl(BuildContext context, String label, String url) async {
-    await Clipboard.setData(ClipboardData(text: url));
-    if (!context.mounted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$label URL copied'),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: AppPalette.surfaceAlt,
-      ),
     );
   }
 
@@ -1330,6 +1268,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
       MaterialPageRoute<void>(builder: (_) => const PrivacyPolicyScreen()),
     );
   }
+
   @override
   void initState() {
     super.initState();
