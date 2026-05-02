@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -39,9 +38,13 @@ class _RemoveAdsDialogState extends State<_RemoveAdsDialog>
   late final AnimationController _glitch;
   late final PurchaseService _service;
 
-  // Local UI state derived from PurchaseService + one-shot result message.
+  // One-shot result message — cleared before each new action.
   String? _resultMessage;
   bool _resultIsSuccess = false;
+
+  // Track whether a restore was explicitly triggered from this dialog
+  // (vs. a status change from a buy flow).
+  bool _restoreWasTriggered = false;
 
   @override
   void initState() {
@@ -67,49 +70,63 @@ class _RemoveAdsDialogState extends State<_RemoveAdsDialog>
     if (!mounted) return;
     final status = _service.status;
 
-    if (status == SubscriptionStatus.subscribed) {
-      setState(() {
-        _resultIsSuccess = true;
-        _resultMessage = '🎉 Subscription active! Ads have been removed.';
-      });
-    } else if (status == SubscriptionStatus.error) {
-      setState(() {
-        _resultIsSuccess = false;
-        _resultMessage =
-            _service.errorMessage.isNotEmpty
-                ? _service.errorMessage
-                : 'Purchase failed. Please try again.';
-      });
-    } else if (status == SubscriptionStatus.notSubscribed) {
-      // Restore returned nothing – show informative message.
-      if (_resultMessage == null) {
+    switch (status) {
+      case SubscriptionStatus.subscribed:
+        setState(() {
+          _resultIsSuccess = true;
+          _resultMessage = '🎉 Subscription active! Ads have been removed.';
+        });
+
+      case SubscriptionStatus.error:
         setState(() {
           _resultIsSuccess = false;
-          _resultMessage =
-              'No active subscription found for this Google account.';
+          _resultMessage = _service.errorMessage.isNotEmpty
+              ? _service.errorMessage
+              : 'Purchase failed. Please try again.';
         });
-      }
+
+      case SubscriptionStatus.notSubscribed:
+        // Only show "nothing found" when a restore was explicitly triggered
+        // AND we are no longer in the restoring state. This prevents the
+        // message appearing prematurely while the stream is still settling.
+        if (_restoreWasTriggered && !_service.isRestoring) {
+          setState(() {
+            _resultIsSuccess = false;
+            _resultMessage =
+                'No active subscription found for this Google account. '
+                'If you purchased on a different account, switch accounts in '
+                'Google Play and try again.';
+          });
+          _restoreWasTriggered = false;
+        }
+
+      case SubscriptionStatus.restoring:
+      case SubscriptionStatus.purchasing:
+      case SubscriptionStatus.initialising:
+        // Clear stale result messages while an action is in progress.
+        if (_resultMessage != null) {
+          setState(() => _resultMessage = null);
+        }
     }
   }
 
   Future<void> _onBuy() async {
-    setState(() => _resultMessage = null);
+    setState(() {
+      _resultMessage = null;
+      _restoreWasTriggered = false;
+    });
     await _service.buyRemoveAds();
-    // The stream handler in PurchaseService drives _onServiceChange.
+    // The purchase stream drives _onServiceChange from here.
   }
 
   Future<void> _onRestore() async {
-    setState(() => _resultMessage = null);
+    setState(() {
+      _resultMessage = null;
+      _restoreWasTriggered = true;
+    });
     await _service.restorePurchases();
-    // Allow a moment for the stream to fire.
-    await Future<void>.delayed(const Duration(seconds: 2));
-    // If still not subscribed after restore, show a hint.
-    if (mounted && !_service.isSubscribed && _resultMessage == null) {
-      setState(() {
-        _resultIsSuccess = false;
-        _resultMessage = 'No previous subscription found for this account.';
-      });
-    }
+    // restorePurchases() now waits for the stream internally — the status
+    // is already final when this returns, so _onServiceChange fires last.
   }
 
   @override
@@ -225,12 +242,12 @@ class _DialogContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSubscribed = service.isSubscribed;
-    final isPurchasing = service.isPurchasing;
+    final isBusy = service.isPurchasing; // covers both purchasing + restoring
     final isInitialising = service.status == SubscriptionStatus.initialising;
 
     final product = service.productDetails;
-    final priceText =
-        product != null ? product.price : '₹49/month';
+    // Show real price from Play, or "Loading…" — never a hardcoded fallback.
+    final priceText = product?.price;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -302,7 +319,10 @@ class _DialogContent extends StatelessWidget {
 
             // ── Price chip ──────────────────────────────────────────────────
             if (!isSubscribed)
-              _PriceChip(price: priceText, isInitialising: isInitialising),
+              _PriceChip(
+                price: priceText,
+                isLoading: isInitialising || (priceText == null && !isBusy),
+              ),
 
             const SizedBox(height: 16),
 
@@ -321,10 +341,14 @@ class _DialogContent extends StatelessWidget {
             if (resultMessage != null) const SizedBox(height: 12),
 
             // ── Loading indicator ────────────────────────────────────────────
-            if (isPurchasing)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: _LoadingRow(),
+            if (isBusy)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: _LoadingRow(
+                  label: service.isRestoring
+                      ? 'Checking your purchases…'
+                      : 'Processing…',
+                ),
               ),
 
             // ── CTA buttons ─────────────────────────────────────────────────
@@ -350,17 +374,15 @@ class _DialogContent extends StatelessWidget {
               // Subscribe button
               _SubscribeButton(
                 price: priceText,
-                isLoading: isPurchasing || isInitialising,
-                onPressed:
-                    (isPurchasing || isInitialising) ? () {} : onBuy,
+                isLoading: isBusy || isInitialising,
+                onPressed: (isBusy || isInitialising) ? null : onBuy,
               ),
 
               const SizedBox(height: 10),
 
               // Restore button
               OutlinedButton.icon(
-                onPressed:
-                    (isPurchasing || isInitialising) ? null : onRestore,
+                onPressed: (isBusy || isInitialising) ? null : onRestore,
                 icon: const Icon(Icons.restore_rounded, size: 18),
                 label: const Text('Restore Purchases'),
                 style: OutlinedButton.styleFrom(
@@ -430,10 +452,11 @@ class _GlowIcon extends StatelessWidget {
 }
 
 class _PriceChip extends StatelessWidget {
-  const _PriceChip({required this.price, required this.isInitialising});
+  const _PriceChip({required this.price, required this.isLoading});
 
-  final String price;
-  final bool isInitialising;
+  /// Null means price hasn't loaded yet.
+  final String? price;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -452,7 +475,7 @@ class _PriceChip extends StatelessWidget {
       child: Row(
         children: [
           const Icon(
-            Icons.currency_rupee_rounded,
+            Icons.star_rate_rounded,
             color: AppPalette.accentPink,
             size: 20,
           ),
@@ -462,9 +485,11 @@ class _PriceChip extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isInitialising ? 'Loading price…' : price,
-                  style: const TextStyle(
-                    color: AppPalette.textPrimary,
+                  price ?? 'Loading price…',
+                  style: TextStyle(
+                    color: price != null
+                        ? AppPalette.textPrimary
+                        : AppPalette.textMuted,
                     fontWeight: FontWeight.w900,
                     fontSize: 20,
                   ),
@@ -480,7 +505,7 @@ class _PriceChip extends StatelessWidget {
               ],
             ),
           ),
-          if (isInitialising)
+          if (isLoading)
             const SizedBox(
               width: 18,
               height: 18,
@@ -596,7 +621,9 @@ class _ResultBanner extends StatelessWidget {
 }
 
 class _LoadingRow extends StatelessWidget {
-  const _LoadingRow();
+  const _LoadingRow({this.label = 'Processing…'});
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -613,7 +640,7 @@ class _LoadingRow extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         Text(
-          'Processing…',
+          label,
           style: TextStyle(
             color: AppPalette.accentPink.withAlpha(200),
             fontWeight: FontWeight.w700,
@@ -632,9 +659,10 @@ class _SubscribeButton extends StatefulWidget {
     required this.onPressed,
   });
 
-  final String price;
+  final String? price;
   final bool isLoading;
-  final VoidCallback onPressed;
+  // Null when disabled (busy / initialising).
+  final VoidCallback? onPressed;
 
   @override
   State<_SubscribeButton> createState() => _SubscribeButtonState();
@@ -666,20 +694,27 @@ class _SubscribeButtonState extends State<_SubscribeButton>
 
   @override
   Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null && !widget.isLoading;
+    final priceLabel = widget.price != null
+        ? 'Subscribe · ${widget.price}/month'
+        : 'Subscribe';
+
     return GestureDetector(
-      onTapDown: (_) => _scale.reverse(),
-      onTapUp: (_) {
-        _scale.forward();
-        widget.onPressed();
-      },
-      onTapCancel: () => _scale.forward(),
+      onTapDown: enabled ? (_) => _scale.reverse() : null,
+      onTapUp: enabled
+          ? (_) {
+              _scale.forward();
+              widget.onPressed!();
+            }
+          : null,
+      onTapCancel: enabled ? () => _scale.forward() : null,
       child: ScaleTransition(
         scale: _scaleAnim,
         child: Container(
           height: 56,
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: widget.isLoading
+              colors: !enabled
                   ? [
                       AppPalette.accentPink.withAlpha(120),
                       AppPalette.accentPurple.withAlpha(120),
@@ -687,7 +722,7 @@ class _SubscribeButtonState extends State<_SubscribeButton>
                   : [AppPalette.accentPink, AppPalette.accentPurple],
             ),
             borderRadius: BorderRadius.circular(14),
-            boxShadow: widget.isLoading
+            boxShadow: !enabled
                 ? []
                 : [
                     BoxShadow(
@@ -717,7 +752,7 @@ class _SubscribeButtonState extends State<_SubscribeButton>
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'Subscribe · ${widget.price}/month',
+                      priceLabel,
                       style: const TextStyle(
                         color: Colors.black,
                         fontWeight: FontWeight.w900,

@@ -25,6 +25,10 @@ class AppRuntimeConfig {
     'INTERSTITIALS_ENABLED',
     defaultValue: true,
   );
+  static const bool bannerFeatureEnabled = bool.fromEnvironment(
+    'BANNER_ADS_ENABLED',
+    defaultValue: true,
+  );
   static const int interstitialCooldownSeconds = int.fromEnvironment(
     'INTERSTITIAL_COOLDOWN_SECONDS',
     defaultValue: 120,
@@ -32,6 +36,14 @@ class AppRuntimeConfig {
   static const int interstitialMinGameOvers = int.fromEnvironment(
     'INTERSTITIAL_MIN_GAME_OVERS',
     defaultValue: 2,
+  );
+  static const int stageClearedInterstitialInterval = int.fromEnvironment(
+    'STAGE_INTERSTITIAL_INTERVAL',
+    defaultValue: 3,
+  );
+  static const int stageClearedInterstitialCooldownSeconds = int.fromEnvironment(
+    'STAGE_INTERSTITIAL_COOLDOWN_SECONDS',
+    defaultValue: 30,
   );
   static const bool glitchEffectsEnabled = bool.fromEnvironment(
     'GLITCH_EFFECTS_ENABLED',
@@ -43,7 +55,7 @@ class AppRuntimeConfig {
   );
   static const bool _debugStageDropdown = bool.fromEnvironment(
     'DEBUG_STAGE_DROPDOWN',
-    defaultValue: false,
+    defaultValue: true,
   );
 
   /// When true, [LeaderboardNextLevelScreen] uses a real-time Firestore
@@ -71,11 +83,17 @@ class AppRuntimeConfig {
     'ADMOB_INTERSTITIAL_AD_UNIT_ID',
     defaultValue: '',
   );
+  static const String _releaseBannerAdUnitId = String.fromEnvironment(
+    'ADMOB_BANNER_AD_UNIT_ID',
+    defaultValue: '',
+  );
 
   static const String _rewardedTestId =
       'ca-app-pub-3940256099942544/5224354917';
   static const String _interstitialTestId =
       'ca-app-pub-3940256099942544/1033173712';
+  static const String _bannerTestId =
+      'ca-app-pub-3940256099942544/9214589741';
 
   static String get googleServerClientId => _googleServerClientId.trim();
 
@@ -93,6 +111,11 @@ class AppRuntimeConfig {
     testValue: _interstitialTestId,
   );
 
+  static String? get bannerAdUnitId => _resolveAdUnitId(
+    releaseValue: _releaseBannerAdUnitId,
+    testValue: _bannerTestId,
+  );
+
   static bool get rewardedAdsEnabled =>
       adsFeatureEnabled &&
       rewardedReviveFeatureEnabled &&
@@ -103,7 +126,13 @@ class AppRuntimeConfig {
       interstitialFeatureEnabled &&
       interstitialAdUnitId != null;
 
-  static bool get adsEnabled => rewardedAdsEnabled || interstitialAdsEnabled;
+  static bool get bannerAdsEnabled =>
+      adsFeatureEnabled &&
+      bannerFeatureEnabled &&
+      bannerAdUnitId != null;
+
+  static bool get adsEnabled =>
+      rewardedAdsEnabled || interstitialAdsEnabled || bannerAdsEnabled;
 
   /// Enables a deterministic Stage 1 trap hook for local/dev validation.
   ///
@@ -113,12 +142,19 @@ class AppRuntimeConfig {
   static bool get stageOneSixthTileTrapEnabled =>
       _forceStageOneTestTrap || !kReleaseMode;
 
-  /// Keeps the stage jumper hidden unless explicitly enabled in debug builds.
+  /// Shows the stage jumper in debug builds unless explicitly disabled.
   static bool get debugStageDropdownEnabled =>
       kDebugMode && _debugStageDropdown;
 
   static Duration get interstitialCooldown =>
       Duration(seconds: interstitialCooldownSeconds.clamp(30, 3600).toInt());
+
+  static int get stageClearedAdInterval =>
+      stageClearedInterstitialInterval.clamp(1, 50);
+
+  static Duration get stageClearedAdCooldown => Duration(
+    seconds: stageClearedInterstitialCooldownSeconds.clamp(30, 3600).toInt(),
+  );
 
   static List<String> productionReadinessIssues({
     bool releaseMode = kReleaseMode,

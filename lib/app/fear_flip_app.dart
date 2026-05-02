@@ -1123,101 +1123,6 @@ class _FearFlipAppState extends State<FearFlipApp> {
                                         ),
                                         const SizedBox(height: 12),
                                         _SettingsSectionCard(
-                                          title: 'Privacy & Consent',
-                                          subtitle:
-                                              'Copy policy links for Play compliance, account deletion, and ad privacy review.',
-                                          accent: AppPalette.accentPurple,
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.stretch,
-                                            children: [
-                                              _SettingsPolicyButton(
-                                                icon: Icons.privacy_tip,
-                                                label: 'Privacy Policy',
-                                                url: AppRuntimeConfig
-                                                    .privacyPolicyUrl,
-                                                onCopy: () => _copyUrl(
-                                                  context,
-                                                  'Privacy Policy',
-                                                  AppRuntimeConfig
-                                                      .privacyPolicyUrl,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              _SettingsPolicyButton(
-                                                icon: Icons.description,
-                                                label: 'Terms',
-                                                url: AppRuntimeConfig.termsUrl,
-                                                onCopy: () => _copyUrl(
-                                                  context,
-                                                  'Terms',
-                                                  AppRuntimeConfig.termsUrl,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              _SettingsPolicyButton(
-                                                icon: Icons.delete_forever,
-                                                label:
-                                                    'Account Deletion Web Form',
-                                                url: AppRuntimeConfig
-                                                    .accountDeletionUrl,
-                                                onCopy: () => _copyUrl(
-                                                  context,
-                                                  'Account Deletion',
-                                                  AppRuntimeConfig
-                                                      .accountDeletionUrl,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              FilledButton.icon(
-                                                icon: const Icon(
-                                                  Icons.tune_rounded,
-                                                ),
-                                                label: const Text(
-                                                  'Manage Ad Privacy Choices',
-                                                ),
-                                                style: FilledButton.styleFrom(
-                                                  minimumSize:
-                                                      const Size.fromHeight(48),
-                                                  backgroundColor:
-                                                      AppPalette.accentPurple,
-                                                  foregroundColor: Colors.black,
-                                                  textStyle: const TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                  ),
-                                                ),
-                                                onPressed: () async {
-                                                  final shown =
-                                                      await ConsentService
-                                                          .instance
-                                                          .showPrivacyOptions();
-                                                  if (!context.mounted) {
-                                                    return;
-                                                  }
-                                                  ScaffoldMessenger.of(
-                                                    context,
-                                                  ).showSnackBar(
-                                                    SnackBar(
-                                                      content: Text(
-                                                        shown
-                                                            ? 'Ad privacy options updated.'
-                                                            : 'Ad privacy options are unavailable right now.',
-                                                      ),
-                                                      behavior: SnackBarBehavior
-                                                          .floating,
-                                                      backgroundColor: shown
-                                                          ? AppPalette
-                                                                .surfaceAlt
-                                                          : AppPalette.danger,
-                                                    ),
-                                                  );
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        _SettingsSectionCard(
                                           title: 'Account',
                                           subtitle:
                                               'Sign out or request account and cloud data deletion.',
@@ -1436,6 +1341,11 @@ class _FearFlipAppState extends State<FearFlipApp> {
       ),
     );
     unawaited(_restartAdsService.preload());
+    // The stage-cleared interstitial path uses game.adsService (via
+    // AppFlowProvider.onStageCleared), which is a separate AdsService
+    // instance from _restartAdsService.  Preload it so the ad is ready
+    // when the player completes every 3rd stage.
+    unawaited(_flow.game.adsService.preload());
   }
 
   @override
@@ -1503,6 +1413,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
                     playerName: _flow.playerName,
                     totalTrophies: _flow.totalTrophies,
                     globalPanicRank: _flow.globalPanicRank,
+                    adsService: _restartAdsService,
                   ),
               ],
             ),

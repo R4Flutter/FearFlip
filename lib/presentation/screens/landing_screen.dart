@@ -1,7 +1,10 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../services/ads_service.dart';
+import '../../services/purchase_service.dart';
 import '../theme/app_palette.dart';
 
 class LandingScreen extends StatefulWidget {
@@ -16,6 +19,7 @@ class LandingScreen extends StatefulWidget {
     required this.playerName,
     required this.totalTrophies,
     required this.globalPanicRank,
+    required this.adsService,
     super.key,
   });
 
@@ -29,6 +33,7 @@ class LandingScreen extends StatefulWidget {
   final String playerName;
   final int totalTrophies;
   final int? globalPanicRank;
+  final AdsService adsService;
 
   @override
   State<LandingScreen> createState() => _LandingScreenState();
@@ -45,16 +50,23 @@ class _LandingScreenState extends State<LandingScreen>
       vsync: this,
       duration: const Duration(milliseconds: 5600),
     )..repeat();
+
+    // Load the banner ad for the dashboard.
+    widget.adsService.loadBanner();
   }
 
   @override
   void dispose() {
     _loop.dispose();
+    widget.adsService.disposeBanner();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final showBanner = !PurchaseService.instance.isSubscribed &&
+        widget.adsService.bannerAd != null;
+
     return AnimatedBuilder(
       animation: _loop,
       builder: (context, _) {
@@ -70,196 +82,217 @@ class _LandingScreenState extends State<LandingScreen>
               stops: [0.5, 0.5],
             ),
           ),
-          child: Stack(
-            fit: StackFit.expand,
+          child: Column(
             children: [
-              CustomPaint(painter: _GridGlitchPainter(progress: progress)),
-              IgnorePointer(
-                child: Opacity(
-                  opacity: pulse.clamp(0.72, 1),
-                  child: Align(
-                    alignment: const Alignment(0, -0.82),
-                    child: Container(
-                      width: 560,
-                      height: 260,
-                      decoration: const BoxDecoration(
-                        gradient: RadialGradient(
-                          colors: [
-                            Color(0x66E26AE6),
-                            Color(0x5533FF2B),
-                            Color(0x00FFFFFF),
-                          ],
-                        ),
-                      ),
+              // ── Main scrollable content ──────────────────────────────
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CustomPaint(
+                      painter: _GridGlitchPainter(progress: progress),
                     ),
-                  ),
-                ),
-              ),
-              SafeArea(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final compact = constraints.maxWidth < 540;
-                    final widthScale = (constraints.maxWidth / 390)
-                        .clamp(0.86, 1.18)
-                        .toDouble();
-                    final topBreathingSpace = (constraints.maxHeight * 0.07)
-                        .clamp(28.0, 72.0)
-                        .toDouble();
-                    final actionSectionDrop = (constraints.maxHeight * 0.10)
-                        .clamp(52.0, 110.0)
-                        .toDouble();
-                    final actionGap = (constraints.maxHeight * 0.022)
-                        .clamp(16.0, 24.0)
-                        .toDouble();
-
-                    return SingleChildScrollView(
-                      padding: EdgeInsets.fromLTRB(
-                        compact ? 14 : 22,
-                        topBreathingSpace,
-                        compact ? 14 : 22,
-                        36,
-                      ),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 760),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _TopMetaBar(
-                                widthScale: widthScale,
-                                playerName: widget.playerName,
-                                totalTrophies: widget.totalTrophies,
-                              ),
-                              SizedBox(
-                                height: (constraints.maxHeight * 0.02)
-                                    .clamp(10.0, 22.0)
-                                    .toDouble(),
-                              ),
-                              _GlitchWordmark(progress: progress),
-                              SizedBox(height: actionSectionDrop),
-                              _DashboardActionButton(
-                                label: widget.isStarting
-                                    ? 'LOADING...'
-                                    : 'START SURVIVAL',
-                                sublabel:
-                                    'Enter active run mode and start your survival chain',
-                                icon: Icons.play_arrow_rounded,
-                                color: AppPalette.accentPink,
-                                foreground: Colors.black,
-                                enabled: !widget.isStarting,
-                                onPressed: widget.onPlay,
-                              ),
-                              SizedBox(height: actionGap),
-                              _DashboardActionButton(
-                                label: 'CHOOSE CHARACTER',
-                                sublabel:
-                                    'Select your runner before entering the maze',
-                                icon: Icons.person,
-                                color: AppPalette.neonGreen,
-                                foreground: Colors.black,
-                                enabled: true,
-                                onPressed: widget.onChooseCharacter,
-                              ),
-                              SizedBox(height: actionGap),
-                              _DashboardActionButton(
-                                label: 'SETTINGS',
-                                sublabel:
-                                    'Tune controls, input style, and session preferences',
-                                icon: Icons.settings,
-                                color: AppPalette.accentPurple,
-                                foreground: Colors.black,
-                                enabled: true,
-                                onPressed: widget.onSettings,
-                              ),
-                              SizedBox(height: actionGap),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: widget.onLeaderboard,
-                                      icon: const Icon(Icons.emoji_events),
-                                      label: const Text('Leaderboard'),
-                                      style: ElevatedButton.styleFrom(
-                                        minimumSize: const Size.fromHeight(56),
-                                        backgroundColor: AppPalette.neonGreen,
-                                        foregroundColor: Colors.black,
-                                        textStyle: const TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 14,
-                                          letterSpacing: 0.2,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: widget.onRemoveAds,
-                                      icon: const Icon(Icons.block),
-                                      label: const Text('Remove Ads'),
-                                      style: ElevatedButton.styleFrom(
-                                        minimumSize: const Size.fromHeight(56),
-                                        backgroundColor: AppPalette.accentPink,
-                                        foregroundColor: Colors.black,
-                                        textStyle: const TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 14,
-                                          letterSpacing: 0.2,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                    IgnorePointer(
+                      child: Opacity(
+                        opacity: pulse.clamp(0.72, 1),
+                        child: Align(
+                          alignment: const Alignment(0, -0.82),
+                          child: Container(
+                            width: 560,
+                            height: 260,
+                            decoration: const BoxDecoration(
+                              gradient: RadialGradient(
+                                colors: [
+                                  Color(0x66E26AE6),
+                                  Color(0x5533FF2B),
+                                  Color(0x00FFFFFF),
                                 ],
                               ),
-                              SizedBox(
-                                height: (constraints.maxHeight * 0.03)
-                                    .clamp(22.0, 38.0)
-                                    .toDouble(),
-                              ),
-                              _RankPanel(
-                                widthScale: widthScale,
-                                globalPanicRank: widget.globalPanicRank,
-                              ),
-                              const SizedBox(height: 32),
-                            ],
+                            ),
                           ),
                         ),
                       ),
-                    );
-                  },
-                ),
-              ),
-              SafeArea(
-                child: Align(
-                  alignment: Alignment.bottomRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 18, bottom: 18),
-                    child: FloatingActionButton.extended(
-                      heroTag: 'landing_privacy_fab',
-                      onPressed: widget.onPrivacyPolicy,
-                      tooltip: 'Privacy Policy',
-                      icon: const Icon(Icons.privacy_tip_outlined),
-                      label: const Text('Privacy'),
-                      backgroundColor: AppPalette.neonGreen,
-                      foregroundColor: Colors.black,
-                      elevation: 4,
-                      extendedPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
+                    ),
+                    SafeArea(
+                      bottom: false,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final compact = constraints.maxWidth < 540;
+                          final widthScale = (constraints.maxWidth / 390)
+                              .clamp(0.86, 1.18)
+                              .toDouble();
+                          final topBreathingSpace =
+                              (constraints.maxHeight * 0.05)
+                                  .clamp(18.0, 52.0)
+                                  .toDouble();
+                          final actionSectionDrop =
+                              (constraints.maxHeight * 0.06)
+                                  .clamp(28.0, 72.0)
+                                  .toDouble();
+                          final actionGap = (constraints.maxHeight * 0.018)
+                              .clamp(10.0, 18.0)
+                              .toDouble();
+
+                          return SingleChildScrollView(
+                            padding: EdgeInsets.fromLTRB(
+                              compact ? 14 : 22,
+                              topBreathingSpace,
+                              compact ? 14 : 22,
+                              20,
+                            ),
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints:
+                                    const BoxConstraints(maxWidth: 760),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _TopMetaBar(
+                                      widthScale: widthScale,
+                                      playerName: widget.playerName,
+                                      totalTrophies: widget.totalTrophies,
+                                    ),
+                                    SizedBox(
+                                      height: (constraints.maxHeight * 0.015)
+                                          .clamp(8.0, 16.0)
+                                          .toDouble(),
+                                    ),
+                                    _GlitchWordmark(progress: progress),
+                                    SizedBox(height: actionSectionDrop),
+                                    _DashboardActionButton(
+                                      label: widget.isStarting
+                                          ? 'LOADING...'
+                                          : 'START SURVIVAL',
+                                      sublabel:
+                                          'Enter active run mode and start your survival chain',
+                                      icon: Icons.play_arrow_rounded,
+                                      color: AppPalette.accentPink,
+                                      foreground: Colors.black,
+                                      enabled: !widget.isStarting,
+                                      onPressed: widget.onPlay,
+                                    ),
+                                    SizedBox(height: actionGap),
+                                    _DashboardActionButton(
+                                      label: 'CHOOSE CHARACTER',
+                                      sublabel:
+                                          'Select your runner before entering the maze',
+                                      icon: Icons.person,
+                                      color: AppPalette.neonGreen,
+                                      foreground: Colors.black,
+                                      enabled: true,
+                                      onPressed: widget.onChooseCharacter,
+                                    ),
+                                    SizedBox(height: actionGap),
+                                    _DashboardActionButton(
+                                      label: 'SETTINGS',
+                                      sublabel:
+                                          'Tune controls, input style, and session preferences',
+                                      icon: Icons.settings,
+                                      color: AppPalette.accentPurple,
+                                      foreground: Colors.black,
+                                      enabled: true,
+                                      onPressed: widget.onSettings,
+                                    ),
+                                    SizedBox(height: actionGap),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: widget.onLeaderboard,
+                                            icon: const Icon(
+                                              Icons.emoji_events,
+                                            ),
+                                            label:
+                                                const Text('Leaderboard'),
+                                            style:
+                                                ElevatedButton.styleFrom(
+                                              minimumSize:
+                                                  const Size.fromHeight(
+                                                    56,
+                                                  ),
+                                              backgroundColor:
+                                                  AppPalette.neonGreen,
+                                              foregroundColor: Colors.black,
+                                              textStyle: const TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 14,
+                                                letterSpacing: 0.2,
+                                              ),
+                                              shape:
+                                                  RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                      10,
+                                                    ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: widget.onRemoveAds,
+                                            icon:
+                                                const Icon(Icons.block),
+                                            label:
+                                                const Text('Remove Ads'),
+                                            style:
+                                                ElevatedButton.styleFrom(
+                                              minimumSize:
+                                                  const Size.fromHeight(
+                                                    56,
+                                                  ),
+                                              backgroundColor:
+                                                  AppPalette.accentPink,
+                                              foregroundColor: Colors.black,
+                                              textStyle: const TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 14,
+                                                letterSpacing: 0.2,
+                                              ),
+                                              shape:
+                                                  RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                      10,
+                                                    ),
+                                                  ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    SizedBox(
+                                      height: (constraints.maxHeight * 0.02)
+                                          .clamp(14.0, 24.0)
+                                          .toDouble(),
+                                    ),
+                                    _RankPanel(
+                                      widthScale: widthScale,
+                                      globalPanicRank:
+                                          widget.globalPanicRank,
+                                    ),
+                                    const SizedBox(height: 18),
+                                    // ── Inline privacy / terms links ───
+                                    _LegalFooter(
+                                      onPrivacyPolicy:
+                                          widget.onPrivacyPolicy,
+                                    ),
+                                    const SizedBox(height: 12),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ),
+              // ── Banner ad pinned to bottom ───────────────────────────
+              if (showBanner) _BannerAdBar(ad: widget.adsService.bannerAd!),
             ],
           ),
         );
@@ -267,6 +300,96 @@ class _LandingScreenState extends State<LandingScreen>
     );
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Legal footer – subtle, Play Store compliant
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _LegalFooter extends StatelessWidget {
+  const _LegalFooter({required this.onPrivacyPolicy});
+
+  final VoidCallback onPrivacyPolicy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        GestureDetector(
+          onTap: onPrivacyPolicy,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.shield_outlined,
+                size: 13,
+                color: AppPalette.textMuted.withAlpha(160),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                'Privacy Policy & Terms',
+                style: TextStyle(
+                  color: AppPalette.textMuted.withAlpha(160),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  decoration: TextDecoration.underline,
+                  decorationColor: AppPalette.textMuted.withAlpha(80),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Banner ad bar – pinned to bottom, themed to blend with the dark UI
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _BannerAdBar extends StatelessWidget {
+  const _BannerAdBar({required this.ad});
+
+  final BannerAd ad;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).padding.bottom;
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFF0A0A0A),
+      padding: EdgeInsets.only(bottom: bottomPad),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            height: 1,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppPalette.accentPurple.withAlpha(0),
+                  AppPalette.accentPurple.withAlpha(90),
+                  AppPalette.neonGreen.withAlpha(90),
+                  AppPalette.neonGreen.withAlpha(0),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(
+            width: ad.size.width.toDouble(),
+            height: ad.size.height.toDouble(),
+            child: AdWidget(ad: ad),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sub-widgets (unchanged functionally, cleaned up)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 class _TopMetaBar extends StatelessWidget {
   const _TopMetaBar({
@@ -680,10 +803,8 @@ class _GridGlitchPainter extends CustomPainter {
     final glitchPaint = Paint()..color = AppPalette.accentPurple.withAlpha(80);
     for (var i = 0; i < 6; i++) {
       final wave = progress * math.pi * (8 + i * 2.4);
-      final top = (size.height * (0.12 + 0.14 * i) + math.sin(wave) * 17).clamp(
-        0.0,
-        size.height - 4,
-      );
+      final top = (size.height * (0.12 + 0.14 * i) + math.sin(wave) * 17)
+          .clamp(0.0, size.height - 4);
       final left = (size.width * (0.08 + i * 0.03) + math.cos(wave * 1.3) * 26)
           .clamp(0.0, size.width - 100);
       final width = (size.width * (0.23 + i * 0.05)).clamp(

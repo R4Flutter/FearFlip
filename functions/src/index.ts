@@ -19,8 +19,8 @@
  *   • The purchase token is validated server-side against the Play Developer API.
  *   • Subscription state is persisted in Firestore under
  *     `subscriptions/{uid}` — the Flutter client never writes this document.
- *   • Replay attacks are mitigated by storing the last-verified token;
- *     re-submitting the same token simply returns the cached result.
+ *   • Replay attacks are mitigated: re-submitting the same token within
+ *     5 minutes returns the cached result; after 5 minutes Play is re-queried.
  *
  * ── Prerequisites ─────────────────────────────────────────────────────────────
  *
@@ -31,9 +31,9 @@
  *   2. Grant the service account "View financial data" permissions in
  *      Google Play Console → Setup → API access.
  *
- *   3. Set the package name config:
- *        firebase functions:config:set app.package_name="dev.fearflip.game"
- *      Or use environment variables (see below).
+ *   3. Set the package name via environment variable:
+ *        firebase functions:secrets:set FEARFLIP_PACKAGE_NAME
+ *      OR pass it as a runtime env var in firebase.json / GCP console.
  */
 
 import * as functions from "firebase-functions";
@@ -45,11 +45,10 @@ import {google} from "googleapis";
 admin.initializeApp();
 const db = admin.firestore();
 
-// Android package name — set via Firebase environment config or fallback.
+// Android package name resolved from environment (preferred) then hardcoded
+// fallback so local emulator runs still work.
 const PACKAGE_NAME =
-  process.env.FEARFLIP_PACKAGE_NAME ||
-  functions.config()?.app?.package_name ||
-  "dev.fearflip.game";
+  process.env.FEARFLIP_PACKAGE_NAME ?? "dev.fearflip.game";
 
 const SUBSCRIPTION_ID = "remove_ads_monthly";
 
@@ -60,13 +59,12 @@ const SUBSCRIPTION_ID = "remove_ads_monthly";
  *
  * Auth is resolved in order:
  *   1. `functions/service-account.json` (local dev / CI)
- *   2. Application Default Credentials (Cloud Functions runtime)
+ *   2. Application Default Credentials (Cloud Functions runtime on GCP)
  */
 async function getPlayClient() {
   let auth: InstanceType<typeof google.auth.GoogleAuth>;
 
   try {
-    // Try explicit service-account key first (local development).
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const key = require("../service-account.json");
     auth = new google.auth.GoogleAuth({
@@ -74,7 +72,6 @@ async function getPlayClient() {
       scopes: ["https://www.googleapis.com/auth/androidpublisher"],
     });
   } catch {
-    // Fall back to Application Default Credentials (deployed on GCP).
     auth = new google.auth.GoogleAuth({
       scopes: ["https://www.googleapis.com/auth/androidpublisher"],
     });
@@ -204,18 +201,28 @@ export const verifySubscription = functions.https.onCall(
     }
 
     // ── Replay-attack mitigation ──────────────────────────────────────────
-    // If we've already verified this exact token for this user, return the
-    // cached result instead of hitting Play again.
+    // If we verified this exact token within the last 5 minutes AND it's
+    // still before expiry, return the cached result to avoid hitting Play.
     const existing = await getSubscriptionRecord(uid);
+    const now = Date.now();
+    const fiveMinutes = 5 * 60 * 1000;
+
     if (existing && existing.purchaseToken === purchaseToken) {
-      // Re-check expiry against current time.
-      const stillActive = existing.expiryTimeMillis > Date.now() &&
-        (existing.paymentState === 1 || existing.paymentState === 2);
-      return {
-        isActive: stillActive,
-        expiryTimeMillis: existing.expiryTimeMillis,
-        autoRenewing: existing.autoRenewing,
-      };
+      const lastVerified = new Date(existing.lastVerifiedAt).getTime();
+      const recentlyVerified = now - lastVerified < fiveMinutes;
+      const notExpired = existing.expiryTimeMillis > now;
+
+      if (recentlyVerified && notExpired) {
+        functions.logger.info(
+          `[verifySubscription] Returning cached result for uid=${uid}`
+        );
+        return {
+          isActive: existing.isActive,
+          expiryTimeMillis: existing.expiryTimeMillis,
+          autoRenewing: existing.autoRenewing,
+          cached: true,
+        };
+      }
     }
 
     // ── Verify with Google Play ───────────────────────────────────────────
@@ -244,6 +251,7 @@ export const verifySubscription = functions.https.onCall(
         isActive: result.isActive,
         expiryTimeMillis: result.expiryTimeMillis,
         autoRenewing: result.autoRenewing,
+        cached: false,
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -252,7 +260,7 @@ export const verifySubscription = functions.https.onCall(
       );
       throw new functions.https.HttpsError(
         "internal",
-        "Failed to verify subscription with Google Play."
+        "Failed to verify subscription with Google Play. Please try again."
       );
     }
   }
@@ -268,7 +276,7 @@ export const verifySubscription = functions.https.onCall(
  * Request payload: (none)
  *
  * Response payload:
- *   { isActive: boolean, expiryTimeMillis: number, autoRenewing: boolean }
+ *   { isActive: boolean, expiryTimeMillis: number, autoRenewing: boolean, cached?: boolean }
  */
 export const checkSubscriptionStatus = functions.https.onCall(
   async (_data, context) => {
@@ -284,29 +292,48 @@ export const checkSubscriptionStatus = functions.https.onCall(
     // ── Check Firestore for existing record ───────────────────────────────
     const existing = await getSubscriptionRecord(uid);
     if (!existing || !existing.purchaseToken) {
-      // No subscription record found — user never subscribed.
+      // No subscription record found — user never subscribed on this account.
       return {
         isActive: false,
         expiryTimeMillis: 0,
         autoRenewing: false,
+        cached: false,
       };
     }
 
-    // ── Quick expiry check without hitting Play ───────────────────────────
-    // If we verified recently (within 5 minutes) and the subscription is
-    // still before expiry, return cached result to reduce API calls.
-    const lastVerified = new Date(existing.lastVerifiedAt).getTime();
-    const fiveMinutes = 5 * 60 * 1000;
     const now = Date.now();
 
-    if (
-      now - lastVerified < fiveMinutes &&
-      existing.expiryTimeMillis > now
-    ) {
+    // ── Quick expiry check — if already expired, no need to hit Play ──────
+    if (existing.expiryTimeMillis <= now) {
+      // Mark as inactive in Firestore so future checks skip Play too.
+      if (existing.isActive) {
+        await writeSubscriptionRecord(uid, {
+          ...existing,
+          isActive: false,
+          lastVerifiedAt: new Date().toISOString(),
+        });
+      }
+      return {
+        isActive: false,
+        expiryTimeMillis: existing.expiryTimeMillis,
+        autoRenewing: existing.autoRenewing,
+        cached: false,
+      };
+    }
+
+    // ── Skip Play if verified within the last 5 minutes ───────────────────
+    const lastVerified = new Date(existing.lastVerifiedAt).getTime();
+    const fiveMinutes = 5 * 60 * 1000;
+
+    if (now - lastVerified < fiveMinutes) {
+      functions.logger.info(
+        `[checkSubscriptionStatus] Recent verification cache hit for uid=${uid}`
+      );
       return {
         isActive: existing.isActive,
         expiryTimeMillis: existing.expiryTimeMillis,
         autoRenewing: existing.autoRenewing,
+        cached: true,
       };
     }
 
@@ -336,6 +363,7 @@ export const checkSubscriptionStatus = functions.https.onCall(
         isActive: result.isActive,
         expiryTimeMillis: result.expiryTimeMillis,
         autoRenewing: result.autoRenewing,
+        cached: false,
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -344,10 +372,12 @@ export const checkSubscriptionStatus = functions.https.onCall(
       );
 
       // ── Graceful fallback ──────────────────────────────────────────────
-      // If Play API is down, return cached status with an indicator.
-      // The client uses a grace period to decide trust level.
+      // If Play API is temporarily down, return cached status with indicator.
+      // The Flutter client uses a grace period to decide whether to trust it.
+      const cachedActive =
+        existing.isActive && existing.expiryTimeMillis > now;
       return {
-        isActive: existing.isActive && existing.expiryTimeMillis > Date.now(),
+        isActive: cachedActive,
         expiryTimeMillis: existing.expiryTimeMillis,
         autoRenewing: existing.autoRenewing,
         cached: true,

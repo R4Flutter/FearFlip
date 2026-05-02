@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../config/app_runtime_config.dart';
@@ -17,6 +18,10 @@ class AdsService {
                 .interstitialMinGameOvers
                 .clamp(1, 10)
                 .toInt(),
+            stageClearedInterstitialInterval:
+                AppRuntimeConfig.stageClearedAdInterval,
+            stageClearedInterstitialCooldown:
+                AppRuntimeConfig.stageClearedAdCooldown,
           ),
       _clock = clock ?? DateTime.now;
 
@@ -25,6 +30,8 @@ class AdsService {
 
   RewardedAd? _rewardedAd;
   InterstitialAd? _interstitialAd;
+  BannerAd? _bannerAd;
+  bool _bannerLoading = false;
 
   /// Whether ads are suppressed because the user has an active subscription.
   bool get _subscriberBlocked => PurchaseService.instance.isSubscribed;
@@ -39,6 +46,55 @@ class AdsService {
       if (AppRuntimeConfig.rewardedAdsEnabled) _loadRewarded(),
       if (AppRuntimeConfig.interstitialAdsEnabled) _loadInterstitial(),
     ]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Banner ad
+  // ---------------------------------------------------------------------------
+
+  /// The currently loaded banner ad, or null if not yet ready.
+  BannerAd? get bannerAd => _bannerAd;
+
+  /// Loads a banner ad.  Call once when the dashboard mounts.
+  Future<void> loadBanner() async {
+    if (_subscriberBlocked ||
+        !AppRuntimeConfig.bannerAdsEnabled ||
+        !ConsentService.instance.canRequestAds ||
+        _bannerLoading) {
+      return;
+    }
+
+    final adUnitId = AppRuntimeConfig.bannerAdUnitId;
+    if (adUnitId == null) {
+      return;
+    }
+
+    _bannerLoading = true;
+    _bannerAd = BannerAd(
+      adUnitId: adUnitId,
+      size: AdSize.banner, // 320×50 standard
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (_) {
+          debugPrint('[AdsService] Banner loaded');
+          _bannerLoading = false;
+        },
+        onAdFailedToLoad: (ad, error) {
+          debugPrint('[AdsService] Banner failed: ${error.message}');
+          ad.dispose();
+          _bannerAd = null;
+          _bannerLoading = false;
+        },
+      ),
+    );
+    await _bannerAd!.load();
+  }
+
+  /// Disposes the banner ad.  Call when the dashboard unmounts.
+  void disposeBanner() {
+    _bannerAd?.dispose();
+    _bannerAd = null;
+    _bannerLoading = false;
   }
 
   Future<void> _loadRewarded() {
@@ -83,9 +139,13 @@ class AdsService {
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _interstitialAd = ad;
+          debugPrint('[AdsService] Ad Loaded');
           c.complete();
         },
-        onAdFailedToLoad: (_) => c.complete(),
+        onAdFailedToLoad: (error) {
+          debugPrint('[AdsService] Ad Failed: ${error.message}');
+          c.complete();
+        },
       ),
     );
     return c.future;
@@ -167,9 +227,77 @@ class AdsService {
     return true;
   }
 
+  // ---------------------------------------------------------------------------
+  // Stage-cleared interstitial
+  // ---------------------------------------------------------------------------
+
+  /// True when an interstitial ad is loaded and ready to display.
+  bool get isInterstitialReady => _interstitialAd != null;
+
+  /// Call this immediately after a stage completion screen is shown.
+  ///
+  /// Shows an interstitial ad when:
+  ///   • [clearedStage] is a multiple of the configured interval (default 3)
+  ///   • The 30-second cooldown since the last stage ad has elapsed
+  ///   • No subscriber block, no consent block, and ads are enabled
+  ///   • An ad is already loaded (silent skip when not ready — no crash)
+  ///
+  /// After the ad is dismissed, the next ad is preloaded automatically.
+  Future<void> showInterstitialAfterStageCleared(int clearedStage) async {
+    if (_subscriberBlocked ||
+        !AppRuntimeConfig.interstitialAdsEnabled ||
+        !ConsentService.instance.canRequestAds) {
+      debugPrint('[AdsService] Ad Skipped (subscriber/consent blocked)');
+      return;
+    }
+
+    if (!_placementPolicy.canShowInterstitialForStage(
+      clearedStage,
+      _clock(),
+    )) {
+      debugPrint(
+        '[AdsService] Ad Skipped (cooldown/not ready) '
+        '— stage=$clearedStage',
+      );
+      return;
+    }
+
+    final ad = _interstitialAd;
+    if (ad == null) {
+      debugPrint(
+        '[AdsService] Ad Skipped (not loaded) — preloading for next time',
+      );
+      unawaited(_loadInterstitial());
+      return;
+    }
+
+    _placementPolicy.recordStageClearedInterstitialShown(_clock());
+
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdShowedFullScreenContent: (_) {
+        debugPrint('[AdsService] Ad Shown — stage=$clearedStage');
+      },
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _interstitialAd = null;
+        debugPrint('[AdsService] Ad Dismissed — preloading next');
+        unawaited(_loadInterstitial());
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        ad.dispose();
+        _interstitialAd = null;
+        debugPrint('[AdsService] Ad Failed to show: ${error.message}');
+        unawaited(_loadInterstitial());
+      },
+    );
+
+    ad.show();
+  }
+
   void dispose() {
     _rewardedAd?.dispose();
     _interstitialAd?.dispose();
+    disposeBanner();
     _rewardedAd = null;
     _interstitialAd = null;
   }

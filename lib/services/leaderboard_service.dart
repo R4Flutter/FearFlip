@@ -54,20 +54,23 @@ abstract class LeaderboardService {
   Future<void> upsertGlobalPanicProgress({
     required int maxStage,
     required int totalTrophies,
+    /// The player's in-game display name. Provided by the caller so that
+    /// guest names (stored only locally) are written to Firestore correctly.
+    String? playerName,
   });
 
-  Future<LeaderboardSnapshot> getGlobalPanicLeaderboard({int limit = 20});
+  Future<LeaderboardSnapshot> getGlobalPanicLeaderboard({int limit = 30});
 
   /// Emits an updated [LeaderboardSnapshot] every time the Global Panic
   /// profiles collection changes in Firestore. The stream immediately yields
   /// a cached snapshot (if one exists) so the UI never starts blank.
-  Stream<LeaderboardSnapshot> globalPanicLeaderboardStream({int limit = 20});
+  Stream<LeaderboardSnapshot> globalPanicLeaderboardStream({int limit = 30});
 
   Future<int?> getGlobalPanicRank();
 
   Future<LeaderboardSnapshot> getLeaderboard({
     required String mode,
-    int limit = 20,
+    int limit = 30,
   });
 }
 
@@ -84,13 +87,14 @@ class StubLeaderboardService implements LeaderboardService {
   Future<void> upsertGlobalPanicProgress({
     required int maxStage,
     required int totalTrophies,
+    String? playerName,
   }) async {
     // Intentionally no-op in local/offline mode.
   }
 
   @override
   Future<LeaderboardSnapshot> getGlobalPanicLeaderboard({
-    int limit = 20,
+    int limit = 30,
   }) async {
     // StubLeaderboardService intentionally returns empty data.
     // Dummy names only existed for UI preview; with a real Firebase project
@@ -105,7 +109,7 @@ class StubLeaderboardService implements LeaderboardService {
 
   @override
   Stream<LeaderboardSnapshot> globalPanicLeaderboardStream({
-    int limit = 20,
+    int limit = 30,
   }) {
     return Stream.fromFuture(getGlobalPanicLeaderboard(limit: limit));
   }
@@ -118,7 +122,7 @@ class StubLeaderboardService implements LeaderboardService {
   @override
   Future<LeaderboardSnapshot> getLeaderboard({
     required String mode,
-    int limit = 20,
+    int limit = 30,
   }) async {
     final safeMode = _sanitizeMode(mode);
     return LeaderboardSnapshot(
@@ -233,7 +237,7 @@ class FirestoreLeaderboardService implements LeaderboardService {
   @override
   Future<LeaderboardSnapshot> getLeaderboard({
     required String mode,
-    int limit = 20,
+    int limit = 30,
   }) async {
     final safeMode = _sanitizeMode(mode);
     final safeLimit = limit.clamp(1, 100).toInt();
@@ -316,16 +320,28 @@ class FirestoreLeaderboardService implements LeaderboardService {
   Future<void> upsertGlobalPanicProgress({
     required int maxStage,
     required int totalTrophies,
+    String? playerName,
   }) async {
     final user = _auth.currentUser;
     final uid = user?.uid;
+
+    // Guests who completed anonymous sign-in still get a uid.
+    // Pure offline guests (no network at all) have no uid — skip quietly;
+    // their progress is still tracked locally by AppFlowProvider.
     if (uid == null) {
+      debugPrint('[LeaderboardService] upsertGlobalPanicProgress: no uid — skipping (pure offline guest).');
       return;
     }
 
     final safeStage = maxStage.clamp(1, 9999).toInt();
     final safeTrophies = totalTrophies.clamp(0, 9999999).toInt();
-    final displayName = _bestDisplayName(user);
+
+    // Prefer the caller-supplied name (in-game name chosen by the player)
+    // so guests appear with their actual chosen name, not 'Guest'.
+    final displayName = (playerName?.trim().isNotEmpty ?? false)
+        ? playerName!.trim()
+        : _bestDisplayName(user);
+
     final now = FieldValue.serverTimestamp();
     final profileRef = _globalPanicProfiles().doc(uid);
 
@@ -336,19 +352,20 @@ class FirestoreLeaderboardService implements LeaderboardService {
       final previousTrophies =
           (previous?['totalTrophies'] as num?)?.toInt() ?? 0;
 
-      final resolvedStage = previousStage > safeStage
-          ? previousStage
-          : safeStage;
-      final resolvedTrophies = previousTrophies > safeTrophies
-          ? previousTrophies
-          : safeTrophies;
+      // Only move scores forward — never regress on a reinstall/restore.
+      final resolvedStage =
+          previousStage > safeStage ? previousStage : safeStage;
+      final resolvedTrophies =
+          previousTrophies > safeTrophies ? previousTrophies : safeTrophies;
 
+      // Always refresh the displayName in case the user renamed themselves.
       await profileRef.set(<String, Object?>{
         'uid': uid,
         'displayName': displayName,
         'maxStage': resolvedStage,
         'totalTrophies': resolvedTrophies,
         'updatedAt': now,
+        'isGuest': user?.isAnonymous ?? false,
       }, SetOptions(merge: true));
     } catch (error, stackTrace) {
       await _reportFailure(
@@ -368,7 +385,7 @@ class FirestoreLeaderboardService implements LeaderboardService {
   // ── Stream API ─────────────────────────────────────────────────────────────
 
   @override
-  Stream<LeaderboardSnapshot> globalPanicLeaderboardStream({int limit = 20}) {
+  Stream<LeaderboardSnapshot> globalPanicLeaderboardStream({int limit = 30}) {
     final safeLimit = limit.clamp(1, 100).toInt();
     final profiles = _globalPanicProfiles();
 
@@ -488,7 +505,7 @@ class FirestoreLeaderboardService implements LeaderboardService {
 
   @override
   Future<LeaderboardSnapshot> getGlobalPanicLeaderboard({
-    int limit = 20,
+    int limit = 30,
   }) async {
     final safeLimit = limit.clamp(1, 100).toInt();
     final user = _auth.currentUser;

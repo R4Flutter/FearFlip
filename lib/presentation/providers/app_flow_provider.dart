@@ -552,6 +552,11 @@ class AppFlowProvider extends ChangeNotifier {
     }
 
     await _syncGlobalPanicProgress();
+
+    // Show a stage-cleared interstitial on every Nth stage (default: 3).
+    // Fire-and-forget so the ad overlay never blocks the GameScreen state
+    // machine that is already waiting for this Future to resolve.
+    unawaited(game.adsService.showInterstitialAfterStageCleared(clearedStage));
   }
 
   Future<void> _syncGlobalPanicProgress() async {
@@ -559,6 +564,9 @@ class AppFlowProvider extends ChangeNotifier {
       await game.leaderboardService.upsertGlobalPanicProgress(
         maxStage: _maxStageReached,
         totalTrophies: _totalTrophies,
+        // Pass the in-game display name so guests appear with their chosen
+        // name (e.g. "SpeedRunner7") rather than the generic "Guest" fallback.
+        playerName: playerName,
       );
 
       final rank = await game.leaderboardService.getGlobalPanicRank();

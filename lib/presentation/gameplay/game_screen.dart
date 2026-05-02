@@ -542,8 +542,36 @@ class _GameScreenState extends State<GameScreen>
             : _stageRule.playerSpeedMultiplier;
         final speedRatio = (_stageRule.devilSpeedMultiplier / playerSpeed)
             .clamp(0.0, 1.0);
+        final baseDevilSpeed = _stageRule.devilStepsPerSecond * speedRatio;
+
+        // ── Distance-based rubber-band speed factor ──
+        // Devil slows when very close (breathing room) and sprints when far
+        // (aggressive chase). Piecewise-linear between nearDist and farDist.
+        final double dx =
+            (_devilCell!.x - _playerController.position.x).toDouble();
+        final double dy =
+            (_devilCell!.y - _playerController.position.y).toDouble();
+        final double euclideanDist = sqrt(dx * dx + dy * dy);
+        final double mapDiag = sqrt(
+          pow(_maze.cols - 1, 2).toDouble() +
+              pow(_maze.rows - 1, 2).toDouble(),
+        );
+        final double nearDist = 0.25 * mapDiag;
+        final double farDist = 0.75 * mapDiag;
+        const double minFactor = 0.7; // slow when close
+        const double maxFactor = 1.5; // sprint when far
+        double distanceFactor;
+        if (euclideanDist <= nearDist) {
+          distanceFactor = minFactor;
+        } else if (euclideanDist >= farDist) {
+          distanceFactor = maxFactor;
+        } else {
+          final double t =
+              (euclideanDist - nearDist) / (farDist - nearDist);
+          distanceFactor = minFactor + (maxFactor - minFactor) * t;
+        }
         final devilStepsPerSecond =
-            (_stageRule.devilStepsPerSecond * speedRatio).clamp(0.2, 3.0);
+            (baseDevilSpeed * distanceFactor).clamp(0.2, 4.0);
         final stepInterval = 1.0 / devilStepsPerSecond;
         while (_devilMoveAccumulator >= stepInterval) {
           _devilMoveAccumulator -= stepInterval;

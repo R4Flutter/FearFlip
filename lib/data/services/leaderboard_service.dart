@@ -12,7 +12,7 @@ class LeaderboardDataService {
 
   Future<infra.LeaderboardSnapshot> getLeaderboard({
     required String mode,
-    int limit = 20,
+    int limit = 30,
   }) {
     return _delegate.getLeaderboard(mode: mode, limit: limit);
   }
@@ -20,15 +20,17 @@ class LeaderboardDataService {
   Future<void> upsertGlobalPanicProgress({
     required int maxStage,
     required int totalTrophies,
+    String? playerName,
   }) {
     return _delegate.upsertGlobalPanicProgress(
       maxStage: maxStage,
       totalTrophies: totalTrophies,
+      playerName: playerName,
     );
   }
 
   Future<infra.LeaderboardSnapshot> getGlobalPanicLeaderboard({
-    int limit = 20,
+    int limit = 30,
   }) {
     return _delegate.getGlobalPanicLeaderboard(limit: limit);
   }
@@ -36,7 +38,7 @@ class LeaderboardDataService {
   /// Real-time stream of Global Panic standings. The stream seeds from the
   /// offline cache immediately, then updates with live Firestore data.
   Stream<infra.LeaderboardSnapshot> globalPanicLeaderboardStream({
-    int limit = 20,
+    int limit = 30,
   }) {
     return _delegate.globalPanicLeaderboardStream(limit: limit);
   }
