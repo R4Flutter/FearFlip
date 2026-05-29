@@ -1,39 +1,15 @@
 /**
- * FearFlip — Server-side subscription verification via Firebase Cloud Functions.
+ * FearFlip — Server-side one-time purchase verification via Firebase Cloud Functions.
  *
  * Exposes two HTTPS callable functions:
  *
- *   1. `verifySubscription`  — called after a new purchase or restore to validate
- *      the purchase token against the Google Play Developer API and return the
- *      canonical subscription status.
+ *   1. `verifyOneTimePurchase` — called after a new purchase or restore to validate
+ *      the purchase token against the Google Play Developer API.
  *
- *   2. `checkSubscriptionStatus` — called on every app launch to re-verify
- *      whether a cached subscription is still active (handles expiry, refunds,
- *      cancellations).
+ *   2. `checkOneTimePurchaseStatus` — called on app launch to re-verify
+ *      cached entitlement (handles refunds / revocations).
  *
  * Both functions require the caller to be authenticated via Firebase Auth.
- *
- * ── Security Model ────────────────────────────────────────────────────────────
- *
- *   • Only authenticated users can call these functions (uid checked).
- *   • The purchase token is validated server-side against the Play Developer API.
- *   • Subscription state is persisted in Firestore under
- *     `subscriptions/{uid}` — the Flutter client never writes this document.
- *   • Replay attacks are mitigated: re-submitting the same token within
- *     5 minutes returns the cached result; after 5 minutes Play is re-queried.
- *
- * ── Prerequisites ─────────────────────────────────────────────────────────────
- *
- *   1. A Google Cloud service account with the `androidpublisher` scope.
- *      Place the JSON key at `functions/service-account.json` (gitignored) OR
- *      set GOOGLE_APPLICATION_CREDENTIALS when deploying.
- *
- *   2. Grant the service account "View financial data" permissions in
- *      Google Play Console → Setup → API access.
- *
- *   3. Set the package name via environment variable:
- *        firebase functions:secrets:set FEARFLIP_PACKAGE_NAME
- *      OR pass it as a runtime env var in firebase.json / GCP console.
  */
 
 import * as functions from "firebase-functions";
@@ -45,22 +21,10 @@ import {google} from "googleapis";
 admin.initializeApp();
 const db = admin.firestore();
 
-// Android package name resolved from environment (preferred) then hardcoded
-// fallback so local emulator runs still work.
-const PACKAGE_NAME =
-  process.env.FEARFLIP_PACKAGE_NAME ?? "dev.fearflip.game";
-
-const SUBSCRIPTION_ID = "remove_ads_monthly";
+const PACKAGE_NAME = process.env.FEARFLIP_PACKAGE_NAME ?? "com.rajnaik.fearflip";
 
 // ─── Google Play Developer API client ────────────────────────────────────────
 
-/**
- * Returns an authorised `androidpublisher` client.
- *
- * Auth is resolved in order:
- *   1. `functions/service-account.json` (local dev / CI)
- *   2. Application Default Credentials (Cloud Functions runtime on GCP)
- */
 async function getPlayClient() {
   let auth: InstanceType<typeof google.auth.GoogleAuth>;
 
@@ -77,311 +41,146 @@ async function getPlayClient() {
     });
   }
 
-  return google.androidpublisher({version: "v3", auth});
+  return google.androidpublisher({version: "v3", auth: auth as any});
 }
 
 // ─── Firestore helpers ───────────────────────────────────────────────────────
 
-interface SubscriptionRecord {
-  isActive: boolean;
+interface EntitlementRecord {
+  isValid: boolean;
   productId: string;
   purchaseToken: string;
-  expiryTimeMillis: number;
-  autoRenewing: boolean;
-  /** ISO timestamp of the last successful server verification. */
   lastVerifiedAt: string;
-  /** Payment state from Play (0=pending, 1=received, 2=free trial, 3=deferred). */
-  paymentState: number;
-  /** Cancellation reason if cancelled (0=user, 1=system, 2=replaced, 3=developer). */
-  cancelReason: number | null;
+  /** 0 = purchased, 1 = cancelled, 2 = pending */
+  purchaseState: number;
 }
 
-async function writeSubscriptionRecord(
+async function writeEntitlement(
   uid: string,
-  record: SubscriptionRecord
+  record: EntitlementRecord
 ): Promise<void> {
   await db
-    .collection("subscriptions")
+    .collection("entitlements")
     .doc(uid)
     .set(record, {merge: true});
 }
 
-async function getSubscriptionRecord(
+async function getEntitlement(
   uid: string
-): Promise<SubscriptionRecord | null> {
-  const doc = await db.collection("subscriptions").doc(uid).get();
+): Promise<EntitlementRecord | null> {
+  const doc = await db.collection("entitlements").doc(uid).get();
   if (!doc.exists) return null;
-  return doc.data() as SubscriptionRecord;
+  return doc.data() as EntitlementRecord;
 }
 
 // ─── Core verification logic ─────────────────────────────────────────────────
 
-interface VerificationResult {
-  isActive: boolean;
-  expiryTimeMillis: number;
-  autoRenewing: boolean;
-  paymentState: number;
-  cancelReason: number | null;
-  startTimeMillis: number;
-}
-
-async function verifyTokenWithPlay(
+async function verifyProductWithPlay(
+  productId: string,
   purchaseToken: string
-): Promise<VerificationResult> {
+): Promise<{isValid: boolean; purchaseState: number}> {
   const play = await getPlayClient();
 
-  const response = await play.purchases.subscriptions.get({
+  const response = await play.purchases.products.get({
     packageName: PACKAGE_NAME,
-    subscriptionId: SUBSCRIPTION_ID,
+    productId: productId,
     token: purchaseToken,
   });
 
-  const data = response.data;
-  const expiryMillis = parseInt(data.expiryTimeMillis || "0", 10);
-  const startMillis = parseInt(data.startTimeMillis || "0", 10);
-  const paymentState = data.paymentState ?? 0;
-  const autoRenewing = data.autoRenewing ?? false;
-  const cancelReason = data.cancelReason ?? null;
+  const purchaseState = response.data.purchaseState ?? 1;
+  // 0 = Purchased, 1 = Cancelled, 2 = Pending
+  const isValid = purchaseState === 0;
 
-  // A subscription is active if:
-  //   1. It has not expired yet, AND
-  //   2. Payment was received (paymentState 1) or it's a free trial (2).
-  const now = Date.now();
-  const isActive =
-    expiryMillis > now && (paymentState === 1 || paymentState === 2);
-
-  return {
-    isActive,
-    expiryTimeMillis: expiryMillis,
-    autoRenewing,
-    paymentState,
-    cancelReason,
-    startTimeMillis: startMillis,
-  };
+  return {isValid, purchaseState};
 }
 
-// ─── Cloud Function: verifySubscription ──────────────────────────────────────
+// ─── Cloud Function: verifyOneTimePurchase ───────────────────────────────────
 
-/**
- * Called from the Flutter app after a new purchase or restore.
- *
- * Request payload:
- *   { purchaseToken: string, productId: string }
- *
- * Response payload:
- *   { isActive: boolean, expiryTimeMillis: number, autoRenewing: boolean }
- */
-export const verifySubscription = functions.https.onCall(
-  async (data, context) => {
-    // ── Auth gate ──────────────────────────────────────────────────────────
-    if (!context.auth) {
+export const verifyOneTimePurchase = functions.https.onCall(
+  async (request) => {
+    if (!request.auth) {
       throw new functions.https.HttpsError(
         "unauthenticated",
-        "You must be signed in to verify a subscription."
+        "Sign-in required."
       );
     }
-    const uid = context.auth.uid;
+    const uid = request.auth.uid;
+    const purchaseToken = request.data?.purchaseToken as string | undefined;
+    const productId = request.data?.productId as string | undefined;
 
-    // ── Input validation ──────────────────────────────────────────────────
-    const purchaseToken = data?.purchaseToken as string | undefined;
-    const productId = data?.productId as string | undefined;
-
-    if (!purchaseToken || typeof purchaseToken !== "string") {
+    if (!purchaseToken || !productId) {
       throw new functions.https.HttpsError(
         "invalid-argument",
-        "purchaseToken is required."
+        "purchaseToken and productId are required."
       );
     }
 
-    if (productId && productId !== SUBSCRIPTION_ID) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        `Unexpected productId: ${productId}`
-      );
-    }
-
-    // ── Replay-attack mitigation ──────────────────────────────────────────
-    // If we verified this exact token within the last 5 minutes AND it's
-    // still before expiry, return the cached result to avoid hitting Play.
-    const existing = await getSubscriptionRecord(uid);
-    const now = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-
-    if (existing && existing.purchaseToken === purchaseToken) {
-      const lastVerified = new Date(existing.lastVerifiedAt).getTime();
-      const recentlyVerified = now - lastVerified < fiveMinutes;
-      const notExpired = existing.expiryTimeMillis > now;
-
-      if (recentlyVerified && notExpired) {
-        functions.logger.info(
-          `[verifySubscription] Returning cached result for uid=${uid}`
-        );
-        return {
-          isActive: existing.isActive,
-          expiryTimeMillis: existing.expiryTimeMillis,
-          autoRenewing: existing.autoRenewing,
-          cached: true,
-        };
-      }
-    }
-
-    // ── Verify with Google Play ───────────────────────────────────────────
     try {
-      const result = await verifyTokenWithPlay(purchaseToken);
+      const result = await verifyProductWithPlay(productId, purchaseToken);
 
-      const record: SubscriptionRecord = {
-        isActive: result.isActive,
-        productId: SUBSCRIPTION_ID,
+      const record: EntitlementRecord = {
+        isValid: result.isValid,
+        productId,
         purchaseToken,
-        expiryTimeMillis: result.expiryTimeMillis,
-        autoRenewing: result.autoRenewing,
         lastVerifiedAt: new Date().toISOString(),
-        paymentState: result.paymentState,
-        cancelReason: result.cancelReason,
+        purchaseState: result.purchaseState,
       };
 
-      await writeSubscriptionRecord(uid, record);
+      await writeEntitlement(uid, record);
 
-      functions.logger.info(
-        `[verifySubscription] uid=${uid} active=${result.isActive} ` +
-        `expiry=${result.expiryTimeMillis} autoRenew=${result.autoRenewing}`
-      );
-
-      return {
-        isActive: result.isActive,
-        expiryTimeMillis: result.expiryTimeMillis,
-        autoRenewing: result.autoRenewing,
-        cached: false,
-      };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      functions.logger.error(
-        `[verifySubscription] Play API error for uid=${uid}: ${message}`
-      );
+      return {isValid: result.isValid};
+    } catch (err) {
+      functions.logger.error(`[verifyOneTimePurchase] Error for uid=${uid}:`, err);
       throw new functions.https.HttpsError(
         "internal",
-        "Failed to verify subscription with Google Play. Please try again."
+        "Failed to verify purchase."
       );
     }
   }
 );
 
-// ─── Cloud Function: checkSubscriptionStatus ─────────────────────────────────
+// ─── Cloud Function: checkOneTimePurchaseStatus ─────────────────────────────
 
-/**
- * Called on every app launch to re-check whether a cached subscription is
- * still valid. Does NOT require a purchase token — it uses the token stored
- * in Firestore from the last successful verification.
- *
- * Request payload: (none)
- *
- * Response payload:
- *   { isActive: boolean, expiryTimeMillis: number, autoRenewing: boolean, cached?: boolean }
- */
-export const checkSubscriptionStatus = functions.https.onCall(
-  async (_data, context) => {
-    // ── Auth gate ──────────────────────────────────────────────────────────
-    if (!context.auth) {
+export const checkOneTimePurchaseStatus = functions.https.onCall(
+  async (request) => {
+    if (!request.auth) {
       throw new functions.https.HttpsError(
         "unauthenticated",
-        "You must be signed in to check subscription status."
+        "Sign-in required."
       );
     }
-    const uid = context.auth.uid;
+    const uid = request.auth.uid;
+    const productId = request.data?.productId as string | undefined;
 
-    // ── Check Firestore for existing record ───────────────────────────────
-    const existing = await getSubscriptionRecord(uid);
+    const existing = await getEntitlement(uid);
     if (!existing || !existing.purchaseToken) {
-      // No subscription record found — user never subscribed on this account.
-      return {
-        isActive: false,
-        expiryTimeMillis: 0,
-        autoRenewing: false,
-        cached: false,
-      };
+      return {isValid: false};
     }
 
-    const now = Date.now();
+    // Use specific productId from request if provided, else use the one from Firestore
+    const targetProductId = productId ?? existing.productId;
 
-    // ── Quick expiry check — if already expired, no need to hit Play ──────
-    if (existing.expiryTimeMillis <= now) {
-      // Mark as inactive in Firestore so future checks skip Play too.
-      if (existing.isActive) {
-        await writeSubscriptionRecord(uid, {
-          ...existing,
-          isActive: false,
-          lastVerifiedAt: new Date().toISOString(),
-        });
-      }
-      return {
-        isActive: false,
-        expiryTimeMillis: existing.expiryTimeMillis,
-        autoRenewing: existing.autoRenewing,
-        cached: false,
-      };
-    }
-
-    // ── Skip Play if verified within the last 5 minutes ───────────────────
-    const lastVerified = new Date(existing.lastVerifiedAt).getTime();
-    const fiveMinutes = 5 * 60 * 1000;
-
-    if (now - lastVerified < fiveMinutes) {
-      functions.logger.info(
-        `[checkSubscriptionStatus] Recent verification cache hit for uid=${uid}`
-      );
-      return {
-        isActive: existing.isActive,
-        expiryTimeMillis: existing.expiryTimeMillis,
-        autoRenewing: existing.autoRenewing,
-        cached: true,
-      };
-    }
-
-    // ── Re-verify with Google Play ────────────────────────────────────────
     try {
-      const result = await verifyTokenWithPlay(existing.purchaseToken);
+      const result = await verifyProductWithPlay(
+        targetProductId,
+        existing.purchaseToken
+      );
 
-      const record: SubscriptionRecord = {
-        isActive: result.isActive,
-        productId: SUBSCRIPTION_ID,
+      const record: EntitlementRecord = {
+        isValid: result.isValid,
+        productId: targetProductId,
         purchaseToken: existing.purchaseToken,
-        expiryTimeMillis: result.expiryTimeMillis,
-        autoRenewing: result.autoRenewing,
         lastVerifiedAt: new Date().toISOString(),
-        paymentState: result.paymentState,
-        cancelReason: result.cancelReason,
+        purchaseState: result.purchaseState,
       };
 
-      await writeSubscriptionRecord(uid, record);
+      await writeEntitlement(uid, record);
 
-      functions.logger.info(
-        `[checkSubscriptionStatus] uid=${uid} active=${result.isActive} ` +
-        `expiry=${result.expiryTimeMillis}`
-      );
-
-      return {
-        isActive: result.isActive,
-        expiryTimeMillis: result.expiryTimeMillis,
-        autoRenewing: result.autoRenewing,
-        cached: false,
-      };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      functions.logger.error(
-        `[checkSubscriptionStatus] Play API error for uid=${uid}: ${message}`
-      );
-
-      // ── Graceful fallback ──────────────────────────────────────────────
-      // If Play API is temporarily down, return cached status with indicator.
-      // The Flutter client uses a grace period to decide whether to trust it.
-      const cachedActive =
-        existing.isActive && existing.expiryTimeMillis > now;
-      return {
-        isActive: cachedActive,
-        expiryTimeMillis: existing.expiryTimeMillis,
-        autoRenewing: existing.autoRenewing,
-        cached: true,
-      };
+      return {isValid: result.isValid};
+    } catch (err) {
+      functions.logger.error(`[checkOneTimePurchaseStatus] Error for uid=${uid}:`, err);
+      // Fallback: trust Firestore cache if Play API is unreachable
+      return {isValid: existing.isValid, cached: true};
     }
   }
 );

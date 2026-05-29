@@ -14,7 +14,7 @@ abstract class MonetizationService {
   Future<bool> unlockCosmetic(String cosmeticId);
 
   /// Returns `true` when the user has permanently unlocked the Remove Ads
-  /// entitlement. Callers ([AdsService], UI) should suppress all ads when true.
+  /// entitlement. Callers ([AdManager], UI) should suppress all ads when true.
   Future<bool> isPremiumUnlocked();
 }
 
@@ -35,7 +35,7 @@ class FlutterMonetizationService implements MonetizationService {
   Future<bool> isPremiumUnlocked() async =>
       PurchaseService.instance.isSubscribed;
 
-  /// Rewarded revive ads are handled by [AdsService] directly.
+  /// Rewarded revive ads are handled by [AdManager] directly.
   /// This stub returns false; override if needed.
   @override
   Future<bool> showReviveRewardedAd() async => false;

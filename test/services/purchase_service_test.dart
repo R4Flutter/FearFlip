@@ -1,16 +1,16 @@
-/// Unit tests for the Remove Ads purchase state management.
-///
-/// These tests verify the [PurchaseService] state machine in isolation using
-/// lightweight pure-Dart helpers that mirror the service's logic — no Firebase,
-/// no billing SDK required.
-///
-/// Test groups:
-///   1. Initial state
-///   2. Premium flag persistence
-///   3. Idempotency (duplicate token handling)
-///   4. AdsService gate (premium → no ads)
-///   5. Error / cancellation paths
-///   6. Restore flow coordination
+// Unit tests for the Remove Ads purchase state management.
+//
+// These tests verify the [PurchaseService] state machine in isolation using
+// lightweight pure-Dart helpers that mirror the service's logic — no Firebase,
+// no billing SDK required.
+//
+// Test groups:
+//   1. Initial state
+//   2. Premium flag persistence
+//   3. Idempotency (duplicate token handling)
+//   4. AdsService gate (premium → no ads)
+//   5. Error / cancellation paths
+//   6. Restore flow coordination
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,7 +23,7 @@ const String _kIsPremiumKey = 'iap_remove_ads_unlocked';
 const String _kProcessedTokensKey = 'iap_processed_tokens';
 
 /// Mirrors [PurchaseStatus] from purchase_service.dart.
-enum _PurchaseStatus {
+enum PurchaseStatus {
   initialising,
   notPurchased,
   purchased,
@@ -33,50 +33,50 @@ enum _PurchaseStatus {
 }
 
 /// Minimal state machine that mirrors [PurchaseService] without IAP bindings.
-class _MockPurchaseStateMachine {
-  _PurchaseStatus status = _PurchaseStatus.initialising;
+class MockPurchaseStateMachine {
+  PurchaseStatus status = PurchaseStatus.initialising;
   String errorMessage = '';
   bool isPurchasing = false;
   bool isRestoring = false;
   int notifyCount = 0;
 
-  void setStatus(_PurchaseStatus s) {
+  void setStatus(PurchaseStatus s) {
     status = s;
-    isPurchasing = s == _PurchaseStatus.purchasing ||
-        s == _PurchaseStatus.restoring;
-    isRestoring = s == _PurchaseStatus.restoring;
+    isPurchasing = s == PurchaseStatus.purchasing ||
+        s == PurchaseStatus.restoring;
+    isRestoring = s == PurchaseStatus.restoring;
     notifyCount++;
   }
 
-  bool get isSubscribed => status == _PurchaseStatus.purchased;
+  bool get isSubscribed => status == PurchaseStatus.purchased;
 }
 
 /// Simulates what [PurchaseService.init()] does with SharedPreferences.
-Future<_PurchaseStatus> simulateInit(SharedPreferences prefs) async {
+Future<PurchaseStatus> simulateInit(SharedPreferences prefs) async {
   final cached = prefs.getBool(_kIsPremiumKey) ?? false;
-  return cached ? _PurchaseStatus.purchased : _PurchaseStatus.notPurchased;
+  return cached ? PurchaseStatus.purchased : PurchaseStatus.notPurchased;
 }
 
 /// Simulates granting premium — mirrors [PurchaseService._grantPremium()].
 Future<void> simulateGrant(
   SharedPreferences prefs,
   String token,
-  _MockPurchaseStateMachine machine,
+  MockPurchaseStateMachine machine,
 ) async {
   final list = prefs.getStringList(_kProcessedTokensKey) ?? [];
   list.add(token);
   await prefs.setBool(_kIsPremiumKey, true);
   await prefs.setStringList(_kProcessedTokensKey, list);
-  machine.setStatus(_PurchaseStatus.purchased);
+  machine.setStatus(PurchaseStatus.purchased);
 }
 
 /// Simulates revoking premium — mirrors [PurchaseService._revokePremium()].
 Future<void> simulateRevoke(
   SharedPreferences prefs,
-  _MockPurchaseStateMachine machine,
+  MockPurchaseStateMachine machine,
 ) async {
   await prefs.setBool(_kIsPremiumKey, false);
-  machine.setStatus(_PurchaseStatus.notPurchased);
+  machine.setStatus(PurchaseStatus.notPurchased);
 }
 
 /// Simulates the idempotency check — mirrors token deduplication in
@@ -100,19 +100,19 @@ void main() {
     test('status is notPurchased when no cached flag exists', () async {
       final prefs = await SharedPreferences.getInstance();
       final status = await simulateInit(prefs);
-      expect(status, _PurchaseStatus.notPurchased);
+      expect(status, PurchaseStatus.notPurchased);
     });
 
     test('status is purchased when cached flag is true (fast path)', () async {
       SharedPreferences.setMockInitialValues({_kIsPremiumKey: true});
       final prefs = await SharedPreferences.getInstance();
       final status = await simulateInit(prefs);
-      expect(status, _PurchaseStatus.purchased);
+      expect(status, PurchaseStatus.purchased);
     });
 
     test('isPurchasing is false on initial state', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.notPurchased);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.notPurchased);
       expect(m.isPurchasing, isFalse);
     });
   });
@@ -121,12 +121,12 @@ void main() {
   group('2 · premium flag persistence', () {
     test('grantPremium sets isPremiumKey=true in SharedPreferences', () async {
       final prefs = await SharedPreferences.getInstance();
-      final m = _MockPurchaseStateMachine();
+      final m = MockPurchaseStateMachine();
 
       await simulateGrant(prefs, 'tok-abc', m);
 
       expect(prefs.getBool(_kIsPremiumKey), isTrue);
-      expect(m.status, _PurchaseStatus.purchased);
+      expect(m.status, PurchaseStatus.purchased);
       expect(m.isSubscribed, isTrue);
     });
 
@@ -136,33 +136,33 @@ void main() {
         _kProcessedTokensKey: ['tok-abc'],
       });
       final prefs = await SharedPreferences.getInstance();
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.purchased);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.purchased);
 
       await simulateRevoke(prefs, m);
 
       expect(prefs.getBool(_kIsPremiumKey), isFalse);
-      expect(m.status, _PurchaseStatus.notPurchased);
+      expect(m.status, PurchaseStatus.notPurchased);
     });
 
     test('premium flag survives multiple init() calls (simulated app restart)', () async {
       // First "app launch" — grant
       {
         final prefs = await SharedPreferences.getInstance();
-        final m = _MockPurchaseStateMachine();
+        final m = MockPurchaseStateMachine();
         await simulateGrant(prefs, 'tok-restart', m);
       }
       // Second "app launch" — flag persisted
       final prefs2 = await SharedPreferences.getInstance();
       final status = await simulateInit(prefs2);
-      expect(status, _PurchaseStatus.purchased);
+      expect(status, PurchaseStatus.purchased);
     });
 
     test('notifyListeners count increments on each status change', () {
-      final m = _MockPurchaseStateMachine();
+      final m = MockPurchaseStateMachine();
       expect(m.notifyCount, 0);
-      m.setStatus(_PurchaseStatus.purchasing);
-      m.setStatus(_PurchaseStatus.purchased);
+      m.setStatus(PurchaseStatus.purchasing);
+      m.setStatus(PurchaseStatus.purchased);
       expect(m.notifyCount, 2);
     });
   });
@@ -176,7 +176,7 @@ void main() {
 
     test('token is marked after grant', () async {
       final prefs = await SharedPreferences.getInstance();
-      final m = _MockPurchaseStateMachine();
+      final m = MockPurchaseStateMachine();
       await simulateGrant(prefs, 'tok-dup', m);
 
       expect(await isAlreadyProcessed(prefs, 'tok-dup'), isTrue);
@@ -184,7 +184,7 @@ void main() {
 
     test('different token is not considered duplicate', () async {
       final prefs = await SharedPreferences.getInstance();
-      final m = _MockPurchaseStateMachine();
+      final m = MockPurchaseStateMachine();
       await simulateGrant(prefs, 'tok-first', m);
 
       expect(await isAlreadyProcessed(prefs, 'tok-different'), isFalse);
@@ -192,7 +192,7 @@ void main() {
 
     test('revoke does not clear the last-processed token (prevents duplicate grants even after revoke)', () async {
       final prefs = await SharedPreferences.getInstance();
-      final m = _MockPurchaseStateMachine();
+      final m = MockPurchaseStateMachine();
       await simulateGrant(prefs, 'tok-x', m);
       await simulateRevoke(prefs, m);
 
@@ -210,34 +210,34 @@ void main() {
 
     test('isPremiumUnlocked returns true after grant', () async {
       final prefs = await SharedPreferences.getInstance();
-      final m = _MockPurchaseStateMachine();
+      final m = MockPurchaseStateMachine();
       await simulateGrant(prefs, 'tok-ads', m);
       final isPremium = prefs.getBool(_kIsPremiumKey) ?? false;
       expect(isPremium, isTrue);
     });
 
     test('isSubscribed (machine getter) = false when notPurchased', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.notPurchased);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.notPurchased);
       expect(m.isSubscribed, isFalse);
     });
 
     test('isSubscribed = true when purchased', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.purchased);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.purchased);
       expect(m.isSubscribed, isTrue);
     });
 
     test('isSubscribed = false when in error state', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.error);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.error);
       expect(m.isSubscribed, isFalse);
     });
 
     test('ads gate logic: ad skipped when isSubscribed=true', () {
       // Mirrors: `if (_subscriberBlocked) return;`
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.purchased);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.purchased);
 
       bool adWouldShow = false;
       if (!m.isSubscribed) {
@@ -247,8 +247,8 @@ void main() {
     });
 
     test('ads gate logic: ad shows when isSubscribed=false', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.notPurchased);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.notPurchased);
 
       bool adWouldShow = false;
       if (!m.isSubscribed) {
@@ -262,8 +262,8 @@ void main() {
   group('5 · error and cancellation paths', () {
     test('error status does not grant premium flag', () async {
       final prefs = await SharedPreferences.getInstance();
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.error);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.error);
 
       // Error path must NOT write to prefs.
       expect(prefs.getBool(_kIsPremiumKey), isNull);
@@ -272,36 +272,36 @@ void main() {
 
     test('cancellation status does not grant premium flag', () async {
       final prefs = await SharedPreferences.getInstance();
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.notPurchased);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.notPurchased);
 
       expect(prefs.getBool(_kIsPremiumKey), isNull);
       expect(m.isSubscribed, isFalse);
     });
 
     test('isPurchasing is true during purchasing state', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.purchasing);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.purchasing);
       expect(m.isPurchasing, isTrue);
     });
 
     test('isPurchasing is true during restoring state', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.restoring);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.restoring);
       expect(m.isPurchasing, isTrue);
     });
 
     test('isPurchasing is false after error (buy button re-enables)', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.purchasing);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.purchasing);
       expect(m.isPurchasing, isTrue);
-      m.setStatus(_PurchaseStatus.error);
+      m.setStatus(PurchaseStatus.error);
       expect(m.isPurchasing, isFalse);
     });
 
     test('double-buy prevention: isPurchasing=true blocks second buy', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.purchasing);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.purchasing);
 
       // Simulate the guard in buyRemoveAds().
       final wasBlocked = m.isPurchasing;
@@ -312,16 +312,16 @@ void main() {
   // ── 6. Restore flow ────────────────────────────────────────────────────────
   group('6 · restore flow coordination', () {
     test('restore sets status=restoring and isRestoring=true', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.restoring);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.restoring);
       expect(m.isRestoring, isTrue);
-      expect(m.status, _PurchaseStatus.restoring);
+      expect(m.status, PurchaseStatus.restoring);
     });
 
     test('restore success path grants premium and clears restoring', () async {
       final prefs = await SharedPreferences.getInstance();
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.restoring);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.restoring);
 
       // Simulate stream delivering a restored purchase.
       await simulateGrant(prefs, 'tok-restore', m);
@@ -331,19 +331,19 @@ void main() {
     });
 
     test('restore with nothing found → notPurchased, not error', () {
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.restoring);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.restoring);
       // Timeout or empty stream → fall back to notPurchased (not error).
-      m.setStatus(_PurchaseStatus.notPurchased);
+      m.setStatus(PurchaseStatus.notPurchased);
 
-      expect(m.status, _PurchaseStatus.notPurchased);
+      expect(m.status, PurchaseStatus.notPurchased);
       expect(m.isPurchasing, isFalse);
     });
 
     test('after successful restore, isInterstitialReady-style gate is false', () {
       // Simulate: AdsService.isInterstitialReady when premium.
-      final m = _MockPurchaseStateMachine();
-      m.setStatus(_PurchaseStatus.purchased);
+      final m = MockPurchaseStateMachine();
+      m.setStatus(PurchaseStatus.purchased);
 
       // Mirrors: `bool get isInterstitialReady => !_subscriberBlocked && _ad != null`
       final fakeAdLoaded = true; // pretend an ad is loaded

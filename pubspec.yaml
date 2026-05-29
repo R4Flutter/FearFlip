@@ -39,6 +39,8 @@ dependencies:
   just_audio: ^0.10.4
   audioplayers: ^6.1.0
   google_mobile_ads: ^7.0.0
+  unity_ads_plugin: ^0.3.30
+  connectivity_plus: ^6.0.3
   collection: ^1.19.1
   firebase_core: ^4.6.0
   firebase_auth: ^6.3.0

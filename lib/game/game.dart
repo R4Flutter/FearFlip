@@ -6,7 +6,7 @@ import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 
-import '../services/ads_service.dart';
+import '../services/ads_service_base.dart';
 import '../services/audio_manager.dart';
 import '../services/game_audio_event.dart';
 import '../services/leaderboard_service.dart';
@@ -91,7 +91,7 @@ class FearFlipGame extends FlameGame {
     required this.leaderboardService,
   });
 
-  final AdsService adsService;
+  final AdsServiceBase adsService;
   final AudioManager audioManager;
   final LeaderboardService leaderboardService;
 

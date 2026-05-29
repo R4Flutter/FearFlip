@@ -1,17 +1,17 @@
-/// Unit tests for the refactored rubber-band distance → speed-factor mapping
-/// used by [DevilComponent].
-///
-/// The pure-Dart helpers below mirror the constants and algorithm in
-/// [devil.dart] verbatim (excluding the ±0.03 random jitter, which is tested
-/// separately in the 'jitter' group). Any accidental drift between the two
-/// files will be caught immediately here.
-///
-/// New in this revision:
-///   • minFactor 0.85, maxFactor 1.25 (tighter, fairer range)
-///   • Quadratic t² easing instead of linear lerp
-///   • Jitter range and clamp validation
-///   • Stability test: no factor jump > 0.2 between consecutive distances
-///   • Non-linearity test: quadratic midpoint ≠ linear midpoint
+// Unit tests for the refactored rubber-band distance → speed-factor mapping
+// used by [DevilComponent].
+//
+// The pure-Dart helpers below mirror the constants and algorithm in
+// [devil.dart] verbatim (excluding the ±0.03 random jitter, which is tested
+// separately in the 'jitter' group). Any accidental drift between the two
+// files will be caught immediately here.
+//
+// New in this revision:
+//   • minFactor 0.85, maxFactor 1.25 (tighter, fairer range)
+//   • Quadratic t² easing instead of linear lerp
+//   • Jitter range and clamp validation
+//   • Stability test: no factor jump > 0.2 between consecutive distances
+//   • Non-linearity test: quadratic midpoint ≠ linear midpoint
 
 import 'dart:math';
 

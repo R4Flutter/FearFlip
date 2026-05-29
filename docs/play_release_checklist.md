@@ -24,10 +24,13 @@ This checklist maps production readiness requirements to concrete repository tas
 - `android/app/google-services.json` package and cert entries confirmed against `android/release.properties` + signing report.
 
 3. Ads and policy
-- Production ad IDs loaded from environment config.
+- Production Android/iOS ad IDs loaded from environment config.
+- Android release `fearflip.admob.appId` and iOS `ADMOB_APP_ID` point to the real AdMob app IDs.
 - Interstitial cooldown and first-fail suppression enabled.
 - Rewarded ads remain user-initiated only.
+- Emergency revive uses rewarded ads only and waits up to 30 seconds for rewarded inventory.
 - Consent flow (UMP) integrated where required.
+- Consent debug geography and test-device IDs are removed from release builds.
 - Privacy/terms/account deletion URLs are configured and reachable.
 - In-app account deletion queues a backend deletion request and handles recent-login failures.
 

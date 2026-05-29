@@ -40,8 +40,9 @@ const _kSections = <_Section>[
         'event parameters are logged.\n\n'
         'Advertising Signals\n'
         '• Advertising ID, IP address, and ad interaction data collected '
-        'by Google Mobile Ads (AdMob) solely for ad delivery and measurement. '
-        'This is subject to your consent choices where required by law.',
+        'by Unity Ads (Unity Technologies) and Google Mobile Ads (AdMob) '
+        'solely for ad delivery and measurement. This is subject to your '
+        'consent choices where required by law.',
   ),
   _Section(
     icon: Icons.track_changes_rounded,
@@ -65,7 +66,8 @@ const _kSections = <_Section>[
         '• Cloud Firestore (Google LLC)\n'
         '• Firebase Analytics (Google LLC)\n'
         '• Firebase Crashlytics (Google LLC)\n'
-        '• Google Mobile Ads / AdMob (Google LLC)\n\n'
+        '• Google Mobile Ads / AdMob (Google LLC)\n'
+        '• Unity Ads (Unity Technologies)\n\n'
         'Each service acts as a data processor or independent controller. '
         'We encourage you to review Google\'s Privacy Policy at '
         'https://policies.google.com/privacy.',

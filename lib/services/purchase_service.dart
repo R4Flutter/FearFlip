@@ -108,7 +108,7 @@ class PurchaseService extends ChangeNotifier {
   ProductDetails? get productDetails => _productDetails;
 
   /// `true` when the user owns the Remove Ads entitlement.
-  /// This is the flag that [AdsService] should check.
+  /// This is the flag that [AdManager] should check.
   bool get isSubscribed => _status == PurchaseStatus.purchased;
 
   /// `true` while any purchase or restore operation is in flight.

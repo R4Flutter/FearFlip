@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/material.dart';
 
-import '../../services/ads_service.dart';
+import '../../services/ads_facade.dart';
 import '../../services/purchase_service.dart';
 import '../theme/app_palette.dart';
 
@@ -78,7 +78,7 @@ class _RemoveAdsDialogState extends State<_RemoveAdsDialog>
 
     switch (status) {
       case PurchaseStatus.purchased:
-        AdsService.instance.disableAdsPermanently();
+        AdsFacade.instance.disableAdsPermanently();
         setState(() {
           _resultIsSuccess = true;
           _resultMessage = '🎉 Ads removed! Enjoy uninterrupted gameplay.';

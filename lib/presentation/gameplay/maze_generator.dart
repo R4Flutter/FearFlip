@@ -1,6 +1,5 @@
 import 'dart:math';
-
-enum Direction4 { up, right, down, left }
+import '../../domain/entities/direction4.dart';
 
 class MazeCell {
   MazeCell();

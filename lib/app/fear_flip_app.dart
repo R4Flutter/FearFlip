@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../config/app_runtime_config.dart';
 import '../data/database/local_session_database.dart';
 import '../domain/usecases/start_survival_use_case.dart';
 import '../presentation/gameplay/game_screen.dart';
@@ -13,7 +15,9 @@ import '../presentation/screens/privacy_policy_screen.dart';
 import '../presentation/theme/app_palette.dart';
 import '../presentation/widgets/remove_ads_dialog.dart';
 import '../services/account_deletion_service.dart';
-import '../services/ads_service.dart';
+import '../services/ads_facade.dart';
+import '../services/consent_service.dart';
+import '../services/purchase_service.dart';
 
 class _CharacterOption {
   const _CharacterOption({
@@ -407,7 +411,7 @@ class FearFlipApp extends StatefulWidget {
 
 class _FearFlipAppState extends State<FearFlipApp> {
   late final AppFlowProvider _flow;
-  AdsService get _restartAdsService => AdsService.instance;
+  AdsFacade get _adsManager => AdsFacade.instance;
   static const List<_CharacterOption> _characterOptions = <_CharacterOption>[
     _CharacterOption(
       title: 'Steel Sentinel',
@@ -673,6 +677,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
   }
 
   Future<void> _openSettingsDialog(BuildContext context) async {
+    final webKeyboardMode = kIsWeb;
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -680,8 +685,11 @@ class _FearFlipAppState extends State<FearFlipApp> {
         var joystickSize = _flow.joystickSize;
         var soundVolume = _flow.soundVolume;
         var isSoundMuted = _flow.isSoundMuted;
-        var useArrowController = _flow.useArrowController;
+        var useArrowController = webKeyboardMode
+            ? false
+            : _flow.useArrowController;
         var isDeletingAccount = _flow.isDeletingAccount;
+        var isConsentBusy = false;
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.symmetric(
@@ -691,7 +699,9 @@ class _FearFlipAppState extends State<FearFlipApp> {
           child: StatefulBuilder(
             builder: (context, setLocalState) {
               final screenHeight = MediaQuery.sizeOf(context).height;
-              final inputLabel = useArrowController ? 'ARROW PAD' : 'JOYSTICK';
+              final inputLabel = webKeyboardMode
+                  ? 'KEYBOARD'
+                  : (useArrowController ? 'ARROW PAD' : 'JOYSTICK');
               final volumeLabel = '${(soundVolume * 100).round()}%';
 
               return ConstrainedBox(
@@ -804,131 +814,137 @@ class _FearFlipAppState extends State<FearFlipApp> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.stretch,
                                       children: [
-                                        _SettingsSectionCard(
-                                          title: 'Control Scheme',
-                                          subtitle:
-                                              'Choose your preferred input mode for gameplay.',
-                                          accent: AppPalette.accentPurple,
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: _SettingsModeTile(
-                                                  icon: Icons.sports_esports,
-                                                  title: 'Joystick',
-                                                  subtitle:
-                                                      'Analog movement control',
-                                                  selected: !useArrowController,
-                                                  onTap: () {
-                                                    setLocalState(() {
-                                                      useArrowController =
-                                                          false;
-                                                    });
-                                                    _flow
-                                                        .updateUseArrowController(
-                                                          false,
-                                                        );
-                                                  },
-                                                ),
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Expanded(
-                                                child: _SettingsModeTile(
-                                                  icon: Icons.gamepad,
-                                                  title: 'Arrow Pad',
-                                                  subtitle:
-                                                      'Directional button control',
-                                                  selected: useArrowController,
-                                                  onTap: () {
-                                                    setLocalState(() {
-                                                      useArrowController = true;
-                                                    });
-                                                    _flow
-                                                        .updateUseArrowController(
-                                                          true,
-                                                        );
-                                                  },
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        _SettingsSectionCard(
-                                          title: useArrowController
-                                              ? 'Arrow Pad Size'
-                                              : 'Joystick Size',
-                                          subtitle:
-                                              'Adjust control footprint for comfort and precision.',
-                                          accent: AppPalette.neonGreen,
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                '${joystickSize.round()} px',
-                                                style: const TextStyle(
-                                                  color: AppPalette.neonGreen,
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 18,
-                                                ),
-                                              ),
-                                              SliderTheme(
-                                                data: SliderTheme.of(context)
-                                                    .copyWith(
-                                                      activeTrackColor:
-                                                          AppPalette.neonGreen,
-                                                      inactiveTrackColor:
-                                                          AppPalette.surface,
-                                                      thumbColor:
-                                                          AppPalette.neonGreen,
-                                                      trackHeight: 4,
-                                                    ),
-                                                child: Slider(
-                                                  min: AppFlowProvider
-                                                      .minJoystickSize,
-                                                  max: AppFlowProvider
-                                                      .maxJoystickSize,
-                                                  divisions: 16,
-                                                  value: joystickSize,
-                                                  label:
-                                                      '${joystickSize.round()} px',
-                                                  onChanged: (value) {
-                                                    setLocalState(() {
-                                                      joystickSize = value;
-                                                    });
-                                                    _flow.updateJoystickSize(
-                                                      value,
-                                                    );
-                                                  },
-                                                ),
-                                              ),
-                                              const Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                children: [
-                                                  Text(
-                                                    'Compact',
-                                                    style: TextStyle(
-                                                      color:
-                                                          AppPalette.textMuted,
-                                                      fontSize: 11,
-                                                    ),
+                                        if (!webKeyboardMode) ...[
+                                          _SettingsSectionCard(
+                                            title: 'Control Scheme',
+                                            subtitle:
+                                                'Choose your preferred input mode for gameplay.',
+                                            accent: AppPalette.accentPurple,
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: _SettingsModeTile(
+                                                    icon: Icons.sports_esports,
+                                                    title: 'Joystick',
+                                                    subtitle:
+                                                        'Analog movement control',
+                                                    selected:
+                                                        !useArrowController,
+                                                    onTap: () {
+                                                      setLocalState(() {
+                                                        useArrowController =
+                                                            false;
+                                                      });
+                                                      _flow
+                                                          .updateUseArrowController(
+                                                            false,
+                                                          );
+                                                    },
                                                   ),
-                                                  Text(
-                                                    'Large',
-                                                    style: TextStyle(
-                                                      color:
-                                                          AppPalette.textMuted,
-                                                      fontSize: 11,
-                                                    ),
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: _SettingsModeTile(
+                                                    icon: Icons.gamepad,
+                                                    title: 'Arrow Pad',
+                                                    subtitle:
+                                                        'Directional button control',
+                                                    selected:
+                                                        useArrowController,
+                                                    onTap: () {
+                                                      setLocalState(() {
+                                                        useArrowController =
+                                                            true;
+                                                      });
+                                                      _flow
+                                                          .updateUseArrowController(
+                                                            true,
+                                                          );
+                                                    },
                                                   ),
-                                                ],
-                                              ),
-                                            ],
+                                                ),
+                                              ],
+                                            ),
                                           ),
-                                        ),
-                                        const SizedBox(height: 12),
+                                          const SizedBox(height: 12),
+                                          _SettingsSectionCard(
+                                            title: useArrowController
+                                                ? 'Arrow Pad Size'
+                                                : 'Joystick Size',
+                                            subtitle:
+                                                'Adjust control footprint for comfort and precision.',
+                                            accent: AppPalette.neonGreen,
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  '${joystickSize.round()} px',
+                                                  style: const TextStyle(
+                                                    color: AppPalette.neonGreen,
+                                                    fontWeight: FontWeight.w900,
+                                                    fontSize: 18,
+                                                  ),
+                                                ),
+                                                SliderTheme(
+                                                  data: SliderTheme.of(context)
+                                                      .copyWith(
+                                                        activeTrackColor:
+                                                            AppPalette
+                                                                .neonGreen,
+                                                        inactiveTrackColor:
+                                                            AppPalette.surface,
+                                                        thumbColor: AppPalette
+                                                            .neonGreen,
+                                                        trackHeight: 4,
+                                                      ),
+                                                  child: Slider(
+                                                    min: AppFlowProvider
+                                                        .minJoystickSize,
+                                                    max: AppFlowProvider
+                                                        .maxJoystickSize,
+                                                    divisions: 16,
+                                                    value: joystickSize,
+                                                    label:
+                                                        '${joystickSize.round()} px',
+                                                    onChanged: (value) {
+                                                      setLocalState(() {
+                                                        joystickSize = value;
+                                                      });
+                                                      _flow.updateJoystickSize(
+                                                        value,
+                                                      );
+                                                    },
+                                                  ),
+                                                ),
+                                                const Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceBetween,
+                                                  children: [
+                                                    Text(
+                                                      'Compact',
+                                                      style: TextStyle(
+                                                        color: AppPalette
+                                                            .textMuted,
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      'Large',
+                                                      style: TextStyle(
+                                                        color: AppPalette
+                                                            .textMuted,
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                        ],
                                         _SettingsSectionCard(
                                           title: 'Audio',
                                           subtitle:
@@ -1060,6 +1076,124 @@ class _FearFlipAppState extends State<FearFlipApp> {
                                           ),
                                         ),
                                         const SizedBox(height: 12),
+                                        if (AppRuntimeConfig.supportsMobileAds) ...[
+                                          _SettingsSectionCard(
+                                            title: 'Privacy & Consent',
+                                            subtitle:
+                                                'Manage ad consent and personalization choices.',
+                                            accent: AppPalette.accentPurple,
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.stretch,
+                                              children: [
+                                                FilledButton.icon(
+                                                  icon: isConsentBusy
+                                                      ? const SizedBox(
+                                                          width: 18,
+                                                          height: 18,
+                                                          child:
+                                                              CircularProgressIndicator(
+                                                                strokeWidth: 2,
+                                                              ),
+                                                        )
+                                                      : const Icon(
+                                                          Icons
+                                                              .privacy_tip_outlined,
+                                                        ),
+                                                  label: Text(
+                                                    isConsentBusy
+                                                        ? 'Updating Consent...'
+                                                        : 'Privacy & Consent',
+                                                  ),
+                                                  style:
+                                                      FilledButton.styleFrom(
+                                                        minimumSize:
+                                                            const Size.fromHeight(
+                                                              48,
+                                                            ),
+                                                        backgroundColor:
+                                                            AppPalette
+                                                                .accentPurple,
+                                                        foregroundColor:
+                                                            Colors.black,
+                                                        textStyle:
+                                                            const TextStyle(
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w900,
+                                                            ),
+                                                      ),
+                                                  onPressed: isConsentBusy
+                                                      ? null
+                                                      : () async {
+                                                          setLocalState(() {
+                                                            isConsentBusy =
+                                                                true;
+                                                          });
+                                                          final canRequestAds =
+                                                              await ConsentService
+                                                                  .instance
+                                                                  .gatherConsentAndInitializeAds(
+                                                                    force: true,
+                                                                  );
+                                                          if (!context
+                                                              .mounted) {
+                                                            return;
+                                                          }
+
+                                                          if (canRequestAds) {
+                                                            unawaited(
+                                                              _adsManager
+                                                                  .preload(),
+                                                            );
+                                                            if (!_adsManager
+                                                                .bannerLoadedNotifier
+                                                                .value) {
+                                                              unawaited(
+                                                                _adsManager
+                                                                    .loadBanner(),
+                                                              );
+                                                            }
+                                                          }
+
+                                                          final message =
+                                                              canRequestAds
+                                                              ? 'Consent updated. Ads enabled.'
+                                                              : 'Consent not granted. Ads disabled.';
+                                                          ScaffoldMessenger.of(
+                                                            context,
+                                                          ).showSnackBar(
+                                                            SnackBar(
+                                                              content: Text(
+                                                                message,
+                                                              ),
+                                                              behavior:
+                                                                  SnackBarBehavior
+                                                                      .floating,
+                                                              backgroundColor:
+                                                                  AppPalette
+                                                                      .surfaceAlt,
+                                                            ),
+                                                          );
+                                                          setLocalState(() {
+                                                            isConsentBusy =
+                                                                false;
+                                                          });
+                                                        },
+                                                ),
+                                                const SizedBox(height: 6),
+                                                const Text(
+                                                  'Update ad consent choices at any time.',
+                                                  style: TextStyle(
+                                                    color: AppPalette.textMuted,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                        ],
                                         _SettingsSectionCard(
                                           title: 'Account',
                                           subtitle:
@@ -1269,6 +1403,118 @@ class _FearFlipAppState extends State<FearFlipApp> {
     );
   }
 
+  Future<bool> _showAdsConsentGate(BuildContext context) async {
+    return await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) {
+            var isBusy = false;
+            return StatefulBuilder(
+              builder: (context, setLocalState) {
+                return AlertDialog(
+                  backgroundColor: AppPalette.surface,
+                  title: const Text(
+                    'Ads Consent Needed',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  content: const Text(
+                    'To show ads in this build, you must accept consent. '
+                    'You can review it now or continue without ads.',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: isBusy
+                          ? null
+                          : () => Navigator.of(context).pop(true),
+                      child: const Text(
+                        'Continue Without Ads',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: isBusy
+                          ? null
+                          : () async {
+                              setLocalState(() {
+                                isBusy = true;
+                              });
+                              final canRequestAds =
+                                  await ConsentService.instance
+                                      .gatherConsentAndInitializeAds(
+                                        force: true,
+                                      );
+                              if (!context.mounted) {
+                                return;
+                              }
+
+                              if (canRequestAds) {
+                                unawaited(_adsManager.preload());
+                                if (!_adsManager.bannerLoadedNotifier.value) {
+                                  unawaited(_adsManager.loadBanner());
+                                }
+                              }
+
+                              final message = canRequestAds
+                                  ? 'Consent updated. Ads enabled.'
+                                  : 'Consent not granted. Ads disabled.';
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(message),
+                                  behavior: SnackBarBehavior.floating,
+                                  backgroundColor: AppPalette.surfaceAlt,
+                                ),
+                              );
+                              if (context.mounted) {
+                                Navigator.of(context).pop(true);
+                              }
+                            },
+                      icon: isBusy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.privacy_tip_outlined),
+                      label: const Text(
+                        'Open Privacy & Consent',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppPalette.accentPurple,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ) ??
+        false;
+  }
+
+  Future<void> _handlePlayPressed(BuildContext context) async {
+    if (_flow.isStarting || _flow.showAuthGate) {
+      return;
+    }
+
+    final needsConsentGate =
+        AppRuntimeConfig.supportsMobileAds &&
+        AppRuntimeConfig.adsEnabled &&
+        !PurchaseService.instance.isSubscribed &&
+        !ConsentService.instance.canRequestAds;
+
+    if (needsConsentGate) {
+      final proceed = await _showAdsConsentGate(context);
+      if (!proceed) {
+        return;
+      }
+    }
+
+    await _flow.startSurvival();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1279,28 +1525,23 @@ class _FearFlipAppState extends State<FearFlipApp> {
         sessionDatabase: sessionDatabase,
       ),
     );
-    unawaited(_restartAdsService.preload());
-    // The stage-cleared interstitial path uses game.adsService (via
-    // AppFlowProvider.onStageCleared), which is a separate AdsService
-    // instance from _restartAdsService.  Preload it so the ad is ready
-    // when the player completes every 3rd stage.
-    unawaited(_flow.game.adsService.preload());
+    unawaited(_adsManager.preload());
   }
 
   @override
   void dispose() {
-    _restartAdsService.dispose();
+    _adsManager.dispose();
     _flow.dispose();
     super.dispose();
   }
 
   Future<bool> _showRestartAd() async {
-    await _restartAdsService.showInterstitialAfterGameOver();
+    await _adsManager.showInterstitialAfterGameOver();
     return true;
   }
 
   Future<bool> _showReviveAd() async {
-    final rewarded = await _restartAdsService.showRewardedForRevive();
+    final rewarded = await _adsManager.showRewardedForRevive();
     if (rewarded) {
       return true;
     }
@@ -1323,7 +1564,9 @@ class _FearFlipAppState extends State<FearFlipApp> {
                   offstage: _flow.showAuthGate || _flow.showLanding,
                   child: GameScreen(
                     joystickSize: _flow.joystickSize,
-                    useArrowController: _flow.useArrowController,
+                    useArrowController: kIsWeb
+                        ? false
+                        : _flow.useArrowController,
                     selectedCharacterIndex: _flow.selectedCharacterIndex,
                     totalTrophies: _flow.totalTrophies,
                     isActive: !_flow.showAuthGate && !_flow.showLanding,
@@ -1343,7 +1586,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
                 else if (_flow.showLanding)
                   LandingScreen(
                     isStarting: _flow.isStarting,
-                    onPlay: _flow.startSurvival,
+                    onPlay: () => unawaited(_handlePlayPressed(context)),
                     onChooseCharacter: () => _openCharacterDialog(context),
                     onSettings: () => _openSettingsDialog(context),
                     onLeaderboard: () => _openLeaderboardDialog(context),
@@ -1352,7 +1595,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
                     playerName: _flow.playerName,
                     totalTrophies: _flow.totalTrophies,
                     globalPanicRank: _flow.globalPanicRank,
-                    adsService: _restartAdsService,
+                    adsService: _adsManager,
                   ),
               ],
             ),

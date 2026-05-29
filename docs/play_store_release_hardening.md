@@ -26,8 +26,11 @@
 ## Local release config
 - Copy `android/release.properties.example` to `android/release.properties`.
 - Copy `android/key.properties.example` to `android/key.properties`.
-- Pass build-time runtime IDs with `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, `--dart-define=GOOGLE_IOS_CLIENT_ID=...`, `--dart-define=ADMOB_REWARDED_AD_UNIT_ID=...`, and `--dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=...`.
-- Optional launch flags: `--dart-define=PRIVACY_POLICY_URL=...`, `--dart-define=TERMS_URL=...`, `--dart-define=ACCOUNT_DELETION_URL=...`, `--dart-define=ADS_ENABLED=true`, `--dart-define=REWARDED_REVIVE_ENABLED=true`, `--dart-define=INTERSTITIALS_ENABLED=true`, `--dart-define=INTERSTITIAL_COOLDOWN_SECONDS=120`, and `--dart-define=INTERSTITIAL_MIN_GAME_OVERS=2`.
+- Pass build-time runtime IDs with `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, `--dart-define=GOOGLE_IOS_CLIENT_ID=...`, `--dart-define=ADMOB_REWARDED_AD_UNIT_ID=...`, `--dart-define=ADMOB_INTERSTITIAL_AD_UNIT_ID=...`, and `--dart-define=ADMOB_BANNER_AD_UNIT_ID=...`.
+- Prefer platform-specific ad unit IDs when Android and iOS are both shipped: `ADMOB_ANDROID_REWARDED_AD_UNIT_ID`, `ADMOB_IOS_REWARDED_AD_UNIT_ID`, `ADMOB_ANDROID_INTERSTITIAL_AD_UNIT_ID`, `ADMOB_IOS_INTERSTITIAL_AD_UNIT_ID`, `ADMOB_ANDROID_BANNER_AD_UNIT_ID`, and `ADMOB_IOS_BANNER_AD_UNIT_ID`.
+- Optional launch flags: `--dart-define=PRIVACY_POLICY_URL=...`, `--dart-define=TERMS_URL=...`, `--dart-define=ACCOUNT_DELETION_URL=...`, `--dart-define=ADS_ENABLED=true`, `--dart-define=REWARDED_REVIVE_ENABLED=true`, `--dart-define=INTERSTITIALS_ENABLED=true`, `--dart-define=BANNER_ADS_ENABLED=true`, `--dart-define=REWARDED_REVIVE_AD_WAIT_SECONDS=30`, `--dart-define=INTERSTITIAL_COOLDOWN_SECONDS=120`, and `--dart-define=INTERSTITIAL_MIN_GAME_OVERS=2`.
+- Keep `ADMOB_TEST_DEVICE_IDS` and `ADS_CONSENT_DEBUG_GEOGRAPHY` empty for release builds.
+- For iOS, replace `ADMOB_APP_ID` in `ios/Flutter/Release.xcconfig` with the real iOS AdMob app ID before App Store release.
 
 ## Google Sign-In preflight
 1. Package match:

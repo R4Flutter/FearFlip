@@ -9,7 +9,7 @@ import '../../data/database/local_session_database.dart';
 import '../../domain/usecases/start_survival_use_case.dart';
 import '../../game/game.dart';
 import '../controllers/game_controller.dart';
-import '../../services/ads_service.dart';
+import '../../services/ads_facade.dart';
 import '../../services/audio_manager.dart';
 import '../../services/account_deletion_service.dart';
 import '../../services/auth_service.dart';
@@ -45,7 +45,7 @@ class AppFlowProvider extends ChangeNotifier {
            (enableAuthBootstrap ? AccountDeletionService() : null) {
     _sessionDatabase.markAppLaunch();
     game = FearFlipGame(
-      adsService: AdsService.instance,
+      adsService: AdsFacade.instance,
       audioManager: AudioManager.instance,
       leaderboardService:
           leaderboardService ??
@@ -92,7 +92,7 @@ class AppFlowProvider extends ChangeNotifier {
   double _soundVolume = 1.0;
   bool _isSoundMuted = false;
   int _selectedCharacterIndex = defaultCharacterIndex;
-  bool _useArrowController = false;
+  bool _useArrowController = true;
   int _totalTrophies = 0;
   int _maxStageReached = 1;
   int? _globalPanicRank;

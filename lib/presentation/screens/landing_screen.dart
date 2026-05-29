@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 
-import '../../services/ads_service.dart';
+import '../../config/app_runtime_config.dart';
+import '../../services/ads_service_base.dart';
 import '../../services/purchase_service.dart';
 import '../theme/app_palette.dart';
 
@@ -33,7 +35,7 @@ class LandingScreen extends StatefulWidget {
   final String playerName;
   final int totalTrophies;
   final int? globalPanicRank;
-  final AdsService adsService;
+  final AdsServiceBase adsService;
 
   @override
   State<LandingScreen> createState() => _LandingScreenState();
@@ -64,8 +66,14 @@ class _LandingScreenState extends State<LandingScreen>
 
   @override
   Widget build(BuildContext context) {
-    final showBanner = !PurchaseService.instance.isSubscribed &&
-        widget.adsService.bannerAd != null;
+    final showBanner =
+        !PurchaseService.instance.isSubscribed &&
+        AppRuntimeConfig.supportsMobileAds &&
+      AppRuntimeConfig.unityBannerAdsEnabled &&
+      widget.adsService.bannerRequested;
+    final showRemoveAds =
+      AppRuntimeConfig.supportsMobileAds &&
+      AppRuntimeConfig.removeAdsUiEnabled;
 
     return AnimatedBuilder(
       animation: _loop,
@@ -118,6 +126,11 @@ class _LandingScreenState extends State<LandingScreen>
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           final compact = constraints.maxWidth < 540;
+                          unawaited(
+                            widget.adsService.ensureBannerLoaded(
+                              width: constraints.maxWidth,
+                            ),
+                          );
                           final widthScale = (constraints.maxWidth / 390)
                               .clamp(0.86, 1.18)
                               .toDouble();
@@ -142,8 +155,9 @@ class _LandingScreenState extends State<LandingScreen>
                             ),
                             child: Center(
                               child: ConstrainedBox(
-                                constraints:
-                                    const BoxConstraints(maxWidth: 760),
+                                constraints: const BoxConstraints(
+                                  maxWidth: 760,
+                                ),
                                 child: Column(
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
@@ -195,74 +209,29 @@ class _LandingScreenState extends State<LandingScreen>
                                       onPressed: widget.onSettings,
                                     ),
                                     SizedBox(height: actionGap),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: ElevatedButton.icon(
-                                            onPressed: widget.onLeaderboard,
-                                            icon: const Icon(
-                                              Icons.emoji_events,
-                                            ),
-                                            label:
-                                                const Text('Leaderboard'),
-                                            style:
-                                                ElevatedButton.styleFrom(
-                                              minimumSize:
-                                                  const Size.fromHeight(
-                                                    56,
-                                                  ),
-                                              backgroundColor:
-                                                  AppPalette.neonGreen,
-                                              foregroundColor: Colors.black,
-                                              textStyle: const TextStyle(
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 14,
-                                                letterSpacing: 0.2,
-                                              ),
-                                              shape:
-                                                  RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                      10,
-                                                    ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: ElevatedButton.icon(
-                                            onPressed: widget.onRemoveAds,
-                                            icon:
-                                                const Icon(Icons.block),
-                                            label:
-                                                const Text('Remove Ads'),
-                                            style:
-                                                ElevatedButton.styleFrom(
-                                              minimumSize:
-                                                  const Size.fromHeight(
-                                                    56,
-                                                  ),
-                                              backgroundColor:
-                                                  AppPalette.accentPink,
-                                              foregroundColor: Colors.black,
-                                              textStyle: const TextStyle(
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 14,
-                                                letterSpacing: 0.2,
-                                              ),
-                                              shape:
-                                                  RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                      10,
-                                                    ),
-                                                  ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
+                                    _DashboardActionButton(
+                                      label: 'LEADERBOARD',
+                                      sublabel:
+                                          'Track your rank in the Global Panic board',
+                                      icon: Icons.emoji_events,
+                                      color: AppPalette.neonGreen,
+                                      foreground: Colors.black,
+                                      enabled: true,
+                                      onPressed: widget.onLeaderboard,
                                     ),
+                                    if (showRemoveAds) ...[
+                                      SizedBox(height: actionGap),
+                                      _DashboardActionButton(
+                                        label: 'REMOVE ADS',
+                                        sublabel:
+                                            'Unlock ad-free play and keep revives',
+                                        icon: Icons.block,
+                                        color: AppPalette.accentPink,
+                                        foreground: Colors.black,
+                                        enabled: true,
+                                        onPressed: widget.onRemoveAds,
+                                      ),
+                                    ],
                                     SizedBox(
                                       height: (constraints.maxHeight * 0.02)
                                           .clamp(14.0, 24.0)
@@ -270,14 +239,12 @@ class _LandingScreenState extends State<LandingScreen>
                                     ),
                                     _RankPanel(
                                       widthScale: widthScale,
-                                      globalPanicRank:
-                                          widget.globalPanicRank,
+                                      globalPanicRank: widget.globalPanicRank,
                                     ),
                                     const SizedBox(height: 18),
                                     // ── Inline privacy / terms links ───
                                     _LegalFooter(
-                                      onPrivacyPolicy:
-                                          widget.onPrivacyPolicy,
+                                      onPrivacyPolicy: widget.onPrivacyPolicy,
                                     ),
                                     const SizedBox(height: 12),
                                   ],
@@ -292,7 +259,7 @@ class _LandingScreenState extends State<LandingScreen>
                 ),
               ),
               // ── Banner ad pinned to bottom ───────────────────────────
-              if (showBanner) _BannerAdBar(ad: widget.adsService.bannerAd!),
+              if (showBanner) _BannerAdBar(adsService: widget.adsService),
             ],
           ),
         );
@@ -349,40 +316,65 @@ class _LegalFooter extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _BannerAdBar extends StatelessWidget {
-  const _BannerAdBar({required this.ad});
+  const _BannerAdBar({required this.adsService});
 
-  final BannerAd ad;
+  final AdsServiceBase adsService;
 
   @override
   Widget build(BuildContext context) {
     final bottomPad = MediaQuery.of(context).padding.bottom;
-    return Container(
-      width: double.infinity,
-      color: const Color(0xFF0A0A0A),
-      padding: EdgeInsets.only(bottom: bottomPad),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            height: 1,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppPalette.accentPurple.withAlpha(0),
-                  AppPalette.accentPurple.withAlpha(90),
-                  AppPalette.neonGreen.withAlpha(90),
-                  AppPalette.neonGreen.withAlpha(0),
-                ],
+    return ValueListenableBuilder<bool>(
+      valueListenable: adsService.bannerLoadedNotifier,
+      builder: (context, isLoaded, _) {
+        return Container(
+          width: double.infinity,
+          color: const Color(0xFF0A0A0A),
+          padding: EdgeInsets.only(bottom: bottomPad),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                height: isLoaded ? 1 : 0,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppPalette.accentPurple.withAlpha(0),
+                      AppPalette.accentPurple.withAlpha(90),
+                      AppPalette.neonGreen.withAlpha(90),
+                      AppPalette.neonGreen.withAlpha(0),
+                    ],
+                  ),
+                ),
               ),
-            ),
+              ValueListenableBuilder<BannerSize>(
+                valueListenable: adsService.bannerSizeNotifier,
+                builder: (context, size, _) {
+                  return ValueListenableBuilder<int>(
+                    valueListenable: adsService.bannerReloadNotifier,
+                    builder: (context, reloadToken, _) {
+                      return Visibility(
+                        visible: isLoaded,
+                        maintainState: true,
+                        maintainAnimation: true,
+                        maintainSize: false,
+                        child: SizedBox(
+                          width: size.width.toDouble(),
+                          height: size.height.toDouble(),
+                          child: adsService.buildBannerAd(
+                            size: size,
+                            reloadToken: reloadToken,
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
           ),
-          SizedBox(
-            width: ad.size.width.toDouble(),
-            height: ad.size.height.toDouble(),
-            child: AdWidget(ad: ad),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -532,9 +524,7 @@ class _TopMetaBar extends StatelessWidget {
               borderRadius: BorderRadius.circular(
                 (10 * widthScale).clamp(8.0, 14.0),
               ),
-              border: Border.all(
-                color: const Color(0xFFFFD86A).withAlpha(120),
-              ),
+              border: Border.all(color: const Color(0xFFFFD86A).withAlpha(120)),
               boxShadow: [
                 BoxShadow(
                   color: const Color(0xFFFFCB46).withAlpha(40),
@@ -803,8 +793,10 @@ class _GridGlitchPainter extends CustomPainter {
     final glitchPaint = Paint()..color = AppPalette.accentPurple.withAlpha(80);
     for (var i = 0; i < 6; i++) {
       final wave = progress * math.pi * (8 + i * 2.4);
-      final top = (size.height * (0.12 + 0.14 * i) + math.sin(wave) * 17)
-          .clamp(0.0, size.height - 4);
+      final top = (size.height * (0.12 + 0.14 * i) + math.sin(wave) * 17).clamp(
+        0.0,
+        size.height - 4,
+      );
       final left = (size.width * (0.08 + i * 0.03) + math.cos(wave * 1.3) * 26)
           .clamp(0.0, size.width - 100);
       final width = (size.width * (0.23 + i * 0.05)).clamp(

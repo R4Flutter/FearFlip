@@ -12,6 +12,7 @@ import '../../domain/input/input_handler.dart';
 import '../../domain/progression/progression_manager.dart';
 import '../../engine/fear_flip_game.dart';
 import '../../engine/systems/frame_budget_monitor.dart';
+import '../../services/ads_facade.dart';
 
 class GameController extends ChangeNotifier {
   GameController({
@@ -27,7 +28,7 @@ class GameController extends ChangeNotifier {
        _inputHandler = inputHandler ?? const StandardInputHandler(),
        _analytics = analytics ?? NoopAnalyticsService(),
        _crashReporting = crashReporting ?? NoopCrashReportingService(),
-       _monetization = monetization ?? NoopMonetizationService(),
+      _monetization = monetization ?? AdsFacade.instance.monetization,
        _progression = progression ?? ProgressionManager(),
        _frameBudget = frameBudget ?? const FrameBudgetMonitor();
 

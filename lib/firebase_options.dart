@@ -64,7 +64,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '158165984868',
     projectId: 'fearflip-179cf',
     storageBucket: 'fearflip-179cf.firebasestorage.app',
-    iosBundleId: 'com.yourcompany.fearflip',
+    iosBundleId: 'com.rajnaik.fearflip',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -73,7 +73,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '158165984868',
     projectId: 'fearflip-179cf',
     storageBucket: 'fearflip-179cf.firebasestorage.app',
-    iosBundleId: 'com.yourcompany.fearflip',
+    iosBundleId: 'com.rajnaik.fearflip',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

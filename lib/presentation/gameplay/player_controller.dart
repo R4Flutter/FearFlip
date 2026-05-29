@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../domain/entities/direction4.dart';
 import 'maze_generator.dart';
 
 class PlayerController extends ChangeNotifier {

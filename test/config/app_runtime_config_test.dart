@@ -26,6 +26,8 @@ void main() {
       accountDeletionUrlValue: '',
       rewardedAdUnitId: '',
       interstitialAdUnitId: '',
+      bannerAdUnitId: '',
+      mobileAdsSupported: true,
     );
 
     expect(issues, contains(contains('GOOGLE_SERVER_CLIENT_ID')));
@@ -34,6 +36,24 @@ void main() {
     expect(issues, contains(contains('ACCOUNT_DELETION_URL')));
     expect(issues, contains(contains('ADMOB_REWARDED_AD_UNIT_ID')));
     expect(issues, contains(contains('ADMOB_INTERSTITIAL_AD_UNIT_ID')));
+    expect(issues, contains(contains('ADMOB_BANNER_AD_UNIT_ID')));
+  });
+
+  test('release web builds do not require mobile-only AdMob IDs', () {
+    final issues = AppRuntimeConfig.productionReadinessIssues(
+      releaseMode: true,
+      googleServerClientId: 'ok',
+      privacyPolicyUrlValue: 'https://example.com/privacy',
+      termsUrlValue: 'https://example.com/terms',
+      accountDeletionUrlValue: 'https://example.com/delete',
+      removeAdsProductIdValue: 'remove_ads',
+      rewardedAdUnitId: '',
+      interstitialAdUnitId: '',
+      bannerAdUnitId: '',
+      mobileAdsSupported: false,
+    );
+
+    expect(issues, isEmpty);
   });
 
   test('non-release builds enable stage one trap testing hook', () {

@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import '../../domain/entities/direction4.dart';
 import '../../presentation/gameplay/maze_generator.dart';
 import 'trap_difficulty_scaler.dart';
 import 'trap_tile.dart';

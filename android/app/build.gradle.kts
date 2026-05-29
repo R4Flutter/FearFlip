@@ -46,7 +46,7 @@ fun configuredValue(propertyName: String, envName: String): String? {
 val appName = configuredValue("fearflip.appName", "FEARFLIP_APP_NAME") ?: "FearFlip"
 val namespaceValue =
     configuredValue("fearflip.namespace", "FEARFLIP_NAMESPACE") ?: "dev.fearflip.game"
-val toolingFallbackApplicationId = "com.example.fearflipgame"
+val toolingFallbackApplicationId = "dev.fearflip.game"
 val applicationIdValue =
     configuredValue("fearflip.applicationId", "FEARFLIP_APPLICATION_ID")
         ?: toolingFallbackApplicationId
@@ -61,7 +61,7 @@ val releaseTasksRequested = gradle.startParameter.taskNames.any { taskName ->
         normalized.contains("publish")
 }
 
-val defaultReleaseAdmobAppId = "ca-app-pub-1234567890123456~1234567890"
+val defaultReleaseAdmobAppId = "ca-app-pub-5463912491137261~6954996599"
 
 val releaseStoreFilePath = keystoreProperties.getProperty("storeFile")
 val releaseStorePassword = keystoreProperties.getProperty("storePassword")
@@ -132,7 +132,7 @@ android {
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
-                storeFile = file(releaseStoreFilePath!!)
+                storeFile = rootProject.file(releaseStoreFilePath!!)
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
@@ -157,6 +157,13 @@ android {
         debug {
             manifestPlaceholders["admobAppId"] =
                 "ca-app-pub-3940256099942544~3347511713"
+        }
+        maybeCreate("profile").apply {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            manifestPlaceholders["admobAppId"] =
+                releaseAdmobAppId?.takeIf { it.isNotBlank() }
+                    ?: defaultReleaseAdmobAppId
         }
         release {
             manifestPlaceholders["admobAppId"] =

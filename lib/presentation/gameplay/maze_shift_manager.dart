@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../../domain/entities/direction4.dart';
 import 'maze_generator.dart';
 
 enum MazeShiftPhase { none, midRun, lateRun }

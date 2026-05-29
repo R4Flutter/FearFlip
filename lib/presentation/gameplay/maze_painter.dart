@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../game/trap/trap_fx_renderer.dart';
 import '../../game/trap/trap_tile.dart';
+import '../../domain/entities/direction4.dart';
 import 'maze_generator.dart';
 
 class MazePainter extends CustomPainter {

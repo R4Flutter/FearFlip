@@ -48,6 +48,50 @@
           ]
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:158165984868:android:805a03c916eebe4ee86171",
+        "android_client_info": {
+          "package_name": "com.rajnaik.fearflip"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "158165984868-s4r3p84ochuor2q1fhgggdnbfhrb2m4g.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.rajnaik.fearflip",
+            "certificate_hash": "88cf36dbf66d9cba84056e69d4a82fee5aa55a5b"
+          }
+        },
+        {
+          "client_id": "158165984868-bvqagc5kubdo3cmpkr3ccrhufd2ksl6i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAqBP0XF5hhuCojR_tZHbh9O3VFyJk_UPw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "158165984868-bvqagc5kubdo3cmpkr3ccrhufd2ksl6i.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "158165984868-vjecq33sac1sfvdnr6hpkbpfbak94sqp.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.fearflipgame"
+              }
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"
