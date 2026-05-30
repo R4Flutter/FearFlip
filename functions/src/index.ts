@@ -23,6 +23,39 @@ const db = admin.firestore();
 
 const PACKAGE_NAME = process.env.FEARFLIP_PACKAGE_NAME ?? "com.rajnaik.fearflip";
 
+// ─── Leaderboard helpers ───────────────────────────────────────────────────
+
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  const rounded = Math.round(value);
+  return Math.min(Math.max(rounded, min), max);
+}
+
+function sanitizeMode(mode: string): string {
+  const normalized = mode.trim().toLowerCase();
+  if (!normalized) {
+    return "normal";
+  }
+  const safe = normalized.replace(/[^a-z0-9_-]/g, "_");
+  return safe.length > 0 ? safe : "normal";
+}
+
+function sanitizeDisplayName(
+  displayName: unknown,
+  uid: string
+): string {
+  if (typeof displayName === "string") {
+    const trimmed = displayName.trim();
+    if (trimmed.length > 0) {
+      return trimmed.substring(0, 32);
+    }
+  }
+  const suffix = uid.length > 6 ? uid.substring(uid.length - 6) : uid;
+  return suffix ? `Player-${suffix}` : "Player";
+}
+
 // ─── Google Play Developer API client ────────────────────────────────────────
 
 async function getPlayClient() {
@@ -93,6 +126,91 @@ async function verifyProductWithPlay(
 
   return {isValid, purchaseState};
 }
+
+// ─── Cloud Function: submitScore (leaderboards) ────────────────────────────
+
+export const submitScore = functions.https.onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError(
+      "unauthenticated",
+      "Sign-in required."
+    );
+  }
+
+  const uid = request.auth.uid;
+  const rawScore = request.data?.scoreSeconds as number | undefined;
+  const rawMode = request.data?.mode as string | undefined;
+  const rawDisplayName = request.data?.displayName as string | undefined;
+  const rawClientTimestampMs = request.data?.clientTimestampMs as
+    | number
+    | undefined;
+
+  if (typeof rawScore !== "number" || typeof rawMode !== "string") {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "scoreSeconds and mode are required."
+    );
+  }
+
+  const scoreSeconds = clampInt(rawScore, 0, 60 * 60 * 24);
+  const mode = sanitizeMode(rawMode);
+  const displayName = sanitizeDisplayName(rawDisplayName, uid);
+  const clientTimestampMs =
+    typeof rawClientTimestampMs === "number"
+      ? clampInt(rawClientTimestampMs, 0, Date.now() + 60_000)
+      : Date.now();
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const leaderboardRef = db.collection("leaderboards").doc(mode);
+
+  try {
+    await leaderboardRef.collection("scores").add({
+      uid,
+      displayName,
+      scoreSeconds,
+      mode,
+      createdAt: now,
+    });
+
+    const bestRef = leaderboardRef.collection("best").doc(uid);
+    const existing = await bestRef.get();
+    const previous = existing.data()?.scoreSeconds;
+    const previousScore =
+      typeof previous === "number" ? Math.floor(previous) : -1;
+    if (!existing.exists || scoreSeconds > previousScore) {
+      await bestRef.set(
+        {
+          uid,
+          displayName,
+          scoreSeconds,
+          mode,
+          updatedAt: now,
+        },
+        {merge: true}
+      );
+    }
+
+    await db
+      .collection("runs")
+      .doc(uid)
+      .collection("sessions")
+      .add({
+        scoreSeconds,
+        mode,
+        displayName,
+        createdAt: now,
+        clientTimestampMs,
+      });
+
+    return {ok: true, scoreSeconds, mode};
+  } catch (err) {
+    functions.logger.error(`[submitScore] Error for uid=${uid}:`, err);
+    throw new functions.https.HttpsError(
+      "internal",
+      "Failed to submit leaderboard score."
+    );
+  }
+});
 
 // ─── Cloud Function: verifyOneTimePurchase ───────────────────────────────────
 

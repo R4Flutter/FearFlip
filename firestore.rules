@@ -58,45 +58,12 @@ service cloud.firestore {
 
     match /leaderboards/{mode}/scores/{scoreId} {
       allow read: if true;
-      allow create: if isSignedIn()
-          && validScore()
-          && validMode()
-          && validDisplayName()
-          && request.resource.data.uid == request.auth.uid
-          && request.resource.data.mode == mode
-          // Enforce non-negative score floor; negative values indicate tampering.
-          && request.resource.data.scoreSeconds >= 0
-          && request.resource.data.createdAt == request.time;
-      // TODO(anti-cheat): once submitScore Cloud Function is deployed,
-      // replace the create rule above with: allow write: if false;
-      allow update, delete: if false;
+      allow write: if false;
     }
 
     match /leaderboards/{mode}/best/{uid} {
       allow read: if true;
-
-      allow create: if isSignedIn()
-          && request.auth.uid == uid
-          && validScore()
-          && validMode()
-          && validDisplayName()
-          && request.resource.data.uid == uid
-          && request.resource.data.mode == mode
-          && request.resource.data.updatedAt == request.time;
-
-      allow update: if isSignedIn()
-          && request.auth.uid == uid
-          && validScore()
-          && validMode()
-          && validDisplayName()
-          && request.resource.data.uid == uid
-          && request.resource.data.uid == resource.data.uid
-          && request.resource.data.mode == mode
-          && request.resource.data.mode == resource.data.mode
-          && request.resource.data.scoreSeconds >= resource.data.scoreSeconds
-          && request.resource.data.updatedAt == request.time;
-
-      allow delete: if false;
+      allow write: if false;
     }
 
     match /leaderboards/{mode}/profiles/{uid} {

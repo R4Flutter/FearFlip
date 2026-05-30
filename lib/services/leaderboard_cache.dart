@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'error_reporter.dart';
 import 'leaderboard_service.dart';
 
 /// Persists the last-fetched [LeaderboardSnapshot] to [SharedPreferences] so
@@ -55,7 +56,14 @@ class LeaderboardCache {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_key(mode));
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'leaderboard_cache_clear_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'mode': mode},
+      );
+    }
   }
 
   // ── Serialisation helpers ──────────────────────────────────────────────────

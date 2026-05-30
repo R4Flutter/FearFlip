@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../config/app_runtime_config.dart';
+import 'error_reporter.dart';
 
 class AuthCancelledException implements Exception {}
 
@@ -161,8 +162,12 @@ class AuthService {
           return token;
         }
       }
-    } catch (_) {
-      // accessToken is not available on all plugin versions/platforms.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'auth_access_token_read_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
     return null;
   }
@@ -256,8 +261,12 @@ class AuthService {
     // Clear cached provider session so users always get account picker.
     try {
       await _googleSignIn.signOut();
-    } catch (_) {
-      // Ignore sign-out failures and continue to explicit auth flow.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'google_sign_out_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
 
     GoogleSignInAccount account;
@@ -267,7 +276,12 @@ class AuthService {
       throw _mapPlatformException(error);
     } on GoogleSignInException catch (error) {
       throw _mapGoogleSignInException(error);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'google_sign_in_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
       throw AuthSignInFailedException(
         'Unable to sign in with Google right now. Please try again.',
       );
@@ -358,8 +372,12 @@ class AuthService {
     if (!keepGoogleSession) {
       try {
         await _googleSignIn.signOut();
-      } catch (_) {
-        // Ignore third-party sign out errors and always ensure Firebase sign out.
+      } catch (error, stackTrace) {
+        ErrorReporter.report(
+          reason: 'google_sign_out_failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
       }
     }
 

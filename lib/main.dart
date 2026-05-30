@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +11,7 @@ import 'config/app_runtime_config.dart';
 import 'firebase_options.dart';
 import 'services/ads_facade.dart';
 import 'services/consent_service.dart';
+import 'services/error_reporter.dart';
 import 'services/purchase_service.dart';
 
 export 'app/fear_flip_app.dart';
@@ -30,13 +33,27 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     firebaseReady = true;
-  } catch (_) {
+  } catch (error, stackTrace) {
     firebaseReady = false;
+    ErrorReporter.report(
+      reason: 'firebase_init_failed',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   if (firebaseReady && !kIsWeb) {
     FlutterError.onError = (details) {
       FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    };
+    PlatformDispatcher.instance.onError = (error, stackTrace) {
+      FirebaseCrashlytics.instance.recordError(
+        error,
+        stackTrace,
+        fatal: true,
+        reason: 'platform_dispatcher_uncaught',
+      );
+      return true;
     };
   }
 
@@ -91,5 +108,17 @@ Future<void> main() async {
     ]);
   }
 
-  runApp(const FearFlipApp());
+  runZonedGuarded(
+    () {
+      runApp(const FearFlipApp());
+    },
+    (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'zone_uncaught',
+        error: error,
+        stackTrace: stackTrace,
+        fatal: true,
+      );
+    },
+  );
 }

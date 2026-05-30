@@ -16,6 +16,7 @@ import '../../game/trap/trap_placement_engine.dart';
 import '../../game/trap/trap_state_controller.dart';
 import '../../game/trap/trap_tile.dart';
 import '../../services/audio_manager.dart';
+import '../../services/error_reporter.dart';
 import '../../services/game_audio_event.dart';
 import 'glitch_effect_controller.dart';
 import 'maze_generator.dart';
@@ -406,8 +407,12 @@ class _GameScreenState extends State<GameScreen>
 
     try {
       await _audioManager.stopAlarmImmediately();
-    } catch (_) {
-      // Keep stage transition crash-safe if alarm stop fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_stop_alarm_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
 
     setState(() {
@@ -417,14 +422,23 @@ class _GameScreenState extends State<GameScreen>
 
     try {
       await _audioManager.handle(GameAudioEvent.playerWon);
-    } catch (_) {
-      // Keep stage transition crash-safe if audio dispatch fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_audio_player_won_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
 
     try {
       await widget.onStageCleared(_stage).timeout(const Duration(seconds: 3));
-    } catch (_) {
-      // Keep stage progression crash-safe even if trophy persistence fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_stage_cleared_callback_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'stage': _stage},
+      );
     }
 
     await _stageClearController.forward(from: 0);
@@ -842,8 +856,12 @@ class _GameScreenState extends State<GameScreen>
     _playerController.stop();
     try {
       await _audioManager.handle(GameAudioEvent.playerLost);
-    } catch (_) {
-      // Keep fail flow crash-safe if audio dispatch fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_audio_player_lost_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
     setState(() {
       _showLossOverlay = true;
@@ -1210,8 +1228,12 @@ class _GameScreenState extends State<GameScreen>
   Future<void> _playTrapLossAudioSafely() async {
     try {
       await _trapAudioController.playTrapDeath();
-    } catch (_) {
-      // Keep trap death flow crash-safe if audio dispatch fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'trap_audio_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -1651,8 +1673,12 @@ class _GameScreenState extends State<GameScreen>
     _playerController.stop();
     try {
       await _audioManager.handle(GameAudioEvent.playerLost);
-    } catch (_) {
-      // Keep timeout flow crash-safe if audio dispatch fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_audio_player_lost_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
     setState(() {
       _showLossOverlay = true;
@@ -1810,8 +1836,12 @@ class _GameScreenState extends State<GameScreen>
       }
       _playerSprite = frameInfo.image;
       _markGameSurfaceDirty();
-    } catch (_) {
-      // Fallback to circle rendering if sprite is not available.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_character_sprite_load_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -1831,8 +1861,12 @@ class _GameScreenState extends State<GameScreen>
       }
       _breakingTrapTexture = frameInfo.image;
       _markGameSurfaceDirty();
-    } catch (_) {
-      // Fallback if texture not found.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_trap_texture_load_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 

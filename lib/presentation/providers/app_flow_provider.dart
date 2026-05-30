@@ -13,6 +13,7 @@ import '../../services/ads_facade.dart';
 import '../../services/audio_manager.dart';
 import '../../services/account_deletion_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/error_reporter.dart';
 import '../../services/game_audio_event.dart';
 import '../../services/leaderboard_service.dart';
 
@@ -177,8 +178,12 @@ class AppFlowProvider extends ChangeNotifier {
       }
 
       unawaited(_syncGlobalPanicProgress());
-    } catch (_) {
-      // Keep default size when local preferences are unavailable.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'app_flow_load_settings_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
 
     await AudioManager.configureGlobalAudio(
@@ -199,8 +204,12 @@ class AppFlowProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_joystickSizePrefKey, _joystickSize);
-    } catch (_) {
-      // UI update stays applied for this session even if persistence fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'app_flow_save_joystick_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -218,8 +227,12 @@ class AppFlowProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_soundVolumePrefKey, _soundVolume);
-    } catch (_) {
-      // Keep selected audio volume for this session even if persistence fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'app_flow_save_volume_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -236,8 +249,12 @@ class AppFlowProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_soundMutedPrefKey, _isSoundMuted);
-    } catch (_) {
-      // Keep selected mute state for this session even if persistence fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'app_flow_save_mute_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -253,8 +270,12 @@ class AppFlowProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_selectedCharacterPrefKey, _selectedCharacterIndex);
-    } catch (_) {
-      // Keep selected character for this session even if persistence fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'app_flow_save_character_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -269,8 +290,12 @@ class AppFlowProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_arrowControllerPrefKey, _useArrowController);
-    } catch (_) {
-      // Keep selected control mode for this session even if persistence fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'app_flow_save_controls_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -399,7 +424,12 @@ class AppFlowProvider extends ChangeNotifier {
       _currentUser = null;
       _showLanding = true;
       _authError = null;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'guest_sign_in_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
       _offlineGuestMode = true;
       _offlineGuestName = _generateOfflineGuestName();
       _currentUser = null;
@@ -445,7 +475,12 @@ class AppFlowProvider extends ChangeNotifier {
       _offlineGuestName = null;
       _currentUser = null;
       _showLanding = true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'sign_out_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
       _authError = 'Sign out failed. Please try again.';
     } finally {
       _isAuthenticating = false;
@@ -502,7 +537,12 @@ class AppFlowProvider extends ChangeNotifier {
       );
       _accountMessage = result.message;
       return result;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'account_deletion_request_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
       const result = AccountDeletionResult(
         status: AccountDeletionStatus.failed,
         message:
@@ -547,8 +587,12 @@ class AppFlowProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_totalTrophiesPrefKey, _totalTrophies);
       await prefs.setInt(_maxStageReachedPrefKey, _maxStageReached);
-    } catch (_) {
-      // Trophy update remains in-memory for this session if persistence fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'trophy_persist_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
 
     await _syncGlobalPanicProgress();
@@ -574,8 +618,12 @@ class AppFlowProvider extends ChangeNotifier {
         _globalPanicRank = rank;
         notifyListeners();
       }
-    } catch (_) {
-      // Keep UI responsive if leaderboard sync fails.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'global_panic_sync_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 

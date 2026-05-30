@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'error_reporter.dart';
+
 class AccountDeletionIdentity {
   const AccountDeletionIdentity({
     required this.uid,
@@ -110,8 +112,14 @@ class AccountDeletionService {
     try {
       await _gateway.queueDeletionRequest(identity);
       deletionRequestQueued = true;
-    } catch (_) {
+    } catch (error, stackTrace) {
       deletionRequestQueued = false;
+      ErrorReporter.report(
+        reason: 'account_deletion_queue_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'uid': identity.uid},
+      );
     }
 
     try {
@@ -143,7 +151,16 @@ class AccountDeletionService {
         status: AccountDeletionStatus.failed,
         message: error.message ?? 'Account deletion failed. Please try again.',
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'account_deletion_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{
+          'uid': identity.uid,
+          'queued': deletionRequestQueued,
+        },
+      );
       if (deletionRequestQueued) {
         await _gateway.signOut();
         return const AccountDeletionResult(

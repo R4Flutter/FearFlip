@@ -3,6 +3,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 
 import '../config/app_runtime_config.dart';
+import 'error_reporter.dart';
 
 class AdsDiagnostics {
   AdsDiagnostics._();
@@ -27,8 +28,13 @@ class AdsDiagnostics {
     final sanitized = _sanitize(params);
     try {
       FirebaseAnalytics.instance.logEvent(name: name, parameters: sanitized);
-    } catch (_) {
-      // Telemetry must never crash ad flow.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'ads_event_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'event': name},
+      );
     }
   }
 
@@ -50,8 +56,12 @@ class AdsDiagnostics {
           stackTrace,
           reason: message,
         );
-      } catch (_) {
-        // Never crash on telemetry.
+      } catch (reportError, reportStackTrace) {
+        ErrorReporter.report(
+          reason: 'ads_error_report_failed',
+          error: reportError,
+          stackTrace: reportStackTrace,
+        );
       }
     }
   }
@@ -59,8 +69,13 @@ class AdsDiagnostics {
   static void _logToCrashlytics(String message) {
     try {
       FirebaseCrashlytics.instance.log(message);
-    } catch (_) {
-      // Never crash on telemetry.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'ads_log_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'message': message},
+      );
     }
   }
 

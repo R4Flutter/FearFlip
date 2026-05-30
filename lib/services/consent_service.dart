@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+
 import '../config/app_runtime_config.dart';
 import 'ads_diagnostics.dart';
+import 'error_reporter.dart';
 
 class ConsentService {
   ConsentService._();
@@ -372,7 +374,12 @@ class ConsentService {
   Future<bool> _readCanRequestAdsSafely() async {
     try {
       return ConsentInformation.instance.canRequestAds();
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'consent_can_request_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }

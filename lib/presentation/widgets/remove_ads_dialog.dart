@@ -4,6 +4,7 @@ import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/ads_facade.dart';
+import '../../services/error_reporter.dart';
 import '../../services/purchase_service.dart';
 import '../theme/app_palette.dart';
 
@@ -62,7 +63,13 @@ class _RemoveAdsDialogState extends State<_RemoveAdsDialog>
 
     try {
       FirebaseAnalytics.instance.logEvent(name: 'purchase_screen_shown');
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'purchase_screen_shown_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   @override

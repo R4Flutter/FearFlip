@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../services/ads_service_base.dart';
 import '../services/audio_manager.dart';
+import '../services/error_reporter.dart';
 import '../services/game_audio_event.dart';
 import '../services/leaderboard_service.dart';
 import '../domain/procedural/level_config.dart';
@@ -172,7 +173,12 @@ class FearFlipGame extends FlameGame {
     await super.onLoad();
     try {
       _characterAtlas = await images.load(FearFlipCharacter.spriteSheetAsset);
-    } catch (_) {
+      } catch (error, stackTrace) {
+        ErrorReporter.report(
+          reason: 'game_character_atlas_load_failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
       _characterAtlas = null;
     }
     camera.viewfinder.anchor = Anchor.center;

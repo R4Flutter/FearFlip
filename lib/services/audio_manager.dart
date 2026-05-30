@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' as ja;
 
 import 'game_audio_event.dart';
+import 'error_reporter.dart';
 
 enum _AudioCue {
   calmLoop,
@@ -2316,8 +2317,16 @@ class AudioManager {
         await rootBundle.load(bundlePath);
         _log('Resolved ${cue.name}: $candidate');
         return _ResolvedAsset(candidate);
-      } catch (_) {
-        // Try next candidate.
+      } catch (error, stackTrace) {
+        ErrorReporter.report(
+          reason: 'audio_asset_resolve_failed',
+          error: error,
+          stackTrace: stackTrace,
+          context: <String, Object?>{
+            'cue': cue.name,
+            'asset': candidate,
+          },
+        );
       }
     }
     _log('Missing assets for ${cue.name}: ${candidates.join(', ')}');

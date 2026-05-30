@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
@@ -147,13 +148,16 @@ class FirestoreLeaderboardService implements LeaderboardService {
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
     LeaderboardCache? cache,
+      FirebaseFunctions? functions,
   }) : _firestore = firestore ?? FirebaseFirestore.instance,
        _auth = auth ?? FirebaseAuth.instance,
-       _cache = cache ?? LeaderboardCache();
+      _cache = cache ?? LeaderboardCache(),
+      _functions = functions ?? FirebaseFunctions.instance;
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
   final LeaderboardCache _cache;
+    final FirebaseFunctions _functions;
 
   CollectionReference<Map<String, dynamic>> _globalPanicProfiles() {
     return _firestore
@@ -171,54 +175,22 @@ class FirestoreLeaderboardService implements LeaderboardService {
     final safeScore = scoreSeconds.clamp(0, 60 * 60 * 24).toInt();
     final user = _auth.currentUser;
     final uid = user?.uid;
+    if (uid == null) {
+      debugPrint('[LeaderboardService] submitRun skipped (no auth user).');
+      return;
+    }
     final displayName = _bestDisplayName(user);
-    final now = FieldValue.serverTimestamp();
-
     try {
-      await _firestore
-          .collection('leaderboards')
-          .doc(safeMode)
-          .collection('scores')
-          .add({
-            'uid': uid,
-            'displayName': displayName,
-            'scoreSeconds': safeScore,
-            'mode': safeMode,
-            'createdAt': now,
-          });
-
-      if (uid != null) {
-        final bestRef = _firestore
-            .collection('leaderboards')
-            .doc(safeMode)
-            .collection('best')
-            .doc(uid);
-
-        final existing = await bestRef.get();
-        final previous = existing.data()?['scoreSeconds'];
-        final previousScore = previous is num ? previous.toInt() : -1;
-        if (!existing.exists || safeScore > previousScore) {
-          await bestRef.set(<String, Object?>{
-            'uid': uid,
-            'displayName': displayName,
-            'scoreSeconds': safeScore,
-            'mode': safeMode,
-            'updatedAt': now,
-          }, SetOptions(merge: true));
-        }
-
-        await _firestore
-            .collection('runs')
-            .doc(uid)
-            .collection('sessions')
-            .add({
-              'scoreSeconds': safeScore,
-              'mode': safeMode,
-              'displayName': displayName,
-              'createdAt': now,
-              'clientTimestampMs': DateTime.now().millisecondsSinceEpoch,
-            });
-      }
+      final callable = _functions.httpsCallable(
+        'submitScore',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+      );
+      await callable.call(<String, Object?>{
+        'scoreSeconds': safeScore,
+        'mode': safeMode,
+        'displayName': displayName,
+        'clientTimestampMs': DateTime.now().millisecondsSinceEpoch,
+      });
     } catch (error, stackTrace) {
       await _reportFailure(
         reason: 'leaderboard_submit_failed',
@@ -449,7 +421,14 @@ class FirestoreLeaderboardService implements LeaderboardService {
     int totalPlayers = 0;
     try {
       totalPlayers = (await profiles.count().get()).count ?? 0;
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await _reportFailure(
+        reason: 'global_panic_total_players_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'limit': safeLimit},
+      );
+    }
 
     int? myRank;
     int? myStage;
@@ -478,12 +457,29 @@ class FirestoreLeaderboardService implements LeaderboardService {
                         .get())
                     .count ??
                 0;
-          } catch (_) {
+          } catch (error, stackTrace) {
             sameStageLowerTrophyCount = 0;
+            await _reportFailure(
+              reason: 'global_panic_same_stage_query_failed',
+              error: error,
+              stackTrace: stackTrace,
+              context: <String, Object?>{
+                'uid': uid,
+                'max_stage': myStage,
+                'total_trophies': myTrophies,
+              },
+            );
           }
           myRank = higherStageCount + sameStageLowerTrophyCount + 1;
         }
-      } catch (_) {}
+      } catch (error, stackTrace) {
+        await _reportFailure(
+          reason: 'global_panic_rank_lookup_failed',
+          error: error,
+          stackTrace: stackTrace,
+          context: <String, Object?>{'uid': uid},
+        );
+      }
     }
 
     final snapshot = LeaderboardSnapshot(
@@ -605,8 +601,18 @@ class FirestoreLeaderboardService implements LeaderboardService {
                         .get())
                     .count ??
                 0;
-          } catch (_) {
+          } catch (error, stackTrace) {
             sameStageLowerTrophyCount = 0;
+            await _reportFailure(
+              reason: 'global_panic_same_stage_query_failed',
+              error: error,
+              stackTrace: stackTrace,
+              context: <String, Object?>{
+                'uid': uid,
+                'max_stage': myStage,
+                'total_trophies': myTrophies,
+              },
+            );
           }
 
           myRank = higherStageCount + sameStageLowerTrophyCount + 1;
@@ -776,9 +782,11 @@ class FirestoreLeaderboardService implements LeaderboardService {
         reason: reason,
         fatal: false,
       );
-    } catch (_) {
+    } catch (reportError, reportStackTrace) {
       if (kDebugMode) {
-        debugPrint(message.toString());
+        debugPrint(
+          '${message.toString()} | report_error=$reportError\n$reportStackTrace',
+        );
       }
     }
   }

@@ -13,6 +13,7 @@ import 'package:in_app_purchase_android/in_app_purchase_android.dart'
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_runtime_config.dart';
+import 'error_reporter.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -365,7 +366,14 @@ class PurchaseService extends ChangeNotifier {
         if (purchase.pendingCompletePurchase) {
           try {
             await InAppPurchase.instance.completePurchase(purchase);
-          } catch (_) {}
+          } catch (error, stackTrace) {
+            ErrorReporter.report(
+              reason: 'iap_complete_failed',
+              error: error,
+              stackTrace: stackTrace,
+              context: <String, Object?>{'product_id': purchase.productID},
+            );
+          }
         }
 
         _resolveRestoreCompleter();
@@ -655,7 +663,12 @@ class PurchaseService extends ChangeNotifier {
   bool _isUserAuthenticated() {
     try {
       return FirebaseAuth.instance.currentUser != null;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'purchase_auth_check_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }
@@ -682,8 +695,13 @@ class PurchaseService extends ChangeNotifier {
   void _logEvent(String name, {Map<String, Object>? params}) {
     try {
       FirebaseAnalytics.instance.logEvent(name: name, parameters: params);
-    } catch (_) {
-      // Telemetry must never block or crash the purchase flow.
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'purchase_analytics_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'event': name},
+      );
     }
   }
 
