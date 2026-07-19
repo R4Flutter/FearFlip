@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:ui' as ui;
 
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
@@ -139,7 +138,11 @@ class FearFlipGame extends FlameGame {
   late PlayerComponent _player;
   late RealityFlipSystem _flipSystem;
   FearFlipCharacter _selectedCharacter = FearFlipCharacter.catalog.first;
-  ui.Image? _characterAtlas;
+
+  /// One 7-frame walk set per distinct on-disk frame set, keyed by frame-set
+  /// name (devil / sentinel / void_ripper / phantom). Loaded once in onLoad.
+  final Map<String, CharacterSpriteSet> _spriteSets =
+      <String, CharacterSpriteSet>{};
 
   DevilComponent? _devil;
   ShadowCloneComponent? _shadowClone;
@@ -172,14 +175,15 @@ class FearFlipGame extends FlameGame {
   Future<void> onLoad() async {
     await super.onLoad();
     try {
-      _characterAtlas = await images.load(FearFlipCharacter.spriteSheetAsset);
-      } catch (error, stackTrace) {
-        ErrorReporter.report(
-          reason: 'game_character_atlas_load_failed',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      _characterAtlas = null;
+      for (final frameSet in CharacterSpriteSet.frameSetForId.values.toSet()) {
+        _spriteSets[frameSet] = await CharacterSpriteSet.load(images, frameSet);
+      }
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_character_frames_load_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
     camera.viewfinder.anchor = Anchor.center;
     _configureCameraForViewport();
@@ -290,7 +294,7 @@ class FearFlipGame extends FlameGame {
     _player = PlayerComponent(
       maze: _maze,
       config: _runtimeConfig,
-      avatarSprite: _spriteForCharacter(_selectedCharacter),
+      spriteSet: _setForCharacter(_selectedCharacter),
     )..position = _maze.cellCenter(_maze.startCell);
     add(_player);
 
@@ -339,16 +343,16 @@ class FearFlipGame extends FlameGame {
     return _spriteForCharacter(character);
   }
 
+  CharacterSpriteSet? _setForCharacter(FearFlipCharacter character) {
+    return _spriteSets[CharacterSpriteSet.frameSetFor(character.id)];
+  }
+
   Sprite? _spriteForCharacter(FearFlipCharacter character) {
-    final atlas = _characterAtlas;
-    if (atlas == null) {
+    final set = _setForCharacter(character);
+    if (set == null || set.frames.isEmpty) {
       return null;
     }
-    return Sprite(
-      atlas,
-      srcPosition: character.sourcePosition,
-      srcSize: character.sourceSize,
-    );
+    return set.frameAt(0);
   }
 
   void setInputDirection(Vector2 direction) {
@@ -375,6 +379,8 @@ class FearFlipGame extends FlameGame {
         config: _runtimeConfig,
         targetProvider: () => _player.position,
         blockedCellsProvider: _blockedCellsFromSafeZones,
+        // The enemy always wears the horned devil frame set.
+        spriteSet: _spriteSets[CharacterSpriteSet.defaultFrameSet],
       )..position = spawn;
       _devil = devil;
       add(devil);
@@ -393,6 +399,7 @@ class FearFlipGame extends FlameGame {
         config: _runtimeConfig,
         spawnAt: mirrored,
         random: _random,
+        sprite: _spriteSets['phantom']?.frameAt(0),
       );
       _shadowClone = clone;
       add(clone);
