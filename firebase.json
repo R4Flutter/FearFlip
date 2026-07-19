@@ -45,6 +45,14 @@
       {
         "source": "/privacy-policy/",
         "destination": "/privacy_policy.html"
+      },
+      {
+        "source": "/account-deletion",
+        "destination": "/account_deletion.html"
+      },
+      {
+        "source": "/account-deletion/",
+        "destination": "/account_deletion.html"
       }
     ]
   },

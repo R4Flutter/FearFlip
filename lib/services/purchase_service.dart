@@ -25,6 +25,10 @@ const String _kIsPremiumKey = 'iap_remove_ads_unlocked';
 
 const String _kProcessedTokensKey = 'iap_processed_tokens';
 
+/// Set once after the first silent restore attempt so we don't fire a restore
+/// on every cold start — only the first launch (or first reinstall) tries it.
+const String _kAutoRestoreDoneKey = 'iap_auto_restore_done';
+
 /// How long the IAP stream has to respond before we declare "nothing found"
 /// during a restore flow.
 const Duration _kRestoreTimeout = Duration(seconds: 8);
@@ -138,6 +142,8 @@ class PurchaseService extends ChangeNotifier {
     _setStatus(PurchaseStatus.initialising);
 
     // ── Step 1: Apply cached flag immediately ──────────────────────────────
+    // This is the ONLY work the caller (main.dart, before runApp) awaits, so
+    // cold start never blocks on a billing connection.
     final prefs = await SharedPreferences.getInstance();
     final cached = prefs.getBool(_kIsPremiumKey) ?? false;
 
@@ -148,7 +154,17 @@ class PurchaseService extends ChangeNotifier {
       _setStatus(PurchaseStatus.notPurchased);
     }
 
-    // ── Step 2: Billing availability ──────────────────────────────────────
+    // Everything else (billing connect, stream, product load, restore, server
+    // re-verify) runs off the critical path so first frame is not delayed.
+    unawaited(_startBilling(prefs, cached: cached));
+  }
+
+  /// Background billing bring-up. Never awaited by [init].
+  Future<void> _startBilling(
+    SharedPreferences prefs, {
+    required bool cached,
+  }) async {
+    // ── Billing availability ──────────────────────────────────────────────
     bool billingAvailable = false;
     try {
       billingAvailable = await InAppPurchase.instance.isAvailable();
@@ -157,16 +173,33 @@ class PurchaseService extends ChangeNotifier {
     }
 
     if (billingAvailable) {
-      _purchaseSubscription = InAppPurchase.instance.purchaseStream.listen(
+      _purchaseSubscription ??= InAppPurchase.instance.purchaseStream.listen(
         _onPurchaseUpdate,
         onError: _onStreamError,
       );
       unawaited(_loadProductDetails());
+
+      // ── First-launch silent restore ────────────────────────────────────
+      // Recovers premium for users who reinstalled (local flag cleared)
+      // without making them hunt for the Restore button. Runs at most once;
+      // the flag is only set after a successful call so an offline first
+      // launch retries next time. Restored items resolve via the stream.
+      if (!cached && !(prefs.getBool(_kAutoRestoreDoneKey) ?? false)) {
+        try {
+          await InAppPurchase.instance.restorePurchases();
+          await prefs.setBool(_kAutoRestoreDoneKey, true);
+        } catch (e) {
+          debugPrint(
+            '[PurchaseService] first-launch restore failed '
+            '(will retry next launch): $e',
+          );
+        }
+      }
     } else {
       debugPrint('[PurchaseService] Billing unavailable on this device.');
     }
 
-    // ── Step 3: Server re-verify for authenticated users ──────────────────
+    // ── Server re-verify for authenticated users ──────────────────────────
     // Only worthwhile if user has the cached flag set — avoids a server round-
     // trip for users who have never purchased.
     if (cached && _isUserAuthenticated()) {
@@ -303,6 +336,9 @@ class PurchaseService extends ChangeNotifier {
       );
     }
 
+    final wasSubscribedBeforeRestore = isSubscribed;
+    var timedOutWithoutResult = false;
+
     _restoreInProgress = true;
     _restoreCompleter = Completer<void>();
     _setStatus(PurchaseStatus.restoring);
@@ -312,12 +348,19 @@ class PurchaseService extends ChangeNotifier {
 
       // Wait for the stream to settle (or timeout gracefully).
       await _restoreCompleter!.future.timeout(_kRestoreTimeout).catchError((_) {
+        timedOutWithoutResult = true;
         debugPrint(
           '[PurchaseService] Restore stream timeout — no items found.',
         );
       });
 
-      return const PurchaseResult(success: true, message: 'Restore complete.');
+      final restored = isSubscribed || wasSubscribedBeforeRestore;
+      return PurchaseResult(
+        success: restored,
+        message: restored
+            ? 'Restore complete.'
+            : 'No Remove Ads purchase found for this account.',
+      );
     } catch (e, st) {
       debugPrint('[PurchaseService] restorePurchases exception: $e');
       if (kDebugMode) debugPrint(st.toString());
@@ -327,8 +370,22 @@ class PurchaseService extends ChangeNotifier {
       _logEvent('purchase_restore_fail', params: {'error': e.toString()});
       return PurchaseResult(success: false, message: _friendlyError(e));
     } finally {
+      final statusStillRestoring = _status == PurchaseStatus.restoring;
       _restoreInProgress = false;
       _restoreCompleter = null;
+      if (statusStillRestoring) {
+        _setStatus(
+          wasSubscribedBeforeRestore
+              ? PurchaseStatus.purchased
+              : PurchaseStatus.notPurchased,
+        );
+        if (timedOutWithoutResult && !wasSubscribedBeforeRestore) {
+          _logEvent(
+            'purchase_restore_fail',
+            params: {'reason': 'not_found'},
+          );
+        }
+      }
     }
   }
 
@@ -407,7 +464,17 @@ class PurchaseService extends ChangeNotifier {
         debugPrint(
           '[PurchaseService] Duplicate token — already processed. Skipping.',
         );
-        if (prefs.getBool(_kIsPremiumKey) ?? false) {
+        await _completePurchaseSafely(purchase);
+        // Store re-delivered an owned purchase we've seen before. Ensure the
+        // entitlement is actually applied — a previously false/cleared flag
+        // must not leave a payer locked out after we short-circuit here.
+        final storeConfirmsOwned =
+            purchase.status == iap.PurchaseStatus.purchased ||
+            purchase.status == iap.PurchaseStatus.restored;
+        if (storeConfirmsOwned && !(prefs.getBool(_kIsPremiumKey) ?? false)) {
+          await prefs.setBool(_kIsPremiumKey, true);
+        }
+        if (storeConfirmsOwned || (prefs.getBool(_kIsPremiumKey) ?? false)) {
           _setStatus(PurchaseStatus.purchased);
         }
         return;
@@ -421,23 +488,13 @@ class PurchaseService extends ChangeNotifier {
       return;
     }
 
-    // ── Acknowledge with the store (MUST happen before granting) ───────────
-    if (purchase.pendingCompletePurchase) {
-      try {
-        await InAppPurchase.instance.completePurchase(purchase);
-        debugPrint('[PurchaseService] completePurchase() acknowledged.');
-      } catch (e) {
-        debugPrint('[PurchaseService] completePurchase() error: $e');
-        // Continue to server verify — ack can be retried; don't block grant.
-      }
-    }
-
     // ── Server-side verification (Mode A & Mode B) ─────────────────────────
     final isValid = await _serverVerifyPurchase(token);
 
     if (isValid == true) {
       // ✅ Mode A: Backend validation successful
       await _grantPremium(token, prefs, processedTokens);
+      await _completePurchaseSafely(purchase);
       _logEvent(
         'purchase_success',
         params: {
@@ -451,13 +508,22 @@ class PurchaseService extends ChangeNotifier {
       _setStatus(PurchaseStatus.notPurchased);
       _logEvent('purchase_fail', params: {'error': 'server_invalid'});
     } else {
-      // ⚠️ Mode B: Fallback (Server unreachable but we have local verification)
-      if (purchase.status == iap.PurchaseStatus.purchased) {
+      // ⚠️ Mode B: Fallback (Server unreachable — result was null, NOT an
+      // explicit invalid). The store only emits `purchased`/`restored` for
+      // genuinely owned items, so trust it and unlock; `_serverCheckOnLaunch`
+      // reconciles a real refund on the next launch. Restore MUST get the same
+      // trust as purchase or reinstall-restore fails whenever the server is down.
+      // ponytail: optimistic grant on store-confirmed ownership; server
+      // isValid==false still blocks tampering above, launch re-check revokes refunds.
+      if (purchase.status == iap.PurchaseStatus.purchased ||
+          purchase.status == iap.PurchaseStatus.restored) {
         debugPrint(
-          '[PurchaseService] Mode B: Client-only validation fallback.',
+          '[PurchaseService] Mode B: store-trusted fallback '
+          '(status=${purchase.status.name}).',
         );
         _logEvent('purchase_validation_mode', params: {'mode': 'client_only'});
         await _grantPremium(token, prefs, processedTokens);
+        await _completePurchaseSafely(purchase);
         _logEvent(
           'purchase_success',
           params: {
@@ -471,6 +537,7 @@ class PurchaseService extends ChangeNotifier {
         final alreadyHas = prefs.getBool(_kIsPremiumKey) ?? false;
         if (alreadyHas) {
           _setStatus(PurchaseStatus.purchased);
+          await _completePurchaseSafely(purchase);
           debugPrint(
             '[PurchaseService] Server unreachable but cache says premium — kept.',
           );
@@ -529,6 +596,11 @@ class PurchaseService extends ChangeNotifier {
   /// Returns `true` = valid, `false` = invalid, `null` = server unreachable.
   Future<bool?> _serverVerifyPurchase(String token) async {
     try {
+      final hasAuth = await _ensureAuthenticatedForVerification();
+      if (!hasAuth) {
+        return null;
+      }
+
       final callable = FirebaseFunctions.instance.httpsCallable(
         'verifyOneTimePurchase',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
@@ -560,6 +632,25 @@ class PurchaseService extends ChangeNotifier {
 
   // ── Launch-time server check ───────────────────────────────────────────────
 
+  Future<void> _completePurchaseSafely(PurchaseDetails purchase) async {
+    if (!purchase.pendingCompletePurchase) {
+      return;
+    }
+
+    try {
+      await InAppPurchase.instance.completePurchase(purchase);
+      debugPrint('[PurchaseService] completePurchase() acknowledged.');
+    } catch (error, stackTrace) {
+      debugPrint('[PurchaseService] completePurchase() error: $error');
+      ErrorReporter.report(
+        reason: 'iap_complete_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'product_id': purchase.productID},
+      );
+    }
+  }
+
   /// Re-validates cached premium status on launch (handles refunds / revocations).
   Future<void> _serverCheckOnLaunch(SharedPreferences prefs) async {
     try {
@@ -573,14 +664,26 @@ class PurchaseService extends ChangeNotifier {
       });
 
       final isValid = result.data['isValid'] as bool? ?? false;
+      final reason = result.data['reason'] as String? ?? '';
 
       if (isValid) {
         _setStatus(PurchaseStatus.purchased);
         debugPrint('[PurchaseService] Launch check: PREMIUM confirmed.');
-      } else {
+        return;
+      }
+
+      // Only an AUTHORITATIVE "the store cancelled/refunded this" signal may
+      // strip a paid entitlement. A missing entitlement record ('no_record')
+      // or an unreachable Play API ('unreachable') must NEVER revoke — doing
+      // so made every payer lose premium on the launch after purchase (the
+      // server never wrote a record because it couldn't reach Play).
+      if (reason == 'play_revoked') {
         await _revokePremium();
+        debugPrint('[PurchaseService] Launch check: Play revoked entitlement.');
+      } else {
         debugPrint(
-          '[PurchaseService] Launch check: Premium revoked by server.',
+          '[PurchaseService] Launch check inconclusive (reason="$reason") — '
+          'keeping cached premium.',
         );
       }
     } on FirebaseFunctionsException catch (e) {
@@ -602,31 +705,38 @@ class PurchaseService extends ChangeNotifier {
     if (_loadingProductDetails) return;
     _loadingProductDetails = true;
     try {
-      final response = await InAppPurchase.instance.queryProductDetails({
-        _productId,
-      });
-      if (response.error != null) {
-        debugPrint(
-          '[PurchaseService] queryProductDetails error: ${response.error}',
-        );
-        return;
+      // Bounded retry: a flaky first launch would otherwise leave the price
+      // blank and the buy button stuck on "product not found".
+      const maxAttempts = 3;
+      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          final response = await InAppPurchase.instance.queryProductDetails({
+            _productId,
+          });
+          if (response.error == null && response.productDetails.isNotEmpty) {
+            _productDetails = response.productDetails.first;
+            debugPrint(
+              '[PurchaseService] Product loaded: ${_productDetails!.title} '
+              '@ ${_productDetails!.price}',
+            );
+            notifyListeners(); // update price chip in UI
+            return;
+          }
+          debugPrint(
+            '[PurchaseService] queryProductDetails attempt '
+            '$attempt/$maxAttempts empty/error '
+            '(${response.error ?? 'no product for "$_productId"'}).',
+          );
+        } catch (e, st) {
+          debugPrint(
+            '[PurchaseService] _loadProductDetails attempt $attempt error: $e',
+          );
+          if (kDebugMode) debugPrint(st.toString());
+        }
+        if (attempt < maxAttempts) {
+          await Future<void>.delayed(Duration(seconds: attempt * 2));
+        }
       }
-      if (response.productDetails.isEmpty) {
-        debugPrint(
-          '[PurchaseService] No product found for "$_productId". '
-          'Ensure it is published in the store console.',
-        );
-        return;
-      }
-      _productDetails = response.productDetails.first;
-      debugPrint(
-        '[PurchaseService] Product loaded: ${_productDetails!.title} '
-        '@ ${_productDetails!.price}',
-      );
-      notifyListeners(); // update price chip in UI
-    } catch (e, st) {
-      debugPrint('[PurchaseService] _loadProductDetails error: $e');
-      if (kDebugMode) debugPrint(st.toString());
     } finally {
       _loadingProductDetails = false;
     }
@@ -666,6 +776,31 @@ class PurchaseService extends ChangeNotifier {
     } catch (error, stackTrace) {
       ErrorReporter.report(
         reason: 'purchase_auth_check_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    }
+  }
+
+  Future<bool> _ensureAuthenticatedForVerification() async {
+    try {
+      final auth = FirebaseAuth.instance;
+      if (auth.currentUser != null) {
+        return true;
+      }
+      await auth.signInAnonymously();
+      return auth.currentUser != null;
+    } on FirebaseAuthException catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'purchase_auth_sign_in_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'purchase_auth_sign_in_failed',
         error: error,
         stackTrace: stackTrace,
       );

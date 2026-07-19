@@ -206,7 +206,7 @@ class AdsService with WidgetsBindingObserver {
 
     if (!_canUseMobileAds ||
         _permanentlyDisabled ||
-        !AppRuntimeConfig.adsEnabled ||
+        !AppRuntimeConfig.admobAdsEnabled ||
         !_isAppActive) {
       return;
     }
@@ -497,7 +497,7 @@ class AdsService with WidgetsBindingObserver {
   bool get isInterstitialReady => _canUseMobileAds && _interstitialAd != null;
 
   /// Call this immediately after a stage completion screen is shown.
-  Future<void> showInterstitialAfterStageCleared(int clearedStage) async {
+  Future<bool> showInterstitialAfterStageCleared(int clearedStage) async {
     if (!_canUseMobileAds ||
         _permanentlyDisabled ||
         await isPremiumUnlocked ||
@@ -508,7 +508,7 @@ class AdsService with WidgetsBindingObserver {
         'Stage interstitial skipped',
         data: {'reason': 'premium_or_consent'},
       );
-      return;
+      return false;
     }
 
     if (!_placementPolicy.canShowInterstitialForStage(clearedStage, _clock())) {
@@ -516,7 +516,7 @@ class AdsService with WidgetsBindingObserver {
         'Stage interstitial skipped',
         data: {'reason': 'cooldown', 'stage': clearedStage},
       );
-      return;
+      return false;
     }
 
     final ad = _interstitialAd;
@@ -527,14 +527,16 @@ class AdsService with WidgetsBindingObserver {
       );
       _disposeInterstitial(reason: 'missing_or_expired');
       unawaited(_loadInterstitial(reason: 'stage_cleared_request'));
-      return;
+      return false;
     }
 
     if (!_tryBeginAdShow('interstitial', placement: 'stage_clear')) {
-      return;
+      return false;
     }
 
     _placementPolicy.recordStageClearedInterstitialShown(_clock());
+
+    final completer = Completer<bool>();
 
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (_) {
@@ -568,6 +570,9 @@ class AdsService with WidgetsBindingObserver {
         _forceEndAdShow(reason: 'dismissed');
         AdsDiagnostics.log('Stage interstitial dismissed');
         unawaited(_loadInterstitial(reason: 'dismissed'));
+        if (!completer.isCompleted) {
+          completer.complete(true);
+        }
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
         _fullScreenAdShowing = false;
@@ -576,6 +581,9 @@ class AdsService with WidgetsBindingObserver {
         _interstitialAd = null;
         _forceEndAdShow(reason: 'show_failed');
         unawaited(_loadInterstitial(reason: 'show_failed'));
+        if (!completer.isCompleted) {
+          completer.complete(false);
+        }
       },
     );
 
@@ -594,7 +602,22 @@ class AdsService with WidgetsBindingObserver {
       ad.dispose();
       _interstitialAd = null;
       unawaited(_loadInterstitial(reason: 'show_exception'));
+      if (!completer.isCompleted) {
+        completer.complete(false);
+      }
+      return false;
     }
+    return completer.future.timeout(
+      AppRuntimeConfig.adsShowTimeout,
+      onTimeout: () {
+        AdsDiagnostics.event(
+          'ad_show_timeout',
+          params: {'type': 'interstitial', 'placement': 'stage_clear'},
+        );
+        _forceEndAdShow(reason: 'timeout');
+        return false;
+      },
+    );
   }
 
   void dispose() {
@@ -759,7 +782,9 @@ class AdsService with WidgetsBindingObserver {
     if (includeInterstitial && AppRuntimeConfig.interstitialAdsEnabled) {
       _scheduleInterstitialPreload(reason);
     }
-    if (includeBanner && _bannerRequested && AppRuntimeConfig.bannerAdsEnabled) {
+    if (includeBanner &&
+        _bannerRequested &&
+        AppRuntimeConfig.bannerAdsEnabled) {
       _scheduleBannerPreload(reason);
     }
     if (includeAppOpen && AppRuntimeConfig.appOpenAdsEnabled) {
@@ -800,32 +825,26 @@ class AdsService with WidgetsBindingObserver {
     if (_bannerPreloadTimer != null) {
       return;
     }
-    _bannerPreloadTimer = Timer(
-      AppRuntimeConfig.adsPreloadBannerDelay,
-      () {
-        _bannerPreloadTimer = null;
-        if (_isDisposed) {
-          return;
-        }
-        unawaited(_loadBanner(reason: reason));
-      },
-    );
+    _bannerPreloadTimer = Timer(AppRuntimeConfig.adsPreloadBannerDelay, () {
+      _bannerPreloadTimer = null;
+      if (_isDisposed) {
+        return;
+      }
+      unawaited(_loadBanner(reason: reason));
+    });
   }
 
   void _scheduleAppOpenPreload(String reason) {
     if (_appOpenPreloadTimer != null) {
       return;
     }
-    _appOpenPreloadTimer = Timer(
-      AppRuntimeConfig.adsPreloadAppOpenDelay,
-      () {
-        _appOpenPreloadTimer = null;
-        if (_isDisposed) {
-          return;
-        }
-        unawaited(_loadAppOpen(reason: reason));
-      },
-    );
+    _appOpenPreloadTimer = Timer(AppRuntimeConfig.adsPreloadAppOpenDelay, () {
+      _appOpenPreloadTimer = null;
+      if (_isDisposed) {
+        return;
+      }
+      unawaited(_loadAppOpen(reason: reason));
+    });
   }
 
   void _cancelPreloadTimers() {
@@ -1283,7 +1302,7 @@ class AdsService with WidgetsBindingObserver {
     if (!_canUseMobileAds || _permanentlyDisabled) {
       return false;
     }
-    if (!AppRuntimeConfig.adsEnabled) {
+    if (!AppRuntimeConfig.admobAdsEnabled) {
       return false;
     }
     if (await isPremiumUnlocked) {
@@ -1303,11 +1322,7 @@ class AdsService with WidgetsBindingObserver {
     return true;
   }
 
-  bool _tryBeginAdShow(
-    String adType, {
-    String? placement,
-    Duration? timeout,
-  }) {
+  bool _tryBeginAdShow(String adType, {String? placement, Duration? timeout}) {
     if (_isDisposed || !_isAppActive) {
       AdsDiagnostics.log(
         'Ad show blocked',
@@ -1348,21 +1363,16 @@ class AdsService with WidgetsBindingObserver {
       }
       AdsDiagnostics.log(
         'Ad show timeout',
-        data: {
-          'type': adType,
-          'timeoutMs': resolvedTimeout.inMilliseconds,
-        },
+        data: {'type': adType, 'timeoutMs': resolvedTimeout.inMilliseconds},
       );
       _forceEndAdShow(reason: 'timeout');
     });
 
-    AdsDiagnostics.log(
-      'Ad show lock acquired',
-      data: {
-        'type': adType,
-        if (placement != null) 'placement': placement,
-      },
-    );
+    final logData = <String, Object>{'type': adType};
+    if (placement != null) {
+      logData['placement'] = placement;
+    }
+    AdsDiagnostics.log('Ad show lock acquired', data: logData);
     return true;
   }
 
@@ -1591,6 +1601,7 @@ class AdsService with WidgetsBindingObserver {
       data: {
         'releaseLike': AppRuntimeConfig.useReleaseAdIds,
         'adsEnabled': AppRuntimeConfig.adsEnabled,
+        'admobEnabled': AppRuntimeConfig.admobAdsEnabled,
         'bannerEnabled': AppRuntimeConfig.bannerAdsEnabled,
         'interstitialEnabled': AppRuntimeConfig.interstitialAdsEnabled,
         'rewardedEnabled': AppRuntimeConfig.rewardedAdsEnabled,

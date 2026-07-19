@@ -14,6 +14,8 @@ class AppPalette {
   static const Color neonGreen = Color(0xFF33FF2B);
   static const Color accentPink = Color(0xFFE85BDA);
   static const Color accentPurple = Color(0xFFE26AE6);
+  static const Color accentSteel = Color(0xFF5A9FD9);
+  static const Color accentGold = Color(0xFFFFD700);
 
   static const Color borderSoft = Color(0x3AFFFFFF);
   static const Color danger = Color(0xFFFF8A80);

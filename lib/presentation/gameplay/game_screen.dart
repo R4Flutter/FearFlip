@@ -95,11 +95,11 @@ class _GameScreenState extends State<GameScreen>
   late AnimationController _stageClearController;
   late final TrapAudioController _trapAudioController;
   late final TrapDeathSequence _trapDeathSequence;
-  ui.Image? _playerSprite;
+  List<ui.Image>? _playerFrames;
+  List<ui.Image>? _devilFrames;
   ui.Image? _breakingTrapTexture;
-  // characters.png uses a 32x32 grid: 736x128 => 23 columns x 4 rows.
-  static const int _spriteColumns = 23;
-  static const int _spriteRows = 4;
+  ui.Image? _exitPortalSprite;
+  static const int _animationFrameCount = 7;
   static const int _maxStage = 100;
   static const int _maxPlayableMazeSize = 17;
   static const int _safeZonesPerStage = 2;
@@ -177,7 +177,7 @@ class _GameScreenState extends State<GameScreen>
       maze: _maze,
       vsync: this,
       onWin: _loadNextMaze,
-      animationFrameCount: _spriteColumns,
+      animationFrameCount: _animationFrameCount,
       animationFrameStepMs: 80,
     );
     _trapAudioController = TrapAudioController(audioManager: _audioManager);
@@ -209,7 +209,9 @@ class _GameScreenState extends State<GameScreen>
     _startCountdown();
     _startStageLoop();
     _loadCharactersSprite();
+    _loadDevilSprite();
     _loadBreakingTrapTexture();
+    _loadExitPortalSprite();
     _requestKeyboardFocusIfNeeded();
   }
 
@@ -246,6 +248,10 @@ class _GameScreenState extends State<GameScreen>
 
   @override
   void dispose() {
+    _disposeFrames(_playerFrames);
+    _disposeFrames(_devilFrames);
+    _breakingTrapTexture?.dispose();
+    _exitPortalSprite?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _clearKeyboardMovement(stopPlayer: false);
     _keyboardFocusNode.dispose();
@@ -431,7 +437,7 @@ class _GameScreenState extends State<GameScreen>
     }
 
     try {
-      await widget.onStageCleared(_stage).timeout(const Duration(seconds: 3));
+      await widget.onStageCleared(_stage);
     } catch (error, stackTrace) {
       ErrorReporter.report(
         reason: 'game_stage_cleared_callback_failed',
@@ -599,7 +605,6 @@ class _GameScreenState extends State<GameScreen>
     }
 
     final dt = _stageTickSeconds;
-    var shouldRepaintSurface = false;
     _audioFrameId += 1;
     _stageElapsedSeconds += dt;
 
@@ -615,9 +620,6 @@ class _GameScreenState extends State<GameScreen>
     if (wasGlitchActive && !_glitchEffectController.isActive) {
       unawaited(_audioManager.handle(GameAudioEvent.mazeShiftEnded));
     }
-    if (wasGlitchActive || _glitchEffectController.isActive) {
-      shouldRepaintSurface = true;
-    }
 
     final timeToFlip = _nextFlipAtSeconds - _stageElapsedSeconds;
     if (timeToFlip <= _stageRule.warningTime && timeToFlip > 0) {}
@@ -632,17 +634,14 @@ class _GameScreenState extends State<GameScreen>
         ),
       );
       _nextFlipAtSeconds = _stageElapsedSeconds + _nextFlipInterval();
-      shouldRepaintSurface = true;
     }
 
     final wasPlayerSafe = _playerSafe;
     _updateSafeZones();
     if (!wasPlayerSafe && _playerSafe) {
       _onSafeZoneEntered();
-      shouldRepaintSurface = true;
     } else if (wasPlayerSafe && !_playerSafe) {
       unawaited(_audioManager.handle(GameAudioEvent.safeZoneExited));
-      shouldRepaintSurface = true;
     }
 
     final playerMoved = _trackPlayerSteps();
@@ -684,7 +683,6 @@ class _GameScreenState extends State<GameScreen>
                 ),
               );
             }
-            shouldRepaintSurface = true;
             break;
           case TrapStepResult.trapCollapsed:
             final tile = _trapStateController.trapAt(playerCell);
@@ -692,7 +690,6 @@ class _GameScreenState extends State<GameScreen>
               tile.collapseProgress = 1;
               pendingTrapCollapse = tile;
             }
-            shouldRepaintSurface = true;
             break;
         }
       }
@@ -706,18 +703,14 @@ class _GameScreenState extends State<GameScreen>
         devilCell: _devilCell,
         hiddenCueLevel: _trapStageConfig.hiddenCueLevel,
       );
-      shouldRepaintSurface = true;
     }
 
-    if (_maybeTriggerMazeShift()) {
-      shouldRepaintSurface = true;
-    }
+    _maybeTriggerMazeShift();
 
     final hazardGraceActive = _mazeShiftManager.hazardGraceActive;
     if (_canSpawnDevilNow()) {
       _devilSpawned = true;
       _devilCell = _spawnDevilCell();
-      shouldRepaintSurface = true;
     }
 
     if (_devilSpawned && _devilCell != null) {
@@ -766,10 +759,6 @@ class _GameScreenState extends State<GameScreen>
         _devilMoveAccumulator = 0;
       }
 
-      if (_devilCell != previousDevilCell) {
-        shouldRepaintSurface = true;
-      }
-
       _devilDistanceSampleElapsed += dt;
       if (_devilDistanceSampleElapsed >= 0.10 ||
           _devilCell != previousDevilCell) {
@@ -805,15 +794,11 @@ class _GameScreenState extends State<GameScreen>
 
     if (pendingTrapCollapse != null && !_roundResolved) {
       unawaited(_onTrapCollapsed(pendingTrapCollapse));
-      if (shouldRepaintSurface) {
-        _markGameSurfaceDirty();
-      }
-      return;
     }
 
-    if (shouldRepaintSurface) {
-      _markGameSurfaceDirty();
-    }
+    // Idle animations (exit gate, devil bob, breathing) are time-driven, so
+    // the surface repaints every tick instead of only on state changes.
+    _markGameSurfaceDirty();
   }
 
   void _dispatchDevilDistance({
@@ -1827,27 +1812,101 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _loadCharactersSprite() async {
     try {
-      final data = await rootBundle.load('assets/images/characters.png');
-      final bytes = data.buffer.asUint8List();
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frameInfo = await codec.getNextFrame();
-      if (!mounted) {
-        return;
+      final prefix = _characterFramePrefix(widget.selectedCharacterIndex);
+      final frames = <ui.Image>[];
+      for (var i = 1; i <= _animationFrameCount; i++) {
+        final assetPath = 'assets/images/${prefix}_frames/$prefix$i.png';
+        final data = await rootBundle.load(assetPath);
+        final codec = await ui.instantiateImageCodec(
+          data.buffer.asUint8List(),
+        );
+        final frameInfo = await codec.getNextFrame();
+        codec.dispose();
+        frames.add(frameInfo.image);
+        if (!mounted) {
+          for (final f in frames) {
+            f.dispose();
+          }
+          return;
+        }
       }
-      _playerSprite = frameInfo.image;
+      _disposeFrames(_playerFrames);
+      _playerFrames = frames;
       _markGameSurfaceDirty();
     } catch (error, stackTrace) {
+      // Loud in the run console: a swallowed failure here shows up in-game as
+      // the green fallback blob. Usually a stale asset bundle — run
+      // `flutter clean` after adding frame folders to pubspec.
+      debugPrint('[GameScreen] player frames failed to load: $error');
       ErrorReporter.report(
-        reason: 'game_character_sprite_load_failed',
+        reason: 'game_character_frames_load_failed',
         error: error,
         stackTrace: stackTrace,
       );
     }
   }
 
+  Future<void> _loadDevilSprite() async {
+    try {
+      final frames = <ui.Image>[];
+      for (var i = 1; i <= _animationFrameCount; i++) {
+        final assetPath = 'assets/images/devil_frames/devil$i.png';
+        final data = await rootBundle.load(assetPath);
+        final codec = await ui.instantiateImageCodec(
+          data.buffer.asUint8List(),
+        );
+        final frameInfo = await codec.getNextFrame();
+        codec.dispose();
+        frames.add(frameInfo.image);
+        if (!mounted) {
+          for (final f in frames) {
+            f.dispose();
+          }
+          return;
+        }
+      }
+      _disposeFrames(_devilFrames);
+      _devilFrames = frames;
+      _markGameSurfaceDirty();
+    } catch (error, stackTrace) {
+      debugPrint('[GameScreen] devil frames failed to load: $error');
+      ErrorReporter.report(
+        reason: 'game_devil_frames_load_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  void _disposeFrames(List<ui.Image>? frames) {
+    if (frames == null) {
+      return;
+    }
+    for (final f in frames) {
+      f.dispose();
+    }
+  }
+
+  /// Maps the selected character index to its frame-folder prefix. Order must
+  /// match _characterOptions in fear_flip_app.dart: 0=Steel Sentinel,
+  /// 1=Green Phantom, 2=Void Ripper. Frames live at
+  /// `assets/images/{prefix}_frames/{prefix}{1..7}.png`.
+  String _characterFramePrefix(int index) {
+    switch (index) {
+      case 0:
+        return 'sentinel';
+      case 1:
+        return 'phantom';
+      case 2:
+        return 'void_ripper';
+      default:
+        return 'sentinel';
+    }
+  }
+
   Future<void> _loadBreakingTrapTexture() async {
     try {
-      final data = await rootBundle.load('assets/images/464.jpg');
+      final data = await rootBundle.load('assets/images/breaking_trap.png');
       final bytes = data.buffer.asUint8List();
       final codec = await ui.instantiateImageCodec(
         bytes,
@@ -1857,6 +1916,7 @@ class _GameScreenState extends State<GameScreen>
       final frameInfo = await codec.getNextFrame();
       codec.dispose();
       if (!mounted) {
+        frameInfo.image.dispose();
         return;
       }
       _breakingTrapTexture = frameInfo.image;
@@ -1864,6 +1924,28 @@ class _GameScreenState extends State<GameScreen>
     } catch (error, stackTrace) {
       ErrorReporter.report(
         reason: 'game_trap_texture_load_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _loadExitPortalSprite() async {
+    try {
+      final data = await rootBundle.load('assets/images/exit_portal.png');
+      final bytes = data.buffer.asUint8List();
+      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 256);
+      final frameInfo = await codec.getNextFrame();
+      codec.dispose();
+      if (!mounted) {
+        frameInfo.image.dispose();
+        return;
+      }
+      _exitPortalSprite = frameInfo.image;
+      _markGameSurfaceDirty();
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_exit_portal_load_failed',
         error: error,
         stackTrace: stackTrace,
       );
@@ -2302,13 +2384,11 @@ class _GameScreenState extends State<GameScreen>
                     currentFrame: _playerController.currentFrame,
                     isMoving: _playerController.isMoving,
                     pulse: pulse,
-                    playerSprite: _playerSprite,
-                    spriteFrameCount: _spriteColumns,
-                    spriteRows: _spriteRows,
-                    spriteRowIndex: widget.selectedCharacterIndex + 1,
+                    time: _stageElapsedSeconds,
+                    playerFrames: _playerFrames,
+                    exitPortalSprite: _exitPortalSprite,
                     devilCell: _devilCell,
-                    devilSprite: _playerSprite,
-                    devilSpriteRowIndex: 0,
+                    devilFrames: _devilFrames,
                     safeZones: _safeZones,
                     playerSafe: _playerSafe,
                     isFlippedMode: _controlsInverted,

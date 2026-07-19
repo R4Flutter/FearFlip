@@ -31,15 +31,15 @@ class AppRuntimeConfig {
   );
   static const bool removeAdsUiEnabled = bool.fromEnvironment(
     'REMOVE_ADS_UI_ENABLED',
-    defaultValue: false,
+    defaultValue: true, // Play Store requires a remove-ads path to be visible.
   );
   static const bool appOpenFeatureEnabled = bool.fromEnvironment(
     'APP_OPEN_ADS_ENABLED',
-    defaultValue: false,
+    defaultValue: true,
   );
   static const int rewardedReviveAdWaitSeconds = int.fromEnvironment(
     'REWARDED_REVIVE_AD_WAIT_SECONDS',
-    defaultValue: 30,
+    defaultValue: 10,
   );
   static const int adsRequestHttpTimeoutMillis = int.fromEnvironment(
     'ADS_REQUEST_HTTP_TIMEOUT_MILLIS',
@@ -63,7 +63,7 @@ class AppRuntimeConfig {
   );
   static const int adsLoadTimeoutSeconds = int.fromEnvironment(
     'ADS_LOAD_TIMEOUT_SECONDS',
-    defaultValue: 15,
+    defaultValue: 8,
   );
   static const int adsShowTimeoutSeconds = int.fromEnvironment(
     'ADS_SHOW_TIMEOUT_SECONDS',
@@ -75,7 +75,7 @@ class AppRuntimeConfig {
   );
   static const int adsWatchdogIntervalSeconds = int.fromEnvironment(
     'ADS_WATCHDOG_INTERVAL_SECONDS',
-    defaultValue: 45,
+    defaultValue: 30,
   );
   static const int adsMaxAdAgeMinutes = int.fromEnvironment(
     'ADS_MAX_AD_AGE_MINUTES',
@@ -83,7 +83,7 @@ class AppRuntimeConfig {
   );
   static const int adsMinLoadIntervalSeconds = int.fromEnvironment(
     'ADS_MIN_LOAD_INTERVAL_SECONDS',
-    defaultValue: 15,
+    defaultValue: 2,
   );
   static const int adsRetryBaseSeconds = int.fromEnvironment(
     'ADS_RETRY_BASE_SECONDS',
@@ -95,19 +95,19 @@ class AppRuntimeConfig {
   );
   static const int adsPreloadInterstitialDelayMs = int.fromEnvironment(
     'ADS_PRELOAD_INTERSTITIAL_DELAY_MS',
-    defaultValue: 2000,
+    defaultValue: 0,
   );
   static const int adsPreloadBannerDelayMs = int.fromEnvironment(
     'ADS_PRELOAD_BANNER_DELAY_MS',
-    defaultValue: 3500,
+    defaultValue: 0,
   );
   static const int adsPreloadAppOpenDelayMs = int.fromEnvironment(
     'ADS_PRELOAD_APP_OPEN_DELAY_MS',
-    defaultValue: 5000,
+    defaultValue: 0,
   );
   static const int adsResumeDelayMs = int.fromEnvironment(
     'ADS_RESUME_DELAY_MS',
-    defaultValue: 600,
+    defaultValue: 200,
   );
   static const int appOpenCooldownSeconds = int.fromEnvironment(
     'APP_OPEN_COOLDOWN_SECONDS',
@@ -292,7 +292,7 @@ class AppRuntimeConfig {
   );
   static const String _releaseAppOpenAdUnitId = String.fromEnvironment(
     'ADMOB_APP_OPEN_AD_UNIT_ID',
-    defaultValue: '',
+    defaultValue: 'ca-app-pub-5463912491137261/4708523466',
   );
   static const String _releaseAndroidAppOpenAdUnitId = String.fromEnvironment(
     'ADMOB_ANDROID_APP_OPEN_AD_UNIT_ID',
@@ -381,7 +381,8 @@ class AppRuntimeConfig {
 
   static bool get isGoogleSignInConfigured => googleServerClientId.isNotEmpty;
 
-  static bool get unityAdsEnabled => supportsMobileAds && unityAdsFeatureEnabled;
+  static bool get unityAdsEnabled =>
+      supportsMobileAds && unityAdsFeatureEnabled;
 
   static bool get unityAdsTestMode =>
       kReleaseMode ? unityAdsTestModeOverride : true;
@@ -480,11 +481,14 @@ class AppRuntimeConfig {
       appOpenFeatureEnabled &&
       appOpenAdUnitId != null;
 
-  static bool get adsEnabled =>
+  static bool get admobAdsEnabled =>
       rewardedAdsEnabled ||
       interstitialAdsEnabled ||
       bannerAdsEnabled ||
-      appOpenAdsEnabled ||
+      appOpenAdsEnabled;
+
+  static bool get adsEnabled =>
+      admobAdsEnabled ||
       unityRewardedAdsEnabled ||
       unityInterstitialAdsEnabled ||
       unityBannerAdsEnabled;
@@ -492,13 +496,13 @@ class AppRuntimeConfig {
   static Duration get adsLoadTimeout =>
       Duration(seconds: adsLoadTimeoutSeconds.clamp(5, 60).toInt());
 
-    static Duration get adsShowTimeout =>
+  static Duration get adsShowTimeout =>
       Duration(seconds: adsShowTimeoutSeconds.clamp(10, 600).toInt());
 
   static Duration get rewardedReviveAdWait =>
       Duration(seconds: rewardedReviveAdWaitSeconds.clamp(5, 60).toInt());
 
-    static Duration get rewardedShowTimeout =>
+  static Duration get rewardedShowTimeout =>
       Duration(seconds: rewardedShowTimeoutSeconds.clamp(10, 600).toInt());
 
   static int? get adRequestHttpTimeoutMillis {
@@ -524,18 +528,17 @@ class AppRuntimeConfig {
   static Duration get adsResumeDelay =>
       Duration(milliseconds: adsResumeDelayMs.clamp(0, 5000).toInt());
 
-    static Duration get adsPreloadInterstitialDelay =>
-      Duration(
-      milliseconds: adsPreloadInterstitialDelayMs.clamp(0, 30000).toInt(),
-      );
+  static Duration get adsPreloadInterstitialDelay => Duration(
+    milliseconds: adsPreloadInterstitialDelayMs.clamp(0, 30000).toInt(),
+  );
 
-    static Duration get adsPreloadBannerDelay =>
+  static Duration get adsPreloadBannerDelay =>
       Duration(milliseconds: adsPreloadBannerDelayMs.clamp(0, 30000).toInt());
 
-    static Duration get adsPreloadAppOpenDelay =>
+  static Duration get adsPreloadAppOpenDelay =>
       Duration(milliseconds: adsPreloadAppOpenDelayMs.clamp(0, 60000).toInt());
 
-    static Duration get appOpenColdStartDelay =>
+  static Duration get appOpenColdStartDelay =>
       Duration(seconds: appOpenColdStartDelaySeconds.clamp(0, 120).toInt());
 
   static Duration get appOpenCooldown =>
@@ -586,33 +589,38 @@ class AppRuntimeConfig {
     }
 
     final issues = <String>[];
-    final validateMobileAds =
-      adsFeatureEnabled && supportsMobileAds && !unityAdsEnabled;
+    final validateAdMobAds = adsFeatureEnabled && supportsMobileAds;
     final validateUnityAds = unityAdsEnabled;
-    if (validateMobileAds &&
+    if (validateAdMobAds &&
         rewardedReviveFeatureEnabled &&
-        _releaseRewardedAdUnitIdForPlatform.trim().isEmpty) {
-      issues.add('ADMOB_REWARDED_AD_UNIT_ID is required.');
+        _isMissingOrTestAdUnitId(_releaseRewardedAdUnitIdForPlatform)) {
+      issues.add(
+        'ADMOB_REWARDED_AD_UNIT_ID must be a real production ad unit.',
+      );
     }
-    if (validateMobileAds &&
+    if (validateAdMobAds &&
         interstitialFeatureEnabled &&
-        _releaseInterstitialAdUnitIdForPlatform.trim().isEmpty) {
-      issues.add('ADMOB_INTERSTITIAL_AD_UNIT_ID is required.');
+        _isMissingOrTestAdUnitId(_releaseInterstitialAdUnitIdForPlatform)) {
+      issues.add(
+        'ADMOB_INTERSTITIAL_AD_UNIT_ID must be a real production ad unit.',
+      );
     }
-    if (validateMobileAds &&
+    if (validateAdMobAds &&
         bannerFeatureEnabled &&
-        _releaseBannerAdUnitIdForPlatform.trim().isEmpty) {
-      issues.add('ADMOB_BANNER_AD_UNIT_ID is required.');
+        _isMissingOrTestAdUnitId(_releaseBannerAdUnitIdForPlatform)) {
+      issues.add('ADMOB_BANNER_AD_UNIT_ID must be a real production ad unit.');
     }
-    if (validateMobileAds &&
+    if (validateAdMobAds &&
         appOpenFeatureEnabled &&
-        _releaseAppOpenAdUnitIdForPlatform.trim().isEmpty) {
-      issues.add('ADMOB_APP_OPEN_AD_UNIT_ID is required.');
+        _isMissingOrTestAdUnitId(_releaseAppOpenAdUnitIdForPlatform)) {
+      issues.add(
+        'ADMOB_APP_OPEN_AD_UNIT_ID must be a real production ad unit.',
+      );
     }
-    if (validateMobileAds && _adTestDeviceIdsRaw.trim().isNotEmpty) {
+    if (validateAdMobAds && _adTestDeviceIdsRaw.trim().isNotEmpty) {
       issues.add('ADMOB_TEST_DEVICE_IDS must be empty for release builds.');
     }
-    if (validateMobileAds && adsConsentDebugGeography.isNotEmpty) {
+    if (validateAdMobAds && adsConsentDebugGeography.isNotEmpty) {
       issues.add('ADS_CONSENT_DEBUG_GEOGRAPHY must be empty for release.');
     }
     if (validateUnityAds && unityAdsGameId.trim().isEmpty) {
@@ -717,7 +725,8 @@ class AppRuntimeConfig {
       issues.add('FORCE_STAGE1_TEST_TRAP must be false for release builds.');
     }
     final mobileAdsAvailable = mobileAdsSupported ?? supportsMobileAds;
-    final validateMobileAds = adsEnabled && mobileAdsAvailable && !unityAdsEnabled;
+    final validateAnyMobileAds = adsEnabled && mobileAdsAvailable;
+    final validateAdMobAds = validateAnyMobileAds;
     final validateUnityAds = unityAdsEnabled && mobileAdsAvailable;
     final effectiveRewardedAdUnitId =
         rewardedAdUnitId ?? _releaseRewardedAdUnitIdForPlatform;
@@ -728,45 +737,47 @@ class AppRuntimeConfig {
     final effectiveAppOpenAdUnitId =
         appOpenAdUnitId ?? _releaseAppOpenAdUnitIdForPlatform;
     final resolvedUnityAdsGameId =
-      unityAdsGameIdValue ?? AppRuntimeConfig.unityAdsGameId;
+        unityAdsGameIdValue ?? AppRuntimeConfig.unityAdsGameId;
     final resolvedUnityRewardedPlacementId =
-      unityRewardedPlacementIdValue ??
-      AppRuntimeConfig.unityRewardedPlacementId;
+        unityRewardedPlacementIdValue ??
+        AppRuntimeConfig.unityRewardedPlacementId;
     final resolvedUnityInterstitialPlacementId =
-      unityInterstitialPlacementIdValue ??
-      AppRuntimeConfig.unityInterstitialPlacementId;
+        unityInterstitialPlacementIdValue ??
+        AppRuntimeConfig.unityInterstitialPlacementId;
     final resolvedUnityBannerPlacementId =
-      unityBannerPlacementIdValue ?? AppRuntimeConfig.unityBannerPlacementId;
-    if (validateMobileAds &&
+        unityBannerPlacementIdValue ?? AppRuntimeConfig.unityBannerPlacementId;
+    if (validateAdMobAds &&
         rewardedEnabled &&
-        effectiveRewardedAdUnitId.trim().isEmpty) {
+        _isMissingOrTestAdUnitId(effectiveRewardedAdUnitId)) {
       issues.add(
-        'ADMOB_REWARDED_AD_UNIT_ID is required when rewarded ads are enabled.',
+        'ADMOB_REWARDED_AD_UNIT_ID must be a real production ad unit when rewarded fallback ads are enabled.',
       );
     }
-    if (validateMobileAds &&
+    if (validateAdMobAds &&
         interstitialEnabled &&
-        effectiveInterstitialAdUnitId.trim().isEmpty) {
+        _isMissingOrTestAdUnitId(effectiveInterstitialAdUnitId)) {
       issues.add(
-        'ADMOB_INTERSTITIAL_AD_UNIT_ID is required when interstitial ads are enabled.',
+        'ADMOB_INTERSTITIAL_AD_UNIT_ID must be a real production ad unit when interstitial fallback ads are enabled.',
       );
     }
-    if (validateMobileAds &&
+    if (validateAdMobAds &&
         bannerEnabled &&
-        effectiveBannerAdUnitId.trim().isEmpty) {
+        _isMissingOrTestAdUnitId(effectiveBannerAdUnitId)) {
       issues.add(
-        'ADMOB_BANNER_AD_UNIT_ID is required when banner ads are enabled.',
+        'ADMOB_BANNER_AD_UNIT_ID must be a real production ad unit when banner fallback ads are enabled.',
       );
     }
-    if (validateMobileAds &&
+    if (validateAdMobAds &&
         appOpenFeatureEnabled &&
-        effectiveAppOpenAdUnitId.trim().isEmpty) {
+        _isMissingOrTestAdUnitId(effectiveAppOpenAdUnitId)) {
       issues.add(
-        'ADMOB_APP_OPEN_AD_UNIT_ID is required when app-open ads are enabled.',
+        'ADMOB_APP_OPEN_AD_UNIT_ID must be a real production ad unit when app-open ads are enabled.',
       );
     }
     if (validateUnityAds && resolvedUnityAdsGameId.trim().isEmpty) {
-      issues.add('UNITY_ADS_GAME_ID_ANDROID is required when Unity Ads are enabled.');
+      issues.add(
+        'UNITY_ADS_GAME_ID_ANDROID is required when Unity Ads are enabled.',
+      );
     }
     if (validateUnityAds &&
         unityRewardedEnabled &&
@@ -792,9 +803,11 @@ class AppRuntimeConfig {
     if (validateUnityAds && unityAdsTestModeOverrideValue) {
       issues.add('UNITY_ADS_TEST_MODE must be false for release builds.');
     }
-    if (validateMobileAds &&
-        (removeAdsProductIdValue.trim().isEmpty ||
-            removeAdsProductIdValue.trim() == 'remove_ads_prod_android')) {
+    final validateRemoveAdsProductId =
+      validateAnyMobileAds && removeAdsUiEnabled;
+    if (validateRemoveAdsProductId &&
+      (removeAdsProductIdValue.trim().isEmpty ||
+        removeAdsProductIdValue.trim() == 'remove_ads_prod_android')) {
       issues.add(
         'REMOVE_ADS_PRODUCT_ID must be set to the real Play Store / App Store '
         'product ID for release builds (current: "$removeAdsProductIdValue").',
@@ -922,5 +935,20 @@ class AppRuntimeConfig {
       return null;
     }
     return value ? 1 : 0;
+  }
+
+  static bool _isMissingOrTestAdUnitId(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return true;
+    }
+    return normalized == _androidRewardedTestId ||
+        normalized == _iosRewardedTestId ||
+        normalized == _androidInterstitialTestId ||
+        normalized == _iosInterstitialTestId ||
+        normalized == _androidBannerTestId ||
+        normalized == _iosBannerTestId ||
+        normalized == _androidAppOpenTestId ||
+        normalized == _iosAppOpenTestId;
   }
 }

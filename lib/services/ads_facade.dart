@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:unity_ads_plugin/unity_ads_plugin.dart';
@@ -43,16 +42,13 @@ class AdsFacade with WidgetsBindingObserver implements AdsServiceBase {
 
   /// Exposes Unity banner-loaded state (for LandingScreen / _BannerAdBar).
   @override
-  ValueNotifier<bool> get bannerLoadedNotifier =>
-      _unity.bannerLoadedNotifier;
+  ValueNotifier<bool> get bannerLoadedNotifier => _unity.bannerLoadedNotifier;
 
   @override
-  ValueNotifier<BannerSize> get bannerSizeNotifier =>
-      _unity.bannerSizeNotifier;
+  ValueNotifier<BannerSize> get bannerSizeNotifier => _unity.bannerSizeNotifier;
 
   @override
-  ValueNotifier<int> get bannerReloadNotifier =>
-      _unity.bannerReloadNotifier;
+  ValueNotifier<int> get bannerReloadNotifier => _unity.bannerReloadNotifier;
 
   @override
   bool get bannerRequested => _unity.bannerRequested;
@@ -69,7 +65,7 @@ class AdsFacade with WidgetsBindingObserver implements AdsServiceBase {
       AppRuntimeConfig.unityAdsEnabled && AppRuntimeConfig.supportsMobileAds;
 
   bool get _shouldUseAdMob =>
-      AppRuntimeConfig.adsEnabled && AppRuntimeConfig.supportsMobileAds;
+      AppRuntimeConfig.admobAdsEnabled && AppRuntimeConfig.supportsMobileAds;
 
   @override
   MonetizationService get monetization => _unity.monetization;
@@ -91,27 +87,35 @@ class AdsFacade with WidgetsBindingObserver implements AdsServiceBase {
 
     WidgetsBinding.instance.addObserver(this);
 
-    // Initialize Unity FIRST (primary network).
-    try {
-      await _unity.start();
-    } catch (e, st) {
-      AdsDiagnostics.error('Unity start failed', e, stackTrace: st);
-    }
-
-    // Then AdMob (fallback network).
-    try {
-      await _adMob.start();
-    } catch (e, st) {
-      AdsDiagnostics.error('AdMob start failed', e, stackTrace: st);
-    }
+    // Initialize both networks in parallel — no need to wait for one before
+    // starting the other. Each network's preload is internally gated on its
+    // own init completing, so loads only fire once ready.
+    await Future.wait<dynamic>([
+      _shouldUseUnity
+          ? _unity.start().catchError(
+              (e, st) {
+                AdsDiagnostics.error('Unity start failed', e, stackTrace: st);
+                return null;
+              },
+            )
+          : Future<void>.value(),
+      _shouldUseAdMob
+          ? _adMob.start().catchError(
+              (e, st) {
+                AdsDiagnostics.error('AdMob start failed', e, stackTrace: st);
+                return null;
+              },
+            )
+          : Future<void>.value(),
+    ]);
 
     // Forward AdMob banner changes for the AdWidget path.
     _adMob.bannerAdNotifier.addListener(_onAdMobBannerChanged);
 
-    AdsDiagnostics.log('AdsFacade started (Unity=primary, AdMob=fallback)', data: {
-      'unity': _shouldUseUnity,
-      'admob': _shouldUseAdMob,
-    });
+    AdsDiagnostics.log(
+      'AdsFacade started (Unity=primary, AdMob=fallback)',
+      data: {'unity': _shouldUseUnity, 'admob': _shouldUseAdMob},
+    );
   }
 
   @override
@@ -147,8 +151,12 @@ class AdsFacade with WidgetsBindingObserver implements AdsServiceBase {
 
   @override
   Future<void> preload() async {
-    unawaited(_unity.preload());
-    unawaited(_adMob.preload());
+    if (_shouldUseUnity) {
+      unawaited(_unity.preload());
+    }
+    if (_shouldUseAdMob) {
+      unawaited(_adMob.preload());
+    }
   }
 
   // ── Rewarded: Unity first, AdMob fallback ─────────────────────────────
@@ -180,10 +188,7 @@ class AdsFacade with WidgetsBindingObserver implements AdsServiceBase {
       final result = await _adMob.showRewardedForRevive();
       AdsDiagnostics.event(
         'ad_facade_rewarded',
-        params: {
-          'network': 'admob',
-          'result': result ? 'success' : 'fail',
-        },
+        params: {'network': 'admob', 'result': result ? 'success' : 'fail'},
       );
       return result;
     }
@@ -209,7 +214,9 @@ class AdsFacade with WidgetsBindingObserver implements AdsServiceBase {
         );
         return true;
       }
-      AdsDiagnostics.log('Interstitial GO: Unity failed, falling back to AdMob');
+      AdsDiagnostics.log(
+        'Interstitial GO: Unity failed, falling back to AdMob',
+      );
     }
 
     // Fallback to AdMob.
@@ -233,24 +240,44 @@ class AdsFacade with WidgetsBindingObserver implements AdsServiceBase {
   // ── Interstitial (stage cleared): Unity first, AdMob fallback ────────
 
   @override
-  Future<void> showInterstitialAfterStageCleared(int clearedStage) async {
-    if (await isPremiumUnlocked) return;
+  Future<bool> showInterstitialAfterStageCleared(int clearedStage) async {
+    if (await isPremiumUnlocked) return false;
 
     // Try Unity FIRST.
     if (_shouldUseUnity && AppRuntimeConfig.unityInterstitialAdsEnabled) {
       AdsDiagnostics.log('Interstitial stage: trying Unity (primary)');
-      await _unity.showInterstitialAfterStageCleared(clearedStage);
-      // If Unity showed, we're done — the placement policy is shared.
-      // We can't easily tell if Unity actually showed, but calling both
-      // on the same trigger is safe because the shared AdPlacementPolicy
-      // will prevent the second from showing if the first already did.
+      final result = await _unity.showInterstitialAfterStageCleared(
+        clearedStage,
+      );
+      if (result) {
+        AdsDiagnostics.event(
+          'ad_facade_interstitial',
+          params: {'network': 'unity', 'placement': 'stage_clear'},
+        );
+        return true;
+      }
+      AdsDiagnostics.log(
+        'Interstitial stage: Unity failed, falling back to AdMob',
+      );
     }
 
-    // Fallback to AdMob — AdMob's own placement policy will guard.
+    // Fallback to AdMob.
     if (_shouldUseAdMob && AppRuntimeConfig.interstitialAdsEnabled) {
       AdsDiagnostics.log('Interstitial stage: trying AdMob (fallback)');
-      await _adMob.showInterstitialAfterStageCleared(clearedStage);
+      final result = await _adMob.showInterstitialAfterStageCleared(
+        clearedStage,
+      );
+      AdsDiagnostics.event(
+        'ad_facade_interstitial',
+        params: {
+          'network': 'admob',
+          'placement': 'stage_clear',
+          'result': result ? 'success' : 'fail',
+        },
+      );
+      return result;
     }
+    return false;
   }
 
   // ── Banner: Unity first, AdMob fallback ──────────────────────────────
@@ -321,10 +348,7 @@ class AdsFacade with WidgetsBindingObserver implements AdsServiceBase {
       (_bannerNetwork == 'admob' && _adMob.bannerAdNotifier.value != null);
 
   @override
-  Widget buildBannerAd({
-    required BannerSize size,
-    required int reloadToken,
-  }) {
+  Widget buildBannerAd({required BannerSize size, required int reloadToken}) {
     // If Unity banner is active, use Unity's banner widget.
     if (_bannerNetwork == 'unity' && _unity.bannerLoadedNotifier.value) {
       return _unity.buildBannerAd(size: size, reloadToken: reloadToken);

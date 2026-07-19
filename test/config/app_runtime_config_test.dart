@@ -39,6 +39,30 @@ void main() {
     expect(issues, contains(contains('ADMOB_BANNER_AD_UNIT_ID')));
   });
 
+  test('release builds validate AdMob fallback while Unity is primary', () {
+    final issues = AppRuntimeConfig.productionReadinessIssues(
+      releaseMode: true,
+      mobileAdsSupported: true,
+      unityAdsEnabled: true,
+      googleServerClientId: 'ok',
+      privacyPolicyUrlValue: 'https://example.com/privacy',
+      termsUrlValue: 'https://example.com/terms',
+      accountDeletionUrlValue: 'https://example.com/delete',
+      removeAdsProductIdValue: 'com.rajnaik.fearflip.remove_ads',
+      rewardedAdUnitId: '',
+      interstitialAdUnitId: 'ca-app-pub-3940256099942544/1033173712',
+      bannerAdUnitId: 'ca-app-pub-3940256099942544/9214589741',
+      unityAdsGameIdValue: '800001612',
+      unityRewardedPlacementIdValue: 'Rewarded_Android',
+      unityInterstitialPlacementIdValue: 'Interstitial_Android',
+      unityBannerPlacementIdValue: 'Banner_Android',
+    );
+
+    expect(issues, contains(contains('ADMOB_REWARDED_AD_UNIT_ID')));
+    expect(issues, contains(contains('ADMOB_INTERSTITIAL_AD_UNIT_ID')));
+    expect(issues, contains(contains('ADMOB_BANNER_AD_UNIT_ID')));
+  });
+
   test('release web builds do not require mobile-only AdMob IDs', () {
     final issues = AppRuntimeConfig.productionReadinessIssues(
       releaseMode: true,

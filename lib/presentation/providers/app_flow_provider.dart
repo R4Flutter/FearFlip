@@ -25,9 +25,19 @@ class AppFlowProvider extends ChangeNotifier {
   static const String _soundMutedPrefKey = 'audio.master.muted';
   static const String _totalTrophiesPrefKey = 'progress.total_trophies';
   static const String _maxStageReachedPrefKey = 'progress.max_stage_reached';
+  static const String _joystickSizeMigrationPrefKey =
+      'ui.joystick.size.migrated_140';
+  // Versioned key — bump the suffix (v2, v3…) if the policy materially changes
+  // and you need to re-show the onboarding screen to existing users.
+  static const String _onboardingAcceptedPrefKey =
+      'onboarding.consent.v1.accepted';
   static const double minJoystickSize = 90;
   static const double maxJoystickSize = 170;
-  static const int characterCount = 2;
+  static const double defaultJoystickSize = 140;
+  // 3 selectable characters: Steel Sentinel (0), Green Phantom (1),
+  // Void Ripper (2). Must match _characterOptions in fear_flip_app.dart and
+  // _characterFramePrefix in game_screen.dart.
+  static const int characterCount = 3;
   static const int defaultCharacterIndex = 0;
 
   AppFlowProvider({
@@ -89,7 +99,8 @@ class AppFlowProvider extends ChangeNotifier {
   String? _accountMessage;
   bool _showLanding = true;
   bool _isStarting = false;
-  double _joystickSize = 110;
+  bool _onboardingAccepted = false;
+  double _joystickSize = defaultJoystickSize;
   double _soundVolume = 1.0;
   bool _isSoundMuted = false;
   int _selectedCharacterIndex = defaultCharacterIndex;
@@ -98,6 +109,9 @@ class AppFlowProvider extends ChangeNotifier {
   int _maxStageReached = 1;
   int? _globalPanicRank;
 
+  /// True on first install (or after a policy version bump). The onboarding
+  /// screen gates all further navigation until the user accepts.
+  bool get showOnboarding => !_onboardingAccepted;
   bool get showAuthGate => _currentUser == null && !_offlineGuestMode;
   bool get isAuthenticating => _isAuthenticating;
   bool get isDeletingAccount => _isDeletingAccount;
@@ -135,7 +149,21 @@ class AppFlowProvider extends ChangeNotifier {
   Future<void> _loadUiSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedJoystick = prefs.getDouble(_joystickSizePrefKey);
+      // Onboarding consent — must be read first so routing is correct on first
+      // build after prefs are loaded.
+      final onboardingAccepted =
+          prefs.getBool(_onboardingAcceptedPrefKey) ?? false;
+      if (onboardingAccepted != _onboardingAccepted) {
+        _onboardingAccepted = onboardingAccepted;
+      }
+      final migrationApplied =
+          prefs.getBool(_joystickSizeMigrationPrefKey) ?? false;
+      var savedJoystick = prefs.getDouble(_joystickSizePrefKey);
+      if (!migrationApplied) {
+        savedJoystick = defaultJoystickSize;
+        await prefs.setDouble(_joystickSizePrefKey, savedJoystick);
+        await prefs.setBool(_joystickSizeMigrationPrefKey, true);
+      }
       final savedSoundVolume = prefs.getDouble(_soundVolumePrefKey);
       final savedSoundMuted = prefs.getBool(_soundMutedPrefKey);
       final savedCharacter = prefs.getInt(_selectedCharacterPrefKey);
@@ -190,6 +218,24 @@ class AppFlowProvider extends ChangeNotifier {
       volume: _soundVolume,
       muted: _isSoundMuted,
     );
+  }
+
+  /// Called by [OnboardingConsentScreen] when the user accepts all terms.
+  /// Persists the acceptance so the screen is never shown again on this device.
+  Future<void> acceptOnboarding() async {
+    if (_onboardingAccepted) return;
+    _onboardingAccepted = true;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_onboardingAcceptedPrefKey, true);
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'onboarding_accept_save_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Future<void> updateJoystickSize(double size) async {
@@ -595,12 +641,11 @@ class AppFlowProvider extends ChangeNotifier {
       );
     }
 
-    await _syncGlobalPanicProgress();
+    unawaited(_syncGlobalPanicProgress());
 
     // Show a stage-cleared interstitial on every Nth stage (default: 3).
-    // Fire-and-forget so the ad overlay never blocks the GameScreen state
-    // machine that is already waiting for this Future to resolve.
-    unawaited(game.adsService.showInterstitialAfterStageCleared(clearedStage));
+    // Await so the next stage loads after the ad finishes.
+    await game.adsService.showInterstitialAfterStageCleared(clearedStage);
   }
 
   Future<void> _syncGlobalPanicProgress() async {

@@ -199,7 +199,7 @@ class FirestoreLeaderboardService implements LeaderboardService {
         context: <String, Object?>{
           'mode': safeMode,
           'score_seconds': safeScore,
-          'has_uid': uid != null,
+          'has_uid': true,
         },
       );
       // Keep gameplay crash-safe if backend is unavailable.
@@ -314,31 +314,19 @@ class FirestoreLeaderboardService implements LeaderboardService {
         ? playerName!.trim()
         : _bestDisplayName(user);
 
-    final now = FieldValue.serverTimestamp();
-    final profileRef = _globalPanicProfiles().doc(uid);
-
     try {
-      final existing = await profileRef.get();
-      final previous = existing.data();
-      final previousStage = (previous?['maxStage'] as num?)?.toInt() ?? 1;
-      final previousTrophies =
-          (previous?['totalTrophies'] as num?)?.toInt() ?? 0;
-
-      // Only move scores forward — never regress on a reinstall/restore.
-      final resolvedStage =
-          previousStage > safeStage ? previousStage : safeStage;
-      final resolvedTrophies =
-          previousTrophies > safeTrophies ? previousTrophies : safeTrophies;
-
-      // Always refresh the displayName in case the user renamed themselves.
-      await profileRef.set(<String, Object?>{
-        'uid': uid,
+      // Server-authoritative write. The upsertGlobalPanicProgress function
+      // does the monotonic (never-regress) resolution and range clamp; the
+      // profiles collection is no longer client-writable (firestore.rules).
+      final callable = _functions.httpsCallable(
+        'upsertGlobalPanicProgress',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+      );
+      await callable.call(<String, Object?>{
+        'maxStage': safeStage,
+        'totalTrophies': safeTrophies,
         'displayName': displayName,
-        'maxStage': resolvedStage,
-        'totalTrophies': resolvedTrophies,
-        'updatedAt': now,
-        'isGuest': user?.isAnonymous ?? false,
-      }, SetOptions(merge: true));
+      });
     } catch (error, stackTrace) {
       await _reportFailure(
         reason: 'global_panic_upsert_failed',

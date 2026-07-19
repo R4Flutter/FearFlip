@@ -35,7 +35,6 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   flame: ^1.20.0
-  flame_audio: ^2.10.2
   just_audio: ^0.10.4
   audioplayers: ^6.1.0
   google_mobile_ads: ^7.0.0
@@ -89,7 +88,13 @@ flutter:
 
   assets:
     - assets/audio/
-    - assets/images/
+    - assets/images/breaking_trap.png
+    - assets/images/exit_portal.png
+    - assets/images/landing_hero.png
+    - assets/images/phantom_frames/
+    - assets/images/sentinel_frames/
+    - assets/images/devil_frames/
+    - assets/images/void_ripper_frames/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

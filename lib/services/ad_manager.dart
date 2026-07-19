@@ -113,10 +113,12 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   BannerSize _bannerSize = BannerSize.standard;
   int? _bannerWidth;
 
-  final ValueNotifier<BannerSize> bannerSizeNotifier = ValueNotifier<BannerSize>(
-    BannerSize.standard,
-  );
+  @override
+  final ValueNotifier<BannerSize> bannerSizeNotifier =
+      ValueNotifier<BannerSize>(BannerSize.standard);
+  @override
   final ValueNotifier<bool> bannerLoadedNotifier = ValueNotifier<bool>(false);
+  @override
   final ValueNotifier<int> bannerReloadNotifier = ValueNotifier<int>(0);
 
   bool _permanentlyDisabled = false;
@@ -143,8 +145,10 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   bool get _canUseUnityAds =>
       AppRuntimeConfig.supportsMobileAds && AppRuntimeConfig.unityAdsEnabled;
 
+  @override
   MonetizationService get monetization => _monetization;
 
+  @override
   bool get bannerRequested => _bannerRequested;
 
   BannerSize get bannerSize => _bannerSize;
@@ -152,14 +156,18 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   String? get bannerPlacementId => AppRuntimeConfig.unityBannerPlacementId;
 
   /// Whether an interstitial ad is loaded and ready to display.
+  @override
   bool get isInterstitialReady => _interstitialReady;
 
   /// Whether any ad is loaded and ready (used by AdsFacade).
-  bool isReady() => _rewardedReady || _interstitialReady || bannerLoadedNotifier.value;
+  bool isReady() =>
+      _rewardedReady || _interstitialReady || bannerLoadedNotifier.value;
 
   /// Whether ads are suppressed because the user has an active subscription.
+  @override
   Future<bool> get isPremiumUnlocked => _monetization.isPremiumUnlocked();
 
+  @override
   Future<void> start() async {
     if (_isStarted || _isDisposed) {
       return;
@@ -168,7 +176,9 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
     _isStarted = true;
     _isAppActive = _currentLifecycleActive();
     WidgetsBinding.instance.addObserver(this);
-    ConsentService.instance.canRequestAdsNotifier.addListener(_onConsentChanged);
+    ConsentService.instance.canRequestAdsNotifier.addListener(
+      _onConsentChanged,
+    );
     ConsentService.instance.consentFlowCompletedNotifier.addListener(
       _onConsentChanged,
     );
@@ -179,13 +189,16 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
     unawaited(preload());
   }
 
+  @override
   void stop() {
     if (!_isStarted) {
       return;
     }
     _isStarted = false;
     WidgetsBinding.instance.removeObserver(this);
-    ConsentService.instance.canRequestAdsNotifier.removeListener(_onConsentChanged);
+    ConsentService.instance.canRequestAdsNotifier.removeListener(
+      _onConsentChanged,
+    );
     ConsentService.instance.consentFlowCompletedNotifier.removeListener(
       _onConsentChanged,
     );
@@ -196,17 +209,20 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
     _forceEndAdShow(reason: 'service_stopped');
   }
 
+  @override
   void disableAdsPermanently() {
     _permanentlyDisabled = true;
     disposeAllAds();
   }
 
+  @override
   void disposeAllAds({String reason = 'dispose'}) {
     _disposeRewarded(reason: reason);
     _disposeInterstitial(reason: reason);
     _disposeBanner(reason: reason);
   }
 
+  @override
   Future<void> preload() async {
     if (!_isStarted || _isDisposed) {
       return;
@@ -249,6 +265,7 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   // ---------------------------------------------------------------------------
 
   /// Preloads a banner ad during startup. Provide width for size selection.
+  @override
   Future<void> preloadBanner({double? width}) async {
     _bannerRequested = true;
     final sizeChanged = _updateBannerWidth(width);
@@ -259,6 +276,7 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   }
 
   /// Ensures the banner is loaded for a given width.
+  @override
   Future<void> ensureBannerLoaded({
     required double width,
     String reason = 'ensure',
@@ -272,6 +290,7 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   }
 
   /// Loads a banner ad. Call once when the dashboard mounts.
+  @override
   Future<void> loadBanner() async {
     _bannerRequested = true;
     if (!bannerLoadedNotifier.value && !_bannerState.isLoading) {
@@ -280,6 +299,7 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   }
 
   /// Disposes the banner ad. Call when the dashboard unmounts.
+  @override
   void disposeBanner() {
     _bannerRequested = false;
     _disposeBanner(reason: 'dashboard_closed');
@@ -289,6 +309,7 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   // Rewarded ad
   // ---------------------------------------------------------------------------
 
+  @override
   Future<bool> showRewardedForRevive() async {
     if (_permanentlyDisabled) {
       AdsDiagnostics.log('Rewarded blocked: ads disabled');
@@ -426,6 +447,7 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   // Interstitial ad
   // ---------------------------------------------------------------------------
 
+  @override
   Future<bool> showInterstitialAfterGameOver() async {
     _placementPolicy.recordGameOver();
     if (!_canUseUnityAds ||
@@ -525,7 +547,8 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
   // Stage-cleared interstitial
   // ---------------------------------------------------------------------------
 
-  Future<void> showInterstitialAfterStageCleared(int clearedStage) async {
+  @override
+  Future<bool> showInterstitialAfterStageCleared(int clearedStage) async {
     if (!_canUseUnityAds ||
         _permanentlyDisabled ||
         await isPremiumUnlocked ||
@@ -536,7 +559,7 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
         'Stage interstitial skipped',
         data: {'reason': 'premium_or_consent'},
       );
-      return;
+      return false;
     }
 
     if (!_placementPolicy.canShowInterstitialForStage(clearedStage, _clock())) {
@@ -544,12 +567,12 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
         'Stage interstitial skipped',
         data: {'reason': 'cooldown', 'stage': clearedStage},
       );
-      return;
+      return false;
     }
 
     final initialized = await _ensureInitialized(reason: 'stage_interstitial');
     if (!initialized) {
-      return;
+      return false;
     }
 
     if (!_interstitialReady || _isExpired(_interstitialLoadedAt)) {
@@ -559,59 +582,96 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
       );
       _disposeInterstitial(reason: 'missing_or_expired');
       unawaited(_loadInterstitial(reason: 'stage_cleared_request'));
-      return;
+      return false;
     }
 
     if (!_tryBeginAdShow('interstitial', placement: 'stage_clear')) {
-      return;
+      return false;
     }
 
+    final completer = Completer<bool>();
     await _waitForSafeFrame();
-    UnityAds.showVideoAd(
-      placementId: AppRuntimeConfig.unityInterstitialPlacementId!,
-      onStart: (placementId) {
-        _fullScreenAdShowing = true;
-        _placementPolicy.recordStageClearedInterstitialShown(_clock());
+    try {
+      UnityAds.showVideoAd(
+        placementId: AppRuntimeConfig.unityInterstitialPlacementId!,
+        onStart: (placementId) {
+          _fullScreenAdShowing = true;
+          _placementPolicy.recordStageClearedInterstitialShown(_clock());
+          AdsDiagnostics.event(
+            'ad_shown',
+            params: {'type': 'interstitial', 'placement': 'stage_clear'},
+          );
+        },
+        onClick: (placementId) {
+          AdsDiagnostics.event(
+            'ad_click',
+            params: {'type': 'interstitial', 'placement': 'stage_clear'},
+          );
+        },
+        onSkipped: (placementId) {
+          _fullScreenAdShowing = false;
+          _forceEndAdShow(reason: 'skipped');
+          _interstitialReady = false;
+          _interstitialLoadedAt = null;
+          unawaited(_loadInterstitial(reason: 'skipped'));
+          if (!completer.isCompleted) {
+            completer.complete(true);
+          }
+        },
+        onComplete: (placementId) {
+          _fullScreenAdShowing = false;
+          _forceEndAdShow(reason: 'completed');
+          _interstitialReady = false;
+          _interstitialLoadedAt = null;
+          unawaited(_loadInterstitial(reason: 'completed'));
+          if (!completer.isCompleted) {
+            completer.complete(true);
+          }
+        },
+        onFailed: (placementId, error, message) {
+          _fullScreenAdShowing = false;
+          _forceEndAdShow(reason: 'show_failed');
+          _interstitialReady = false;
+          _interstitialLoadedAt = null;
+          AdsDiagnostics.error(
+            'Stage interstitial failed',
+            error,
+            data: {'placement': placementId, 'message': message},
+          );
+          unawaited(_loadInterstitial(reason: 'show_failed'));
+          if (!completer.isCompleted) {
+            completer.complete(false);
+          }
+        },
+      );
+    } catch (error, stackTrace) {
+      _fullScreenAdShowing = false;
+      _forceEndAdShow(reason: 'show_exception');
+      _interstitialReady = false;
+      _interstitialLoadedAt = null;
+      AdsDiagnostics.error(
+        'Stage interstitial show call failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      unawaited(_loadInterstitial(reason: 'show_exception'));
+      return false;
+    }
+
+    return completer.future.timeout(
+      AppRuntimeConfig.adsShowTimeout,
+      onTimeout: () {
         AdsDiagnostics.event(
-          'ad_shown',
+          'ad_show_timeout',
           params: {'type': 'interstitial', 'placement': 'stage_clear'},
         );
-      },
-      onClick: (placementId) {
-        AdsDiagnostics.event(
-          'ad_click',
-          params: {'type': 'interstitial', 'placement': 'stage_clear'},
-        );
-      },
-      onSkipped: (placementId) {
-        _fullScreenAdShowing = false;
-        _forceEndAdShow(reason: 'skipped');
-        _interstitialReady = false;
-        _interstitialLoadedAt = null;
-        unawaited(_loadInterstitial(reason: 'skipped'));
-      },
-      onComplete: (placementId) {
-        _fullScreenAdShowing = false;
-        _forceEndAdShow(reason: 'completed');
-        _interstitialReady = false;
-        _interstitialLoadedAt = null;
-        unawaited(_loadInterstitial(reason: 'completed'));
-      },
-      onFailed: (placementId, error, message) {
-        _fullScreenAdShowing = false;
-        _forceEndAdShow(reason: 'show_failed');
-        _interstitialReady = false;
-        _interstitialLoadedAt = null;
-        AdsDiagnostics.error(
-          'Stage interstitial failed',
-          error,
-          data: {'placement': placementId, 'message': message},
-        );
-        unawaited(_loadInterstitial(reason: 'show_failed'));
+        _forceEndAdShow(reason: 'timeout');
+        return false;
       },
     );
   }
 
+  @override
   void dispose() {
     _isDisposed = true;
     stop();
@@ -886,7 +946,9 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
     if (includeInterstitial && AppRuntimeConfig.unityInterstitialAdsEnabled) {
       _scheduleInterstitialPreload(reason);
     }
-    if (includeBanner && _bannerRequested && AppRuntimeConfig.unityBannerAdsEnabled) {
+    if (includeBanner &&
+        _bannerRequested &&
+        AppRuntimeConfig.unityBannerAdsEnabled) {
       _scheduleBannerPreload(reason);
     }
   }
@@ -924,16 +986,13 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
     if (_bannerPreloadTimer != null) {
       return;
     }
-    _bannerPreloadTimer = Timer(
-      AppRuntimeConfig.adsPreloadBannerDelay,
-      () {
-        _bannerPreloadTimer = null;
-        if (_isDisposed) {
-          return;
-        }
-        _requestBannerReload(reason: reason);
-      },
-    );
+    _bannerPreloadTimer = Timer(AppRuntimeConfig.adsPreloadBannerDelay, () {
+      _bannerPreloadTimer = null;
+      if (_isDisposed) {
+        return;
+      }
+      _requestBannerReload(reason: reason);
+    });
   }
 
   void _cancelPreloadTimers() {
@@ -1097,6 +1156,7 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
     );
   }
 
+  @override
   Widget buildBannerAd({required BannerSize size, required int reloadToken}) {
     final placementId = AppRuntimeConfig.unityBannerPlacementId;
     if (placementId == null) {
@@ -1190,11 +1250,7 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
     return initialized;
   }
 
-  bool _tryBeginAdShow(
-    String adType, {
-    String? placement,
-    Duration? timeout,
-  }) {
+  bool _tryBeginAdShow(String adType, {String? placement, Duration? timeout}) {
     if (_isDisposed || !_isAppActive) {
       AdsDiagnostics.log(
         'Ad show blocked',
@@ -1235,21 +1291,16 @@ class AdManager with WidgetsBindingObserver implements AdsServiceBase {
       }
       AdsDiagnostics.log(
         'Ad show timeout',
-        data: {
-          'type': adType,
-          'timeoutMs': resolvedTimeout.inMilliseconds,
-        },
+        data: {'type': adType, 'timeoutMs': resolvedTimeout.inMilliseconds},
       );
       _forceEndAdShow(reason: 'timeout');
     });
 
-    AdsDiagnostics.log(
-      'Ad show lock acquired',
-      data: {
-        'type': adType,
-        if (placement != null) 'placement': placement,
-      },
-    );
+    final logData = <String, Object>{'type': adType};
+    if (placement != null) {
+      logData['placement'] = placement;
+    }
+    AdsDiagnostics.log('Ad show lock acquired', data: logData);
     return true;
   }
 

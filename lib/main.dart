@@ -78,27 +78,33 @@ Future<void> main() async {
     debugPrint('[Startup][WARN] PurchaseService init failed: $e');
   }
 
-  // Consent + AdMob SDK initialisation
-  try {
-    await ConsentService.instance
-        .gatherConsentAndInitializeAds()
-        .timeout(const Duration(seconds: 20));
-  } catch (error, stackTrace) {
-    debugPrint('[Startup][WARN] Consent/ads init failed: $error');
-    if (kDebugMode) {
-      debugPrint(stackTrace.toString());
-    }
-  }
+  // Launch the app immediately — consent & ad initialisation continue in the
+  // background so the user sees the UI without waiting for network SDKs.
+  // AdsFacade/preload internally gates on consent, so nothing shows until
+  // the consent flow completes and SDKs are ready.
+  unawaited(
+    (() async {
+      try {
+        await ConsentService.instance
+            .gatherConsentAndInitializeAds()
+            .timeout(const Duration(seconds: 20));
+      } catch (error, stackTrace) {
+        debugPrint('[Startup][WARN] Consent/ads init failed: $error');
+        if (kDebugMode) {
+          debugPrint(stackTrace.toString());
+        }
+      }
 
-  // Start both ad networks through the unified facade.
-  try {
-    await AdsFacade.instance.start();
-  } catch (error, stackTrace) {
-    debugPrint('[Startup][WARN] AdsFacade start failed: $error');
-    if (kDebugMode) {
-      debugPrint(stackTrace.toString());
-    }
-  }
+      try {
+        await AdsFacade.instance.start();
+      } catch (error, stackTrace) {
+        debugPrint('[Startup][WARN] AdsFacade start failed: $error');
+        if (kDebugMode) {
+          debugPrint(stackTrace.toString());
+        }
+      }
+    })(),
+  );
 
   if (!kIsWeb) {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);

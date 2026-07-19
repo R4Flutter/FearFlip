@@ -26,7 +26,7 @@ abstract class AdsServiceBase {
   // ── Interstitial ──────────────────────────────────────────────────────
 
   Future<bool> showInterstitialAfterGameOver();
-  Future<void> showInterstitialAfterStageCleared(int clearedStage);
+  Future<bool> showInterstitialAfterStageCleared(int clearedStage);
   bool get isInterstitialReady;
 
   // ── Banner ────────────────────────────────────────────────────────────

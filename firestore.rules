@@ -67,28 +67,12 @@ service cloud.firestore {
     }
 
     match /leaderboards/{mode}/profiles/{uid} {
+      // Public read for the leaderboard UI. Writes are server-only: the
+      // upsertGlobalPanicProgress Cloud Function (admin SDK) is the single
+      // chokepoint, so a modified client can no longer inject a stage/trophy
+      // value directly.
       allow read: if true;
-
-      allow create: if isSignedIn()
-          && request.auth.uid == uid
-          && validStage()
-          && validTrophies()
-          && validDisplayName()
-          && request.resource.data.uid == uid
-          && request.resource.data.updatedAt == request.time;
-
-      allow update: if isSignedIn()
-          && request.auth.uid == uid
-          && validStage()
-          && validTrophies()
-          && validDisplayName()
-          && request.resource.data.uid == uid
-          && request.resource.data.uid == resource.data.uid
-          && request.resource.data.maxStage >= resource.data.maxStage
-          && request.resource.data.totalTrophies >= resource.data.totalTrophies
-          && request.resource.data.updatedAt == request.time;
-
-      allow delete: if false;
+      allow write: if false;
     }
 
     match /runs/{uid}/sessions/{sessionId} {

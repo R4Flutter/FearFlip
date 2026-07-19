@@ -61,7 +61,7 @@ val releaseTasksRequested = gradle.startParameter.taskNames.any { taskName ->
         normalized.contains("publish")
 }
 
-val defaultReleaseAdmobAppId = "ca-app-pub-5463912491137261~6954996599"
+val defaultReleaseAdmobAppId = "ca-app-pub-3940256099942544~3347511713"
 
 val releaseStoreFilePath = keystoreProperties.getProperty("storeFile")
 val releaseStorePassword = keystoreProperties.getProperty("storePassword")
@@ -104,7 +104,7 @@ if (releaseTasksRequested) {
 
     if (!googleServicesFile.exists()) {
         errors += "android/app/google-services.json is missing."
-    } else if (!googleServicesText.contains("\"package_name\": \"$applicationIdValue\"")) {
+    } else if (!Regex("\"package_name\"\\s*:\\s*\"${Regex.escape(applicationIdValue)}\"").containsMatchIn(googleServicesText)) {
         errors += "google-services.json does not contain the release applicationId '$applicationIdValue'. Download a fresh Firebase config for the final package."
     }
 
@@ -168,6 +168,14 @@ android {
         release {
             manifestPlaceholders["admobAppId"] =
                 releaseAdmobAppId?.takeIf { it.isNotBlank() } ?: defaultReleaseAdmobAppId
+            // R8 + resource shrinking. Keep rules for ads/firebase/billing/unity
+            // already live in proguard-rules.pro, so shrinking is safe.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {

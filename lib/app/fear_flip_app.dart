@@ -11,6 +11,7 @@ import '../presentation/providers/app_flow_provider.dart';
 import '../presentation/screens/auth_gate_screen.dart';
 import '../presentation/screens/global_panic_leaderboard_screen.dart';
 import '../presentation/screens/landing_screen.dart';
+import '../presentation/screens/onboarding_consent_screen.dart';
 import '../presentation/screens/privacy_policy_screen.dart';
 import '../presentation/theme/app_palette.dart';
 import '../presentation/widgets/remove_ads_dialog.dart';
@@ -23,36 +24,31 @@ class _CharacterOption {
   const _CharacterOption({
     required this.title,
     required this.color,
-    required this.spriteRowIndex,
+    required this.framePrefix,
   });
 
   final String title;
   final Color color;
-  final int spriteRowIndex;
+
+  /// Frame-folder prefix under assets/images/. Must match the order/prefixes
+  /// in game_screen.dart `_characterFramePrefix`.
+  final String framePrefix;
 }
 
 class _CharacterSpritePreview extends StatelessWidget {
   const _CharacterSpritePreview({
-    required this.rowIndex,
+    required this.framePrefix,
     required this.accentColor,
   });
 
-  static const double _sheetWidth = 736;
-  static const double _sheetHeight = 128;
-  static const double _frameSize = 32;
   static const double _previewSize = 42;
-  static const double _sheetScale = 1.35;
 
-  final int rowIndex;
+  /// Frame-folder prefix, e.g. 'sentinel'. The preview shows the first frame.
+  final String framePrefix;
   final Color accentColor;
 
   @override
   Widget build(BuildContext context) {
-    final clampedRow = rowIndex.clamp(0, 3);
-    final imageWidth = _sheetWidth * _sheetScale;
-    final imageHeight = _sheetHeight * _sheetScale;
-    final offsetY = clampedRow * _frameSize * _sheetScale;
-
     return Container(
       width: _previewSize,
       height: _previewSize,
@@ -63,20 +59,17 @@ class _CharacterSpritePreview extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(9),
-        child: ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.topLeft,
-            maxWidth: imageWidth,
-            maxHeight: imageHeight,
-            child: Transform.translate(
-              offset: Offset(0, -offsetY),
-              child: Image.asset(
-                'assets/images/characters.png',
-                width: imageWidth,
-                height: imageHeight,
-                fit: BoxFit.fill,
-                filterQuality: FilterQuality.none,
-              ),
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: Image.asset(
+            'assets/images/${framePrefix}_frames/${framePrefix}1.png',
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.none,
+            // Deleted/renamed art must not break the picker — show an icon.
+            errorBuilder: (context, error, stackTrace) => Icon(
+              Icons.person,
+              size: _previewSize * 0.6,
+              color: accentColor,
             ),
           ),
         ),
@@ -164,7 +157,7 @@ class _CharacterOptionTile extends StatelessWidget {
         child: Row(
           children: [
             _CharacterSpritePreview(
-              rowIndex: option.spriteRowIndex,
+              framePrefix: option.framePrefix,
               accentColor: isSelected ? Colors.white : option.color,
             ),
             const SizedBox(width: 12),
@@ -416,12 +409,17 @@ class _FearFlipAppState extends State<FearFlipApp> {
     _CharacterOption(
       title: 'Steel Sentinel',
       color: Color(0xFF5A9FD9),
-      spriteRowIndex: 1,
+      framePrefix: 'sentinel',
     ),
     _CharacterOption(
       title: 'Green Phantom',
       color: Color(0xFF40D66A),
-      spriteRowIndex: 2,
+      framePrefix: 'phantom',
+    ),
+    _CharacterOption(
+      title: 'Void Ripper',
+      color: Color(0xFFE85BDA),
+      framePrefix: 'void_ripper',
     ),
   ];
 
@@ -1526,6 +1524,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
       ),
     );
     unawaited(_adsManager.preload());
+    unawaited(_adsManager.preloadBanner());
   }
 
   @override
@@ -1536,7 +1535,6 @@ class _FearFlipAppState extends State<FearFlipApp> {
   }
 
   Future<bool> _showRestartAd() async {
-    await _adsManager.showInterstitialAfterGameOver();
     return true;
   }
 
@@ -1561,7 +1559,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
               fit: StackFit.expand,
               children: [
                 Offstage(
-                  offstage: _flow.showAuthGate || _flow.showLanding,
+                  offstage: _flow.showAuthGate || _flow.showLanding || _flow.showOnboarding,
                   child: GameScreen(
                     joystickSize: _flow.joystickSize,
                     useArrowController: kIsWeb
@@ -1569,14 +1567,20 @@ class _FearFlipAppState extends State<FearFlipApp> {
                         : _flow.useArrowController,
                     selectedCharacterIndex: _flow.selectedCharacterIndex,
                     totalTrophies: _flow.totalTrophies,
-                    isActive: !_flow.showAuthGate && !_flow.showLanding,
+                    isActive: !_flow.showAuthGate && !_flow.showLanding && !_flow.showOnboarding,
                     onExitToDashboard: _flow.returnToDashboard,
                     onStageCleared: _flow.onStageCleared,
                     onRestartWithAd: _showRestartAd,
                     onReviveWithAd: _showReviveAd,
                   ),
                 ),
-                if (_flow.showAuthGate)
+                if (_flow.showOnboarding)
+                  OnboardingConsentScreen(
+                    onAccepted: () => unawaited(_flow.acceptOnboarding()),
+                    onPrivacyPolicy: () =>
+                        _openPrivacyPolicyDashbar(context),
+                  )
+                else if (_flow.showAuthGate)
                   AuthGateScreen(
                     isAuthenticating: _flow.isAuthenticating,
                     errorMessage: _flow.authError,

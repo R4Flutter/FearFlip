@@ -89,6 +89,31 @@ Future<bool> isAlreadyProcessed(
   return list.contains(token);
 }
 
+/// Store-delivered purchase status (mirrors in_app_purchase's PurchaseStatus).
+enum StoreStatus { pending, purchased, restored, error, canceled }
+
+/// Mirrors the FIXED launch re-check in
+/// [PurchaseService._serverCheckOnLaunch]: a cached entitlement is revoked
+/// ONLY on an authoritative store cancel/refund. A missing server record
+/// ('no_record') or an unreachable Play API ('unreachable') must keep the
+/// cached premium — revoking on those was the bug that stripped every payer's
+/// entitlement on the launch after purchase.
+bool shouldRevokeOnLaunchCheck({
+  required bool isValid,
+  required String reason,
+}) {
+  if (isValid) return false;
+  return reason == 'play_revoked';
+}
+
+/// Mirrors the FIXED Mode-B fallback in [PurchaseService._verifyAndComplete]:
+/// when server verification is unreachable (result == null), a store-confirmed
+/// `purchased` OR `restored` unlocks premium. Restore parity is what fixes the
+/// reinstall-restore-while-server-down case.
+bool modeBGrantsWhenServerUnreachable(StoreStatus status) {
+  return status == StoreStatus.purchased || status == StoreStatus.restored;
+}
+
 void main() {
   // Ensure SharedPreferences uses in-memory mock storage for all tests.
   setUp(() {
@@ -352,6 +377,78 @@ void main() {
         isInterstitialReady,
         isFalse,
         reason: 'Premium user — interstitial must report not-ready',
+      );
+    });
+  });
+
+  // ── 7. Launch re-check must never destroy a paid entitlement ───────────────
+  group('7 · launch re-check revoke rules', () {
+    test('active → keep (no revoke)', () {
+      expect(
+        shouldRevokeOnLaunchCheck(isValid: true, reason: 'active'),
+        isFalse,
+      );
+    });
+
+    test('no_record → keep cached premium (regression: the every-payer bug)', () {
+      // Server had no entitlement doc because verification never reached Play.
+      // Revoking here stripped premium from everyone who paid.
+      expect(
+        shouldRevokeOnLaunchCheck(isValid: false, reason: 'no_record'),
+        isFalse,
+      );
+    });
+
+    test('unreachable → keep cached premium', () {
+      expect(
+        shouldRevokeOnLaunchCheck(isValid: false, reason: 'unreachable'),
+        isFalse,
+      );
+    });
+
+    test('empty/unknown reason → do NOT revoke', () {
+      expect(shouldRevokeOnLaunchCheck(isValid: false, reason: ''), isFalse);
+      expect(
+        shouldRevokeOnLaunchCheck(isValid: false, reason: 'pending'),
+        isFalse,
+      );
+    });
+
+    test('play_revoked → revoke (genuine refund/cancel)', () {
+      expect(
+        shouldRevokeOnLaunchCheck(isValid: false, reason: 'play_revoked'),
+        isTrue,
+      );
+    });
+  });
+
+  // ── 8. Mode-B fallback grants on store-confirmed ownership ─────────────────
+  group('8 · Mode-B server-unreachable fallback', () {
+    test('purchased unlocks when server unreachable', () {
+      expect(
+        modeBGrantsWhenServerUnreachable(StoreStatus.purchased),
+        isTrue,
+      );
+    });
+
+    test('restored unlocks when server unreachable (fixes reinstall restore)', () {
+      expect(
+        modeBGrantsWhenServerUnreachable(StoreStatus.restored),
+        isTrue,
+      );
+    });
+
+    test('canceled does NOT unlock', () {
+      expect(
+        modeBGrantsWhenServerUnreachable(StoreStatus.canceled),
+        isFalse,
+      );
+    });
+
+    test('pending does NOT unlock', () {
+      expect(
+        modeBGrantsWhenServerUnreachable(StoreStatus.pending),
+        isFalse,
       );
     });
   });
