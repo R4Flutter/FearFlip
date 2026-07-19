@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:unity_ads_plugin/unity_ads_plugin.dart';
@@ -41,25 +40,26 @@ class LandingScreen extends StatefulWidget {
   State<LandingScreen> createState() => _LandingScreenState();
 }
 
-class _LandingScreenState extends State<LandingScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _loop;
+class _LandingScreenState extends State<LandingScreen> {
+  // Solid slate backdrop. Lighter than the previous 50/50 grey/black split,
+  // no pink in the chrome — the hero image does all the colour work.
+  static const Color _backdrop = Color(0xFF181A24);
+
+  // Soft scrim used to add legibility under the UI without bringing pink
+  // or purple back into the design.
+  static const Color _dimTop = Color(0xD90F1118);
+  static const Color _dimMid = Color(0x00000000);
+  static const Color _dimBottom = Color(0xE60F1118);
 
   @override
   void initState() {
     super.initState();
-    _loop = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 5600),
-    )..repeat();
-
     // Load the banner ad for the dashboard.
     widget.adsService.loadBanner();
   }
 
   @override
   void dispose() {
-    _loop.dispose();
     widget.adsService.disposeBanner();
     super.dispose();
   }
@@ -68,202 +68,190 @@ class _LandingScreenState extends State<LandingScreen>
   Widget build(BuildContext context) {
     final showBanner =
         !PurchaseService.instance.isSubscribed &&
-        AppRuntimeConfig.supportsMobileAds &&
-      AppRuntimeConfig.unityBannerAdsEnabled &&
-      widget.adsService.bannerRequested;
-    final showRemoveAds =
-      AppRuntimeConfig.supportsMobileAds &&
-      AppRuntimeConfig.removeAdsUiEnabled;
+            AppRuntimeConfig.supportsMobileAds &&
+            AppRuntimeConfig.unityBannerAdsEnabled &&
+            widget.adsService.bannerRequested;
+    final showRemoveAds = AppRuntimeConfig.supportsMobileAds &&
+        AppRuntimeConfig.removeAdsUiEnabled;
 
-    return AnimatedBuilder(
-      animation: _loop,
-      builder: (context, _) {
-        final progress = _loop.value;
-        final pulse = 0.86 + math.sin(progress * math.pi * 2) * 0.14;
-
-        return DecoratedBox(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AppPalette.backgroundLight, AppPalette.backgroundDark],
-              stops: [0.5, 0.5],
-            ),
-          ),
-          child: Column(
-            children: [
-              // ── Main scrollable content ──────────────────────────────
-              Expanded(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    CustomPaint(
-                      painter: _GridGlitchPainter(progress: progress),
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: _backdrop),
+      child: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // ── Hero ────────────────────────────────────────────────
+                // Full-bleed, prominent (0.85 opacity), top-aligned so
+                // the "FEARFLIP" wordmark baked into the image is
+                // cropped off the bottom of the screen. The hero now
+                // IS the artwork; no grid, no glow, no glitch bars.
+                IgnorePointer(
+                  child: Opacity(
+                    opacity: 0.85,
+                    child: Image.asset(
+                      'assets/images/landing_hero.png',
+                      fit: BoxFit.cover,
+                      alignment: Alignment.topCenter,
+                      cacheWidth: 800,
                     ),
-                    IgnorePointer(
-                      child: Opacity(
-                        opacity: pulse.clamp(0.72, 1),
-                        child: Align(
-                          alignment: const Alignment(0, -0.82),
-                          child: Container(
-                            width: 560,
-                            height: 260,
-                            decoration: const BoxDecoration(
-                              gradient: RadialGradient(
-                                colors: [
-                                  Color(0x66E26AE6),
-                                  Color(0x5533FF2B),
-                                  Color(0x00FFFFFF),
+                  ),
+                ),
+                // ── Dim scrim for UI legibility ────────────────────────
+                // Top + bottom only; the middle stays clear so the
+                // hero reads as the focus.
+                IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [_dimTop, _dimMid, _dimBottom],
+                        stops: [0.0, 0.35, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+                // ── UI ─────────────────────────────────────────────────
+                SafeArea(
+                  bottom: false,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 540;
+                      unawaited(
+                        widget.adsService.ensureBannerLoaded(
+                          width: constraints.maxWidth,
+                        ),
+                      );
+                      final widthScale = (constraints.maxWidth / 390)
+                          .clamp(0.86, 1.18)
+                          .toDouble();
+                      final topBreathingSpace = (constraints.maxHeight * 0.05)
+                          .clamp(18.0, 52.0)
+                          .toDouble();
+                      final actionSectionDrop = (constraints.maxHeight * 0.06)
+                          .clamp(28.0, 72.0)
+                          .toDouble();
+                      final actionGap = (constraints.maxHeight * 0.018)
+                          .clamp(10.0, 18.0)
+                          .toDouble();
+
+                      return SingleChildScrollView(
+                        padding: EdgeInsets.fromLTRB(
+                          compact ? 14 : 22,
+                          topBreathingSpace,
+                          compact ? 14 : 22,
+                          20,
+                        ),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 760),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _TopMetaBar(
+                                  widthScale: widthScale,
+                                  playerName: widget.playerName,
+                                  totalTrophies: widget.totalTrophies,
+                                ),
+                                // Drop the player name down so the hero
+                                // is visible above it. The removed glitch
+                                // wordmark freed up ~70px of vertical
+                                // space; we use some of it as breathing
+                                // room and some as a larger first-button
+                                // drop.
+                                SizedBox(
+                                  height: (constraints.maxHeight * 0.06)
+                                      .clamp(28.0, 72.0)
+                                      .toDouble(),
+                                ),
+                                _DashboardActionButton(
+                                  label: widget.isStarting
+                                      ? 'LOADING...'
+                                      : 'START SURVIVAL',
+                                  sublabel:
+                                      'Enter active run mode and start your survival chain',
+                                  icon: Icons.play_arrow_rounded,
+                                  color: AppPalette.accentPink,
+                                  foreground: Colors.black,
+                                  enabled: !widget.isStarting,
+                                  onPressed: widget.onPlay,
+                                ),
+                                SizedBox(height: actionGap),
+                                _DashboardActionButton(
+                                  label: 'CHOOSE CHARACTER',
+                                  sublabel:
+                                      'Select your runner before entering the maze',
+                                  icon: Icons.person,
+                                  color: AppPalette.neonGreen,
+                                  foreground: Colors.black,
+                                  enabled: true,
+                                  onPressed: widget.onChooseCharacter,
+                                ),
+                                SizedBox(height: actionGap),
+                                _DashboardActionButton(
+                                  label: 'SETTINGS',
+                                  sublabel:
+                                      'Tune controls, input style, and session preferences',
+                                  icon: Icons.settings,
+                                  color: AppPalette.accentPurple,
+                                  foreground: Colors.black,
+                                  enabled: true,
+                                  onPressed: widget.onSettings,
+                                ),
+                                SizedBox(height: actionGap),
+                                _DashboardActionButton(
+                                  label: 'LEADERBOARD',
+                                  sublabel:
+                                      'Track your rank in the Global Panic board',
+                                  icon: Icons.emoji_events,
+                                  color: AppPalette.neonGreen,
+                                  foreground: Colors.black,
+                                  enabled: true,
+                                  onPressed: widget.onLeaderboard,
+                                ),
+                                if (showRemoveAds) ...[
+                                  SizedBox(height: actionGap),
+                                  _DashboardActionButton(
+                                    label: 'REMOVE ADS',
+                                    sublabel:
+                                        'Unlock ad-free play and keep revives',
+                                    icon: Icons.block,
+                                    color: AppPalette.accentPink,
+                                    foreground: Colors.black,
+                                    enabled: true,
+                                    onPressed: widget.onRemoveAds,
+                                  ),
                                 ],
-                              ),
+                                SizedBox(
+                                  height: (constraints.maxHeight * 0.02)
+                                      .clamp(14.0, 24.0)
+                                      .toDouble(),
+                                ),
+                                _RankPanel(
+                                  widthScale: widthScale,
+                                  globalPanicRank: widget.globalPanicRank,
+                                ),
+                                const SizedBox(height: 18),
+                                _LegalFooter(
+                                  onPrivacyPolicy: widget.onPrivacyPolicy,
+                                ),
+                                const SizedBox(height: 12),
+                              ],
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                    SafeArea(
-                      bottom: false,
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final compact = constraints.maxWidth < 540;
-                          unawaited(
-                            widget.adsService.ensureBannerLoaded(
-                              width: constraints.maxWidth,
-                            ),
-                          );
-                          final widthScale = (constraints.maxWidth / 390)
-                              .clamp(0.86, 1.18)
-                              .toDouble();
-                          final topBreathingSpace =
-                              (constraints.maxHeight * 0.05)
-                                  .clamp(18.0, 52.0)
-                                  .toDouble();
-                          final actionSectionDrop =
-                              (constraints.maxHeight * 0.06)
-                                  .clamp(28.0, 72.0)
-                                  .toDouble();
-                          final actionGap = (constraints.maxHeight * 0.018)
-                              .clamp(10.0, 18.0)
-                              .toDouble();
-
-                          return SingleChildScrollView(
-                            padding: EdgeInsets.fromLTRB(
-                              compact ? 14 : 22,
-                              topBreathingSpace,
-                              compact ? 14 : 22,
-                              20,
-                            ),
-                            child: Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 760,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    _TopMetaBar(
-                                      widthScale: widthScale,
-                                      playerName: widget.playerName,
-                                      totalTrophies: widget.totalTrophies,
-                                    ),
-                                    SizedBox(
-                                      height: (constraints.maxHeight * 0.015)
-                                          .clamp(8.0, 16.0)
-                                          .toDouble(),
-                                    ),
-                                    _GlitchWordmark(progress: progress),
-                                    SizedBox(height: actionSectionDrop),
-                                    _DashboardActionButton(
-                                      label: widget.isStarting
-                                          ? 'LOADING...'
-                                          : 'START SURVIVAL',
-                                      sublabel:
-                                          'Enter active run mode and start your survival chain',
-                                      icon: Icons.play_arrow_rounded,
-                                      color: AppPalette.accentPink,
-                                      foreground: Colors.black,
-                                      enabled: !widget.isStarting,
-                                      onPressed: widget.onPlay,
-                                    ),
-                                    SizedBox(height: actionGap),
-                                    _DashboardActionButton(
-                                      label: 'CHOOSE CHARACTER',
-                                      sublabel:
-                                          'Select your runner before entering the maze',
-                                      icon: Icons.person,
-                                      color: AppPalette.neonGreen,
-                                      foreground: Colors.black,
-                                      enabled: true,
-                                      onPressed: widget.onChooseCharacter,
-                                    ),
-                                    SizedBox(height: actionGap),
-                                    _DashboardActionButton(
-                                      label: 'SETTINGS',
-                                      sublabel:
-                                          'Tune controls, input style, and session preferences',
-                                      icon: Icons.settings,
-                                      color: AppPalette.accentPurple,
-                                      foreground: Colors.black,
-                                      enabled: true,
-                                      onPressed: widget.onSettings,
-                                    ),
-                                    SizedBox(height: actionGap),
-                                    _DashboardActionButton(
-                                      label: 'LEADERBOARD',
-                                      sublabel:
-                                          'Track your rank in the Global Panic board',
-                                      icon: Icons.emoji_events,
-                                      color: AppPalette.neonGreen,
-                                      foreground: Colors.black,
-                                      enabled: true,
-                                      onPressed: widget.onLeaderboard,
-                                    ),
-                                    if (showRemoveAds) ...[
-                                      SizedBox(height: actionGap),
-                                      _DashboardActionButton(
-                                        label: 'REMOVE ADS',
-                                        sublabel:
-                                            'Unlock ad-free play and keep revives',
-                                        icon: Icons.block,
-                                        color: AppPalette.accentPink,
-                                        foreground: Colors.black,
-                                        enabled: true,
-                                        onPressed: widget.onRemoveAds,
-                                      ),
-                                    ],
-                                    SizedBox(
-                                      height: (constraints.maxHeight * 0.02)
-                                          .clamp(14.0, 24.0)
-                                          .toDouble(),
-                                    ),
-                                    _RankPanel(
-                                      widthScale: widthScale,
-                                      globalPanicRank: widget.globalPanicRank,
-                                    ),
-                                    const SizedBox(height: 18),
-                                    // ── Inline privacy / terms links ───
-                                    _LegalFooter(
-                                      onPrivacyPolicy: widget.onPrivacyPolicy,
-                                    ),
-                                    const SizedBox(height: 12),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
+                      );
+                    },
+                  ),
                 ),
-              ),
-              // ── Banner ad pinned to bottom ───────────────────────────
-              if (showBanner) _BannerAdBar(adsService: widget.adsService),
-            ],
+              ],
+            ),
           ),
-        );
-      },
+          if (showBanner) _BannerAdBar(adsService: widget.adsService),
+        ],
+      ),
     );
   }
 }
@@ -380,7 +368,8 @@ class _BannerAdBar extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Sub-widgets (unchanged functionally, cleaned up)
+// Sub-widgets (unchanged from the committed version — kept stable so other
+// surfaces that compose them don't shift with the hero redesign)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _TopMetaBar extends StatelessWidget {
@@ -431,7 +420,6 @@ class _TopMetaBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // ── Avatar circle
           Container(
             width: (42 * widthScale).clamp(34.0, 50.0),
             height: (42 * widthScale).clamp(34.0, 50.0),
@@ -461,7 +449,6 @@ class _TopMetaBar extends StatelessWidget {
             ),
           ),
           SizedBox(width: (10 * widthScale).clamp(8.0, 14.0)),
-          // ── Name + tagline
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -509,7 +496,6 @@ class _TopMetaBar extends StatelessWidget {
             ),
           ),
           SizedBox(width: (8 * widthScale).clamp(6.0, 12.0)),
-          // ── Trophy chip
           Container(
             padding: EdgeInsets.symmetric(
               horizontal: (10 * widthScale).clamp(8.0, 14.0),
@@ -582,59 +568,6 @@ class _TopMetaBar extends StatelessWidget {
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GlitchWordmark extends StatelessWidget {
-  const _GlitchWordmark({required this.progress});
-
-  final double progress;
-
-  @override
-  Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    final fontSize = width < 400 ? 44.0 : 62.0;
-    final driftX = math.sin(progress * math.pi * 14) * 2.4;
-    final driftY = math.cos(progress * math.pi * 22) * 1.6;
-
-    Text layer(Color color) {
-      return Text(
-        'FEARFLIP',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w900,
-          fontSize: fontSize,
-          height: 1,
-          letterSpacing: 1.6,
-          shadows: const [
-            Shadow(
-              color: Color(0x96000000),
-              blurRadius: 14,
-              offset: Offset(0, 3),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return SizedBox(
-      height: fontSize + 12,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Transform.translate(
-            offset: Offset(-driftX, driftY),
-            child: layer(AppPalette.neonGreen.withAlpha(170)),
-          ),
-          Transform.translate(
-            offset: Offset(driftX, -driftY),
-            child: layer(AppPalette.accentPurple.withAlpha(170)),
-          ),
-          layer(AppPalette.accentPurple),
         ],
       ),
     );
@@ -758,61 +691,5 @@ class _RankPanel extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class _GridGlitchPainter extends CustomPainter {
-  _GridGlitchPainter({required this.progress});
-
-  final double progress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final gridPaint = Paint()
-      ..color = AppPalette.neonGreen.withAlpha(38)
-      ..strokeWidth = 1;
-
-    const spacing = 34.0;
-    for (var x = 0.0; x <= size.width; x += spacing) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-    }
-    for (var y = 0.0; y <= size.height; y += spacing) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    final scanlineTop = (size.height + 90) * progress - 45;
-    final scanRect = Rect.fromLTWH(0, scanlineTop, size.width, 40);
-    final scanPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0x0033FF2B), Color(0x6633FF2B), Color(0x0033FF2B)],
-      ).createShader(scanRect);
-    canvas.drawRect(scanRect, scanPaint);
-
-    final glitchPaint = Paint()..color = AppPalette.accentPurple.withAlpha(80);
-    for (var i = 0; i < 6; i++) {
-      final wave = progress * math.pi * (8 + i * 2.4);
-      final top = (size.height * (0.12 + 0.14 * i) + math.sin(wave) * 17).clamp(
-        0.0,
-        size.height - 4,
-      );
-      final left = (size.width * (0.08 + i * 0.03) + math.cos(wave * 1.3) * 26)
-          .clamp(0.0, size.width - 100);
-      final width = (size.width * (0.23 + i * 0.05)).clamp(
-        88.0,
-        size.width - left,
-      );
-
-      canvas.drawRect(
-        Rect.fromLTWH(left.toDouble(), top.toDouble(), width.toDouble(), 3),
-        glitchPaint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _GridGlitchPainter oldDelegate) {
-    return oldDelegate.progress != progress;
   }
 }
