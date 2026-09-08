@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FearFlip Account &amp; Data Deletion</title>
+    <meta name="description" content="How to delete your FearFlip account and associated data.">
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #14171b;
+        --muted: #5a6570;
+        --accent: #0f6b6f;
+        --accent-2: #1f7a4c;
+        --paper: #f7f6f2;
+        --card: #ffffff;
+        --edge: #e1e7ea;
+        --shadow: 0 18px 40px rgba(12, 20, 27, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", "Garamond", serif;
+        color: var(--ink);
+        background: radial-gradient(circle at top left, #eef5ff 0%, #f7f6f2 40%, #eef6f4 100%);
+      }
+      header {
+        padding: 32px 0 10px;
+        border-bottom: 1px solid var(--edge);
+        margin-bottom: 24px;
+      }
+      main {
+        max-width: 880px;
+        margin: 36px auto 64px;
+        background: var(--card);
+        padding: 32px 34px 36px;
+        border-radius: 20px;
+        box-shadow: var(--shadow);
+        border: 1px solid var(--edge);
+      }
+      h1 { font-size: 34px; margin: 0 0 6px; letter-spacing: 0.3px; }
+      h2 { font-size: 20px; margin: 26px 0 8px; color: var(--accent); }
+      p, li { line-height: 1.6; margin: 8px 0 12px; }
+      ol, ul { padding-left: 22px; }
+      .muted { color: var(--muted); font-size: 14px; }
+      a { color: var(--accent); }
+      code {
+        background: var(--paper);
+        border: 1px solid var(--edge);
+        border-radius: 6px;
+        padding: 1px 6px;
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Delete your FearFlip account &amp; data</h1>
+        <p class="muted">Developer: Raj Naik &middot; App: FearFlip (<code>com.rajnaik.fearflip</code>)</p>
+      </header>
+
+      <p>
+        You can delete your FearFlip account and all associated data at any time.
+        There are two ways to do it.
+      </p>
+
+      <h2>Option 1 — in the app (fastest)</h2>
+      <ol>
+        <li>Open FearFlip.</li>
+        <li>Go to the account / settings screen.</li>
+        <li>Tap <strong>Delete Account</strong> and confirm.</li>
+      </ol>
+      <p>
+        Your account is removed immediately and a server cleanup job erases the
+        data listed below. If your sign-in is too old to delete on the spot, the
+        request is queued and completed by the cleanup job automatically.
+      </p>
+
+      <h2>Option 2 — by email</h2>
+      <p>
+        If you can no longer open the app, email
+        <a href="mailto:naikraj116@gmail.com">naikraj116@gmail.com</a> from the
+        address linked to your Google sign-in with the subject
+        <em>&ldquo;FearFlip account deletion&rdquo;</em>. We action requests
+        within 30 days.
+      </p>
+
+      <h2>What gets deleted</h2>
+      <ul>
+        <li>Your Firebase Authentication account (Google / guest sign-in).</li>
+        <li>Your global &amp; survival leaderboard entries and best scores.</li>
+        <li>Your run history.</li>
+        <li>Your &ldquo;Remove Ads&rdquo; purchase / entitlement record.</li>
+      </ul>
+      <p class="muted">
+        Note: your Google Play purchase receipt is retained by Google Play, not
+        by us, for legal and refund purposes. Anonymised, aggregated analytics
+        and crash logs that cannot be tied back to you may be retained.
+      </p>
+
+      <p class="muted">Last updated: this page is served from the app's official domain.</p>
+    </main>
+  </body>
+</html>

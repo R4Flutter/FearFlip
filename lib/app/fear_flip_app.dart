@@ -62,10 +62,11 @@ class _CharacterSpritePreview extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(3),
           child: Image.asset(
-            'assets/images/${framePrefix}_frames/${framePrefix}1.png',
-            fit: BoxFit.contain,
-            filterQuality: FilterQuality.none,
-            // Deleted/renamed art must not break the picker — show an icon.
+            'assets/images/${framePrefix}_spreadsheet.png',
+            fit: BoxFit.none,
+            alignment: const Alignment(-0.85, -0.9),
+            scale: 4.5,
+            filterQuality: FilterQuality.medium,
             errorBuilder: (context, error, stackTrace) => Icon(
               Icons.person,
               size: _previewSize * 0.6,

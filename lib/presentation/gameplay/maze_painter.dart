@@ -18,6 +18,7 @@ class MazePainter extends CustomPainter {
     required this.pulse,
     this.time = 0,
     this.playerFrames,
+    this.directionalPlayerFrames = false,
     this.exitPortalSprite,
     this.devilCell,
     this.devilFrames,
@@ -38,6 +39,10 @@ class MazePainter extends CustomPainter {
   final double pulse;
   final double time;
   final List<ui.Image>? playerFrames;
+
+  /// True when [playerFrames] are already rendered facing [direction]
+  /// (sliced from the 8-direction sheet) - no horizontal mirroring needed.
+  final bool directionalPlayerFrames;
   final ui.Image? exitPortalSprite;
   final Point<int>? devilCell;
   final List<ui.Image>? devilFrames;
@@ -203,7 +208,7 @@ class MazePainter extends CustomPainter {
 
     if (!hidePlayer) {
       if (playerFrames != null && playerFrames!.isNotEmpty) {
-        _drawSpriteCharacter(canvas, playerCenter, playerSide);
+        _drawWalkingPlayer(canvas, playerCenter, playerSide);
       } else {
         final playerGlow = Paint()
           ..color = const Color(0x8800FFAA)
@@ -224,42 +229,162 @@ class MazePainter extends CustomPainter {
 
     final devil = devilCell;
     if (devil != null) {
-      final devilCenter = _cellCenter(
-        origin,
-        cellSize,
-        devil,
-      ).translate(0, sin(time * 3.4) * cellSize * 0.07);
+      final devilBaseCenter = _cellCenter(origin, cellSize, devil);
       final frames = devilFrames;
+      
       if (frames != null && frames.isNotEmpty) {
-        final devilFrame = (time * 9).floor() % frames.length;
-        _drawFrame(
-          canvas: canvas,
-          image: frames[devilFrame],
-          center: devilCenter,
-          side: cellSize * 0.82,
-          facing: playerCellPosition.dx < devil.x
-              ? Direction4.left
-              : Direction4.right,
+        const frameCount = 7;
+        const walkBobFreq = 2 * pi * 2.2; // Slightly faster/scarier than player
+        const halfPi = pi / 2;
+        const leanMax = 5 * pi / 180;
+        
+        final animFrame = (time * 10).floor() % frameCount;
+        
+        // Calculate direction relative to player
+        final dx = playerCellPosition.dx - devil.x;
+        final dy = playerCellPosition.dy - devil.y;
+        
+        int rowIndex = 0;
+        double lean = 0;
+        if (dx.abs() >= dy.abs()) {
+          rowIndex = dx > 0 ? 6 : 2; // Right or Left
+          lean = dx > 0 ? leanMax : -leanMax;
+        } else {
+          rowIndex = dy > 0 ? 0 : 4; // Down or Up
+        }
+        
+        final spriteIndex = rowIndex * frameCount + animFrame;
+        final image = frames[spriteIndex.clamp(0, frames.length - 1)];
+
+        // Professional effects: Bob, Squash/Stretch
+        final up = 0.5 + 0.5 * sin(time * walkBobFreq - halfPi);
+        final bob = -cellSize * 0.15 * up;
+        final squash = 1.0 - up;
+        final scaleY = 1.0 + (0.08 * (up * 2 - 1).clamp(0.0, 1.0) - 0.10 * squash);
+        final scaleX = 1.0 + (0.10 * squash - 0.05 * (up * 2 - 1).clamp(0.0, 1.0));
+
+        // Ground shadow
+        final shadowScale = 0.70 + 0.30 * (1.0 - up);
+        final shadowPaint = Paint()..color = Colors.black.withAlpha(80);
+        canvas.drawOval(
+          Rect.fromCenter(
+            center: devilBaseCenter.translate(0, cellSize * 0.35),
+            width: cellSize * 0.5 * shadowScale,
+            height: cellSize * 0.2 * shadowScale,
+          ),
+          shadowPaint,
         );
+
+        // Draw Devil with effects
+        final devilCenter = devilBaseCenter.translate(0, bob);
+        final src = Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
+        final dst = Rect.fromCenter(center: Offset.zero, width: cellSize * 0.85, height: cellSize * 0.85);
+        
+        canvas.save();
+        canvas.translate(devilCenter.dx, devilCenter.dy);
+        canvas.rotate(lean);
+        canvas.scale(scaleX, scaleY);
+        canvas.drawImageRect(image, src, dst, Paint()..filterQuality = FilterQuality.medium);
+        canvas.restore();
       } else {
         final silhouette = Paint()..color = const Color(0xFF1B1B1B);
-        canvas.drawCircle(devilCenter, cellSize * 0.24, silhouette);
+        canvas.drawCircle(devilBaseCenter, cellSize * 0.24, silhouette);
       }
     }
   }
 
-  void _drawSpriteCharacter(Canvas canvas, Offset center, double side) {
+  // Fake-3D walk: a sine bob tied to the step, squash on foot-strike / stretch
+  // on toe-off, a ground shadow that grows opposite the bob, plus a constant
+  // breathing sway and a lean into the movement direction. The bob is what
+  // makes the flat sprite read as an actual stepping person.
+  void _drawWalkingPlayer(Canvas canvas, Offset center, double side) {
+    const halfPi = pi / 2;
+    const walkBobFreq = 2 * pi * 2.0; // ~2 foot-falls per second when walking
+    const idleBobFreq = 2 * pi * 0.9; // slow breathing bob when standing still
+    const breathFreq = 1.5 * 2 * pi; // 1.5 Hz sway
+    const breathAmp = 1.6 * pi / 180; // ±1.6° sway
+    const leanMax = 6 * pi / 180; // ~6° lean into movement
+
     final frames = playerFrames!;
-    final frameIndex = isMoving
-        ? currentFrame.clamp(0, frames.length - 1)
-        : 0;
-    _drawFrame(
-      canvas: canvas,
-      image: frames[frameIndex],
-      center: center,
-      side: side,
-      facing: direction,
+    final frameCount = 7;
+    final animFrame = isMoving ? currentFrame % frameCount : 0;
+    
+    // Row indices from the 8-direction sheet:
+    // 0: Down, 1: Down-Left, 2: Left, 3: Up-Left, 4: Up, 5: Up-Right, 6: Right, 7: Down-Right
+    int rowIndex = 0;
+    switch (direction) {
+      case Direction4.down: rowIndex = 0; break;
+      case Direction4.left: rowIndex = 2; break;
+      case Direction4.up: rowIndex = 4; break;
+      case Direction4.right: rowIndex = 6; break;
+    }
+    
+    final spriteIndex = rowIndex * frameCount + animFrame;
+    final image = frames[spriteIndex.clamp(0, frames.length - 1)];
+
+    // The body ALWAYS oscillates so it never reads as a frozen sticker: a bold
+    // step-bounce while walking, a gentle breath while idle.
+    final bobFreq = isMoving ? walkBobFreq : idleBobFreq;
+    final up = 0.5 + 0.5 * sin(time * bobFreq - halfPi); // 0 planted .. 1 top
+    final amp = isMoving ? 0.18 : 0.05; // bold vs gentle
+    final bob = -side * amp * up; // body rises off the floor
+    final contact = 1.0 - up; // 1 = foot planted
+    final stretch = (up * 2 - 1).clamp(0.0, 1.0);
+    final squash = 1.0 - up;
+    final squashAmt = isMoving ? 1.0 : 0.35;
+    final scaleY =
+        1.0 + (0.09 * stretch - 0.12 * squash + 0.03 * up) * squashAmt;
+    final scaleX = 1.0 + (0.12 * squash - 0.06 * stretch) * squashAmt;
+
+    final sway = sin(time * breathFreq) * breathAmp;
+    var lean = 0.0;
+    if (isMoving) {
+      if (direction == Direction4.right) {
+        lean = leanMax;
+      } else if (direction == Direction4.left) {
+        lean = -leanMax;
+      }
+    }
+
+    // Ground shadow, opposite the bob: big & dark when planted, small & faint
+    // when the body is at the top of the step.
+    final shadowScale = 0.80 + 0.40 * contact;
+    final shadowPaint = Paint()
+      ..color = const Color(
+        0xFF000000,
+      ).withValues(alpha: (0.20 + 0.22 * contact).clamp(0.06, 0.55))
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(center.dx, center.dy + side * 0.36),
+        width: side * 0.50 * shadowScale,
+        height: side * 0.22 * shadowScale,
+      ),
+      shadowPaint,
     );
+
+    final src = Rect.fromLTWH(
+      0,
+      0,
+      image.width.toDouble(),
+      image.height.toDouble(),
+    );
+    final dst = Rect.fromCenter(center: Offset.zero, width: side, height: side);
+    final spritePaint = Paint()..filterQuality = FilterQuality.medium;
+
+    canvas.save();
+    canvas.translate(center.dx, center.dy + bob);
+    if (sway != 0 || lean != 0) {
+      canvas.rotate(sway + lean);
+    }
+    // Directional frames are pre-rendered facing the right way; legacy
+    // side-view frames get mirrored for leftward movement.
+    final facingSign = !directionalPlayerFrames && direction == Direction4.left
+        ? -1.0
+        : 1.0;
+    canvas.scale(scaleX * (directionalPlayerFrames ? 1.0 : facingSign), scaleY);
+    canvas.drawImageRect(image, src, dst, spritePaint);
+    canvas.restore();
   }
 
   void _drawFrame({
@@ -328,6 +453,7 @@ class MazePainter extends CustomPainter {
         oldDelegate.currentFrame != currentFrame ||
         oldDelegate.isMoving != isMoving ||
         oldDelegate.playerFrames != playerFrames ||
+        oldDelegate.directionalPlayerFrames != directionalPlayerFrames ||
         oldDelegate.devilFrames != devilFrames ||
         oldDelegate.devilCell != devilCell ||
         oldDelegate.playerSafe != playerSafe ||
