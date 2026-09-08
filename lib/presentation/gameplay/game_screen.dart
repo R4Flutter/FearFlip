@@ -96,6 +96,10 @@ class _GameScreenState extends State<GameScreen>
   late final TrapAudioController _trapAudioController;
   late final TrapDeathSequence _trapDeathSequence;
   List<ui.Image>? _playerFrames;
+
+  /// Per-direction walk frames sliced from the 8-direction sheet, indexed by
+  /// [Direction4.index] (up, right, down, left). Null -> side-view fallback.
+  List<List<ui.Image>>? _playerDirFrames;
   List<ui.Image>? _devilFrames;
   ui.Image? _breakingTrapTexture;
   ui.Image? _exitPortalSprite;
@@ -249,6 +253,7 @@ class _GameScreenState extends State<GameScreen>
   @override
   void dispose() {
     _disposeFrames(_playerFrames);
+    _playerDirFrames?.forEach(_disposeFrames);
     _disposeFrames(_devilFrames);
     _breakingTrapTexture?.dispose();
     _exitPortalSprite?.dispose();
@@ -1810,26 +1815,63 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  /// Decodes `assets/images/<prefix>_frames/<prefix><infix>{1..7}.png`.
+  Future<List<ui.Image>> _decodeFrameFiles(String prefix, String infix) async {
+    final frames = <ui.Image>[];
+    for (var i = 1; i <= _animationFrameCount; i++) {
+      final assetPath = 'assets/images/${prefix}_frames/$prefix$infix$i.png';
+      final data = await rootBundle.load(assetPath);
+      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+      final frameInfo = await codec.getNextFrame();
+      codec.dispose();
+      frames.add(frameInfo.image);
+    }
+    return frames;
+  }
+
   Future<void> _loadCharactersSprite() async {
     try {
       final prefix = _characterFramePrefix(widget.selectedCharacterIndex);
+      final assetPath = 'assets/images/${prefix}_spreadsheet.png';
+      final data = await rootBundle.load(assetPath);
+      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+      
       final frames = <ui.Image>[];
-      for (var i = 1; i <= _animationFrameCount; i++) {
-        final assetPath = 'assets/images/${prefix}_frames/$prefix$i.png';
-        final data = await rootBundle.load(assetPath);
-        final codec = await ui.instantiateImageCodec(
-          data.buffer.asUint8List(),
-        );
-        final frameInfo = await codec.getNextFrame();
-        codec.dispose();
-        frames.add(frameInfo.image);
-        if (!mounted) {
-          for (final f in frames) {
-            f.dispose();
-          }
-          return;
+      final sheetImage = (await codec.getNextFrame()).image;
+      codec.dispose();
+
+      const frameCount = 7;
+      const directionCount = 8;
+      final cellWidth = sheetImage.width / frameCount;
+      final cellHeight = sheetImage.height / directionCount;
+
+      for (var row = 0; row < directionCount; row++) {
+        for (var col = 0; col < frameCount; col++) {
+          final recorder = ui.PictureRecorder();
+          final canvas = Canvas(recorder);
+          final src = Rect.fromLTWH(
+            col * cellWidth,
+            row * cellHeight,
+            cellWidth,
+            cellHeight,
+          );
+          final dst = Rect.fromLTWH(0, 0, cellWidth, cellHeight);
+          canvas.drawImageRect(sheetImage, src, dst, Paint());
+          final picture = recorder.endRecording();
+          final img = await picture.toImage(
+            cellWidth.round(),
+            cellHeight.round(),
+          );
+          frames.add(img);
         }
       }
+      sheetImage.dispose();
+
+      if (!mounted) {
+        for (final f in frames) f.dispose();
+        return;
+      }
+
       _disposeFrames(_playerFrames);
       _playerFrames = frames;
       _markGameSurfaceDirty();
@@ -1848,23 +1890,46 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _loadDevilSprite() async {
     try {
+      const assetPath = 'assets/images/devil_spreadsheet.png';
+      final data = await rootBundle.load(assetPath);
+      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+      
       final frames = <ui.Image>[];
-      for (var i = 1; i <= _animationFrameCount; i++) {
-        final assetPath = 'assets/images/devil_frames/devil$i.png';
-        final data = await rootBundle.load(assetPath);
-        final codec = await ui.instantiateImageCodec(
-          data.buffer.asUint8List(),
-        );
-        final frameInfo = await codec.getNextFrame();
-        codec.dispose();
-        frames.add(frameInfo.image);
-        if (!mounted) {
-          for (final f in frames) {
-            f.dispose();
-          }
-          return;
+      final sheetImage = (await codec.getNextFrame()).image;
+      codec.dispose();
+
+      const frameCount = 7;
+      const directionCount = 8;
+      final cellWidth = sheetImage.width / frameCount;
+      final cellHeight = sheetImage.height / directionCount;
+
+      for (var row = 0; row < directionCount; row++) {
+        for (var col = 0; col < frameCount; col++) {
+          final recorder = ui.PictureRecorder();
+          final canvas = Canvas(recorder);
+          final src = Rect.fromLTWH(
+            col * cellWidth,
+            row * cellHeight,
+            cellWidth,
+            cellHeight,
+          );
+          final dst = Rect.fromLTWH(0, 0, cellWidth, cellHeight);
+          canvas.drawImageRect(sheetImage, src, dst, Paint());
+          final picture = recorder.endRecording();
+          final img = await picture.toImage(
+            cellWidth.round(),
+            cellHeight.round(),
+          );
+          frames.add(img);
         }
       }
+      sheetImage.dispose();
+
+      if (!mounted) {
+        for (final f in frames) f.dispose();
+        return;
+      }
+
       _disposeFrames(_devilFrames);
       _devilFrames = frames;
       _markGameSurfaceDirty();
@@ -2385,7 +2450,8 @@ class _GameScreenState extends State<GameScreen>
                     isMoving: _playerController.isMoving,
                     pulse: pulse,
                     time: _stageElapsedSeconds,
-                    playerFrames: _playerFrames,
+                                        playerFrames: _playerFrames,
+                    directionalPlayerFrames: true,
                     exitPortalSprite: _exitPortalSprite,
                     devilCell: _devilCell,
                     devilFrames: _devilFrames,
