@@ -1,7 +1,9 @@
 [gd_scene format=3 uid="uid://co8ix16125tse"]
 
 [ext_resource type="Script" uid="uid://dysyj476g8fox" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Resource" path="res://resources/player_feel.tres" id="2_0wfyh"]
 
 [node name="FearFlip3D" type="Node3D" unique_id=1100802687]
-visible = false
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.09433365, 0.37733603, 0)
 script = ExtResource("1_main")
+feel = ExtResource("2_0wfyh")
