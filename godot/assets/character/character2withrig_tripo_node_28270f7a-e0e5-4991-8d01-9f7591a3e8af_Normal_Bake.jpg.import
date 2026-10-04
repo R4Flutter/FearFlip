@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bbxx0hxgtd15v"
-path="res://.godot/imported/character2withrig_tripo_node_28270f7a-e0e5-4991-8d01-9f7591a3e8af_Normal_Bake.jpg-00e93b18e9a96eb62d9345fe018dec45.ctex"
+path.s3tc="res://.godot/imported/character2withrig_tripo_node_28270f7a-e0e5-4991-8d01-9f7591a3e8af_Normal_Bake.jpg-00e93b18e9a96eb62d9345fe018dec45.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "6a97c21367778c8df83d5cac0230959d"
@@ -14,7 +15,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/character/character2withrig_tripo_node_28270f7a-e0e5-4991-8d01-9f7591a3e8af_Normal_Bake.jpg"
-dest_files=["res://.godot/imported/character2withrig_tripo_node_28270f7a-e0e5-4991-8d01-9f7591a3e8af_Normal_Bake.jpg-00e93b18e9a96eb62d9345fe018dec45.ctex"]
+dest_files=["res://.godot/imported/character2withrig_tripo_node_28270f7a-e0e5-4991-8d01-9f7591a3e8af_Normal_Bake.jpg-00e93b18e9a96eb62d9345fe018dec45.s3tc.ctex"]
 
 [params]
 
