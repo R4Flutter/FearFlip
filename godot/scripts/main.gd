@@ -12,9 +12,10 @@ const CEILING_HEIGHT := 3.0
 const WALL_TRIM_HEIGHT := 0.12
 const DEVIL_NEAR_DISTANCE := 3
 const DEVIL_Y := 0.75
-## Player body: feet at the capsule bottom, scaled from the ~1 m model to ~1.85 m.
+## Player body: feet at the capsule bottom. Model heights are fractions of WALL_HEIGHT (wall = 1).
 const PLAYER_MESH_Y := -1.6
-const PLAYER_MESH_SCALE := 1.9
+const PLAYER_HEIGHT_RATIO := 0.6
+const DEVIL_HEIGHT_RATIO := 0.9
 ## Depth-1 chase speed (§5). Walking (3.0 m/s) can't outrun it; sprinting, loops and flipping can.
 const DEVIL_CHASE_SPEED := 3.6
 const DEVIL_ENRAGE_MULTIPLIER := 1.2
@@ -635,10 +636,9 @@ func _build_player() -> void:
 
 	player_mesh = PLAYER_MODEL.instantiate()
 	player_mesh.name = "CharacterMesh"
-	player_mesh.position.y = PLAYER_MESH_Y
-	# character2withrig.glb faces +X and is ~1 m tall; turn it to face -Z and scale to body height.
+	# character2withrig.glb faces +X; turn it to face -Z.
 	player_mesh.rotation_degrees.y = 90.0
-	player_mesh.scale = Vector3.ONE * PLAYER_MESH_SCALE
+	ModelFit.fit_height(player_mesh, WALL_HEIGHT * PLAYER_HEIGHT_RATIO, PLAYER_MESH_Y)
 	player.add_child(player_mesh)
 	player_rig = DevilRig.new(player_mesh, false)
 
@@ -768,7 +768,7 @@ func _build_devil() -> void:
 
 	devil_mesh = DEVIL_MODEL.instantiate()
 	devil_mesh.name = "DevilMesh"
-	devil_mesh.position = Vector3(0, -DEVIL_Y, 0)
+	ModelFit.fit_height(devil_mesh, WALL_HEIGHT * DEVIL_HEIGHT_RATIO, -DEVIL_Y)
 	devil.add_child(devil_mesh)
 	devil_rig = DevilRig.new(devil_mesh)
 
