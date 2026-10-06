@@ -1,10 +1,12 @@
 class_name KeyPickup
 extends Node3D
-## A key waiting on the floor (it replaces the sigil cube; the rules are the same). The key art is a
-## double-sided sprite that spins, bobs and glows in its world's colour inside a soft halo, with
-## sparkles drifting off it. collect() pops it: a flash, a burst, gone.
+## A key waiting on the floor (it replaces the sigil cube; the rules are the same). The 3D key spins,
+## bobs and glows in its world's colour inside a soft halo, with sparkles drifting off it.
+## collect() pops it: a flash, a burst, gone.
 
+## 2D art, still used by the HUD and minimap.
 const TEXTURE := preload("res://assets/images/key.png")
+const MODEL := preload("res://assets/assets/key.glb")
 ## Key length (metres).
 const LENGTH := 0.95
 const SPIN_SPEED := 2.4
@@ -13,7 +15,7 @@ const BOB_SPEED := 2.2
 const HALO_SIZE := 1.4
 const POP_TIME := 0.2
 
-var _sprite: Sprite3D
+var _key: Node3D
 var _halo: Sprite3D
 var _light: OmniLight3D
 var _time := 0.0
@@ -30,12 +32,9 @@ func build(color: Color, phase: float) -> void:
 	_halo.shaded = false
 	_halo.modulate = Color(color, 0.55)
 	add_child(_halo)
-	_sprite = Sprite3D.new()
-	_sprite.texture = TEXTURE
-	_sprite.pixel_size = LENGTH / TEXTURE.get_height()
-	_sprite.shaded = false
-	_sprite.render_priority = 1
-	add_child(_sprite)
+	_key = Node3D.new()
+	_key.add_child(model(LENGTH, -LENGTH * 0.5))
+	add_child(_key)
 	_light = OmniLight3D.new()
 	_light.light_color = color
 	_light.light_energy = 1.3
@@ -46,7 +45,7 @@ func build(color: Color, phase: float) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
-	_sprite.rotation.y += SPIN_SPEED * delta
+	_key.rotation.y += SPIN_SPEED * delta
 	position.y = _base_y + sin(_time * BOB_SPEED) * BOB
 	_halo.modulate.a = 0.4 + 0.2 * sin(_time * 3.1)
 
@@ -56,13 +55,21 @@ func collect() -> void:
 	set_process(false)
 	add_child(_sparkles(_light.light_color, true))
 	var tween := create_tween().set_parallel()
-	tween.tween_property(_sprite, "scale", Vector3.ONE * 1.8, POP_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(_sprite, "modulate:a", 0.0, POP_TIME).set_ease(Tween.EASE_IN)
+	tween.tween_property(_key, "scale", Vector3.ONE * 1.6, POP_TIME * 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_key, "scale", Vector3.ZERO, POP_TIME * 0.5).set_delay(POP_TIME * 0.5).set_ease(Tween.EASE_IN)
 	tween.tween_property(_halo, "scale", Vector3.ONE * 2.5, POP_TIME)
 	tween.tween_property(_halo, "modulate:a", 0.0, POP_TIME)
 	tween.tween_property(_light, "light_energy", 0.0, POP_TIME * 2.0).from(5.0)
 	tween.chain().tween_interval(0.6)
 	tween.chain().tween_callback(hide)
+
+
+## The key model, `length` m from blade tip to bow, tip at local `tip_y`, face toward +Z.
+static func model(length: float, tip_y: float) -> Node3D:
+	var key: Node3D = MODEL.instantiate()
+	ModelFit.fit_height(key, length, tip_y)
+	key.rotation.y = PI * 0.5
+	return key
 
 
 ## Idle: a few motes drifting up. Burst: one shot of sparks flying out.

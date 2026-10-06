@@ -9,7 +9,9 @@ enum World { WAKE, NIGHTMARE }
 ## Pseudo-world for is_open/distances/next_step: open in either world (reachable with flips).
 const ANY := -1
 const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
-const SIGIL_COUNT := 3
+const SIGIL_COUNT := 2
+## Keys sit in this share of the spawn -> exit route nearest the exit.
+const KEY_ROUTE_SHARE := 0.5
 const MAX_ATTEMPTS := 20
 ## Share of corridor connectors that differ in NIGHTMARE (opened or closed). 0 = same maze in both
 ## worlds (a flip changes mood, sigils and Devil speed only). Was 0.25 when NIGHTMARE rewired the maze.
@@ -153,7 +155,7 @@ func _build(rng: RandomNumberGenerator, rooms: int) -> void:
 		for d in DIRS:
 			_protected[center + d] = true
 	_make_nightmare(rng)
-	_place_sigils(rng)
+	_place_sigils()
 	_place_devil(rng)
 
 
@@ -193,31 +195,39 @@ func _make_nightmare(rng: RandomNumberGenerator) -> void:
 	walls.append(nightmare)
 
 
-## Sigil 0 in WAKE, 1 in NIGHTMARE, 2 either. NIGHTMARE sigils prefer corridors that only exist
-## there. Spread by farthest-point sampling on path distance (flips allowed).
-func _place_sigils(rng: RandomNumberGenerator) -> void:
+## Key 0 in WAKE, key 1 in NIGHTMARE. Keys sit on the spawn -> exit route (never down a dead-end
+## branch, so the Devil can't corner you at one), in the KEY_ROUTE_SHARE nearest the exit.
+## Spread by farthest-point sampling on path distance (flips allowed).
+func _place_sigils() -> void:
 	sigils.clear()
 	sigil_worlds.clear()
-	var taken: Array[Vector2i] = [spawn, exit]
+	var path := route(spawn, exit)
+	var on_route: Array[Vector2i] = []
+	for i in range(floori(path.size() * (1.0 - KEY_ROUTE_SHARE)), path.size()):
+		var cell := path[i]
+		if cell.x % 2 == 1 and cell.y % 2 == 1 and not _protected.has(cell):
+			on_route.append(cell)
 	var nearest := PackedInt32Array()
 	nearest.resize(size * size)
 	nearest.fill(1 << 30)
 	_update_nearest(nearest, spawn)
 	_update_nearest(nearest, exit)
 	for i in SIGIL_COUNT:
-		var world: int = [World.WAKE, World.NIGHTMARE, rng.randi_range(0, 1)][i]
+		var world := World.WAKE if i % 2 == 0 else World.NIGHTMARE
 		var candidates: Array[Vector2i] = []
-		if world == World.NIGHTMARE:
-			candidates = _nightmare_only_cells(taken)
+		for cell in on_route:
+			if not sigils.has(cell):
+				candidates.append(cell)
 		if candidates.is_empty():
-			candidates = _room_cells(taken)
+			var taken: Array[Vector2i] = [spawn, exit]
+			taken.append_array(sigils)
+			candidates = _room_cells(taken)  # ponytail: tiny-maze fallback, may be a dead end
 		var pick := candidates[0]
 		for cell in candidates:
 			if nearest[_idx(cell)] > nearest[_idx(pick)]:
 				pick = cell
 		sigils.append(pick)
 		sigil_worlds.append(world)
-		taken.append(pick)
 		_update_nearest(nearest, pick)
 
 
@@ -238,16 +248,6 @@ func _room_cells(excluded: Array[Vector2i]) -> Array[Vector2i]:
 		for x in range(1, size, 2):
 			var cell := Vector2i(x, y)
 			if not _protected.has(cell) and not excluded.has(cell):
-				cells.append(cell)
-	return cells
-
-
-func _nightmare_only_cells(excluded: Array[Vector2i]) -> Array[Vector2i]:
-	var cells: Array[Vector2i] = []
-	for y in range(1, size - 1):
-		for x in range(1, size - 1):
-			var cell := Vector2i(x, y)
-			if is_open(World.NIGHTMARE, cell) and not is_open(World.WAKE, cell) and not excluded.has(cell):
 				cells.append(cell)
 	return cells
 

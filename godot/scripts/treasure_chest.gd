@@ -11,7 +11,8 @@ const WIDTH := 1.05
 const DEPTH := 0.66
 const BASE_HEIGHT := 0.52
 const LID_HEIGHT := 0.24
-const LOCK_X: Array[float] = [-0.32, 0.0, 0.32]
+## One lock per key (FloorLayout.SIGIL_COUNT).
+const LOCK_X: Array[float] = [-0.2, 0.2]
 const LOCK_Y := 0.3
 ## Key in hand: length (metres). In the lock it hangs blade-down from the keyhole, then turns.
 const KEY_LENGTH := 0.28
@@ -97,13 +98,10 @@ func unlock(camera: Camera3D) -> void:
 		var key := Node3D.new()
 		key.visible = false
 		add_child(key)
-		var art := Sprite3D.new()
-		art.texture = KeyPickup.TEXTURE
-		art.pixel_size = KEY_LENGTH / KeyPickup.TEXTURE.get_height()
-		art.shaded = false
-		art.position.y = KEY_LENGTH * 0.45
+		var art := Node3D.new()
+		art.add_child(KeyPickup.model(KEY_LENGTH, -KEY_LENGTH * 0.05))
 		key.add_child(art)
-		var side := camera.global_transform.basis.x * (i - 1) * 0.22
+		var side := camera.global_transform.basis.x * (i - (LOCK_X.size() - 1) * 0.5) * 0.22
 		var start := camera.global_position - camera.global_transform.basis.z * 0.7 - camera.global_transform.basis.y * 0.18 + side
 		var hole := Vector3(LOCK_X[i], LOCK_Y - 0.03, DEPTH * 0.5 + 0.04)
 		var front := hole + Vector3(0, 0.05, 0.4)
@@ -120,7 +118,7 @@ func unlock(camera: Camera3D) -> void:
 		# Into the keyhole, square to the lock, then a quarter turn seen head-on.
 		tween.tween_property(art, "rotation:y", 0.0, 0.08)
 		tween.tween_property(key, "position", hole, 0.12).set_ease(Tween.EASE_IN)
-		tween.tween_property(key, "rotation:z", -PI * 0.5 if i < 2 else PI * 0.5, TURN_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_property(key, "rotation:z", -PI * 0.5 if LOCK_X[i] <= 0.0 else PI * 0.5, TURN_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		tween.tween_callback(_turned.bind(i))
 		tween.tween_interval(0.08)
 	# Shudder, then the lid bursts open on a flood of gold.

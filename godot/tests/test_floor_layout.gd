@@ -35,6 +35,19 @@ func test_1000_seeds_valid_and_fast() -> void:
 	assert_true(total_ms / 1000.0 < 50.0, "average %.1f ms (worst %.1f ms) over 50 ms budget" % [total_ms / 1000.0, worst_ms])
 
 
+## Fair keys: 2 of them, on the spawn -> exit route (no dead-end branch), in the half nearest the exit.
+func test_keys_on_route_near_exit() -> void:
+	for rooms in [ROOMS, StageRule.ROOMS_3D.x, StageRule.ROOMS_3D.y]:
+		for seed_value in 100:
+			var layout := FloorLayout.generate(seed_value, rooms)
+			var path := layout.route(layout.spawn, layout.exit)
+			assert_eq(layout.sigils.size(), 2)
+			for key in layout.sigils:
+				var at := path.find(key)
+				assert_true(at >= 0, "rooms %d seed %d: key %s off the exit route" % [rooms, seed_value, key])
+				assert_true(at >= path.size() * (1.0 - FloorLayout.KEY_ROUTE_SHARE) - 1.0, "rooms %d seed %d: key %s far from exit" % [rooms, seed_value, key])
+
+
 ## A flip never moves walls: WAKE and NIGHTMARE are the same maze.
 func test_nightmare_keeps_the_same_maze() -> void:
 	for seed_value in 50:

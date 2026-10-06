@@ -31,7 +31,7 @@ func test_flip_swaps_collision_and_visuals() -> void:
 	assert_true(main.devil.visible)
 
 
-func test_three_sigils_open_exit_then_win() -> void:
+func test_all_keys_open_exit_then_win() -> void:
 	var main := _spawn_floor()
 	for i in main.layout.sigils.size():
 		main._apply_world(main.layout.sigil_worlds[i])
@@ -47,12 +47,18 @@ func test_three_sigils_open_exit_then_win() -> void:
 	assert_eq(main.game_state, "won")
 
 
-func test_wrong_world_sigil_is_not_collected() -> void:
+func test_keys_collect_and_show_in_either_world() -> void:
 	var main := _spawn_floor()
+	main._apply_world(NIGHTMARE)
+	for i in main.layout.sigils.size():
+		assert_true(main.sigil_nodes[i].visible, "key %d visible in NIGHTMARE" % i)
+		for w in [WAKE, NIGHTMARE]:
+			assert_true(main.layout.is_open(w, main.layout.sigils[i]), "key %d cell open in world %d" % [i, w])
 	var nightmare_sigil: int = main.layout.sigil_worlds.find(NIGHTMARE)
+	main._apply_world(WAKE)
 	main.player_cell = main.layout.sigils[nightmare_sigil]
 	main._collect_sigils()
-	assert_eq(main.sigils_collected, 0)
+	assert_eq(main.sigils_collected, 1, "a NIGHTMARE-coloured key is collectible in WAKE")
 
 
 func _run(main: Node3D, seconds: float) -> void:

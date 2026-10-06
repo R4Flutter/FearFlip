@@ -4,7 +4,8 @@
       "Bash(flutter analyze *)",
       "Bash(/mnt/c/flutter/src/bin/dart analyze *)",
       "Bash(/mnt/c/flutter/src/bin/dart *)",
-      "Bash(flutter build *)"
+      "Bash(flutter build *)",
+      "PowerShell(git clone https://github.com/ruvnet/ruflo.git \"$env:USERPROFILE\\\\.claude\\\\skills\\\\ruflo\")"
     ]
   }
 }

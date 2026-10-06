@@ -11,11 +11,16 @@ const VIEW_CONE_CELLS := 3.0
 ## Wall line thickness relative to a corridor, for the classic thin-wall maze look.
 const WALL_RATIO := 0.28
 const NIGHTMARE := FloorLayout.World.NIGHTMARE
-const SIGIL_COLORS: Array[Color] = [Color(0.0, 0.5, 0.7), Color(0.9, 0.3, 0.0)]
-const WALL_COLOR := Color(0.97, 0.97, 0.95)
-const PATH_COLORS: Array[Color] = [Color(0.69, 0.81, 1.0), Color(1.0, 0.53, 0.68)]
-const PLAYER_COLOR := Color(0.05, 0.2, 0.75)
+const PLAYER_COLOR := Color(0.92, 0.95, 1.0)
+const KEY_ICON := preload("res://assets/images/key.png")
+## Key icon size (px) on the map.
+const KEY_SIZE := 24.0
 
+## The game's per-world palette, handed down by main.gd so the map matches the 3D look:
+## glowing wall lines on fog-dark corridors, keys in their world's colour.
+var fog_colors: Array[Color]
+var glow_colors: Array[Color]
+var sigil_colors: Array[Color]
 var layout: FloorLayout
 var world := 0
 var player_pos := Vector2.ZERO
@@ -61,23 +66,20 @@ func _draw() -> void:
 	_wall = _room * WALL_RATIO
 	# Marker scale (corridor-relative).
 	var cell := _room * 0.6
-	var accent := PATH_COLORS[world]
-	draw_style_box(_panel(accent), Rect2(0, 0, side, side))
-	# Classic line maze: white wall strokes (even grid lines are thin), pastel corridors.
-	draw_rect(Rect2(PAD, PAD, map_side, map_side), WALL_COLOR)
+	var glow := glow_colors[world].lightened(0.25)
+	draw_style_box(_panel(glow), Rect2(0, 0, side, side))
+	# Line maze: glowing wall strokes (even grid lines are thin) over fog-dark corridors.
+	draw_rect(Rect2(PAD, PAD, map_side, map_side), glow)
 	for y in layout.size:
 		for x in layout.size:
 			if layout.is_open(world, Vector2i(x, y)):
-				draw_rect(Rect2(_axis(x), _axis(y), _span(x) + 0.5, _span(y) + 0.5), PATH_COLORS[world])
+				draw_rect(Rect2(_axis(x), _axis(y), _span(x) + 0.5, _span(y) + 0.5), fog_colors[world])
 
 	_draw_exit(_to_map(Vector2(layout.exit), cell), cell)
 	for i in layout.sigils.size():
 		if i < sigil_collected.size() and sigil_collected[i]:
 			continue
-		var color := SIGIL_COLORS[layout.sigil_worlds[i]]
-		if layout.sigil_worlds[i] != world:
-			color.a = 0.35
-		_draw_diamond(_to_map(Vector2(layout.sigils[i]), cell), cell * 0.32, color)
+		_draw_key(_to_map(Vector2(layout.sigils[i]), cell), KEY_SIZE, sigil_colors[layout.sigil_worlds[i]])
 	if circles != null:
 		for i in circles.cells.size():
 			var fill := circles.charge[i] / circles.capacity
@@ -127,12 +129,12 @@ func _draw_player(at: Vector2, cell: float) -> void:
 	draw_colored_polygon(cone, Color(PLAYER_COLOR, 0.25))
 	var r := maxf(cell * 0.55, 6.0)
 	draw_circle(at, r * 1.25, PLAYER_COLOR)
-	draw_arc(at, r * 1.25, 0.0, TAU, 24, Color.WHITE, 1.5, true)
+	draw_arc(at, r * 1.25, 0.0, TAU, 24, glow_colors[world].lightened(0.4), 1.5, true)
 	var tip := at + Vector2.from_angle(facing) * r * 1.4
 	var left := at + Vector2.from_angle(facing + 2.5) * r
 	var right := at + Vector2.from_angle(facing - 2.5) * r
 	var back := at + Vector2.from_angle(facing + PI) * r * 0.45
-	draw_colored_polygon(PackedVector2Array([tip, left, back, right]), Color.WHITE)
+	draw_colored_polygon(PackedVector2Array([tip, left, back, right]), fog_colors[world])
 
 
 ## Pulses faster as it closes in.
@@ -151,15 +153,17 @@ func _draw_devil(at: Vector2, cell: float) -> void:
 
 func _draw_exit(at: Vector2, cell: float) -> void:
 	var half := maxf(cell * 0.42, 5.0)
-	var color := Color(0.0, 0.6, 0.25) if exit_open else Color(0.45, 0.1, 0.2)
+	var color := Color(0.3, 1.0, 0.55) if exit_open else Color(0.85, 0.55, 0.6)
 	draw_rect(Rect2(at - Vector2(half, half), Vector2(half, half) * 2.0), Color(color, 0.45))
 	draw_rect(Rect2(at - Vector2(half, half), Vector2(half, half) * 2.0), color, false, 1.5)
 	draw_string(ThemeDB.fallback_font, at + Vector2(-12, -half - 3), "EXIT", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, color)
 
 
-func _draw_diamond(at: Vector2, r: float, color: Color) -> void:
-	r = maxf(r, 4.0)
-	draw_colored_polygon(PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, 0), at + Vector2(0, r), at + Vector2(-r, 0)]), color)
+## The key icon tinted its world's colour, on a dark drop shadow so it reads on the glow lines.
+func _draw_key(at: Vector2, icon: float, color: Color) -> void:
+	var rect := Rect2(at - Vector2(icon, icon) * 0.5, Vector2(icon, icon))
+	draw_texture_rect(KEY_ICON, Rect2(rect.position + Vector2(1, 1), rect.size), false, Color(0, 0, 0, 0.8))
+	draw_texture_rect(KEY_ICON, rect, false, color.lightened(0.3))
 
 
 func _draw_readout(font: Font, side: float) -> void:
@@ -188,8 +192,8 @@ func _draw_readout(font: Font, side: float) -> void:
 	draw_circle(Vector2(x + 4, y - 4), 4.5, Color(1.0, 0.15, 0.12))
 	draw_string(font, Vector2(x + 12, y), "DEVIL", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))
 	x += 58.0
-	_draw_diamond(Vector2(x + 4, y - 4), 4.5, SIGIL_COLORS[0])
-	draw_string(font, Vector2(x + 12, y), "SIGIL", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))
+	_draw_key(Vector2(x + 4, y - 4), 12.0, sigil_colors[world])
+	draw_string(font, Vector2(x + 12, y), "KEY", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))
 	x += 56.0
 	draw_rect(Rect2(x, y - 8, 8, 8), exit_color, false, 1.5)
 	draw_string(font, Vector2(x + 12, y), "EXIT", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))
@@ -197,7 +201,7 @@ func _draw_readout(font: Font, side: float) -> void:
 
 func _panel(accent: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.0, 0.0, 0.0, 0.88)
+	style.bg_color = Color(fog_colors[world].darkened(0.5), 0.9)
 	style.border_color = Color(accent, 0.7)
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(4)

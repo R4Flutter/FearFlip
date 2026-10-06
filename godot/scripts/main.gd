@@ -480,7 +480,7 @@ func _apply_world(new_world: int) -> void:
 		light.light_color = GLOW_COLORS[world]
 	devil.visible = devil_active
 	for i in sigil_nodes.size():
-		sigil_nodes[i].visible = not sigil_collected[i] and layout.sigil_worlds[i] == world
+		sigil_nodes[i].visible = not sigil_collected[i]
 	var tween := create_tween().set_parallel()
 	tween.tween_property(calm_player, "volume_db", -60.0 if nightmare else MUSIC_DB, 0.6)
 	tween.tween_property(intense_player, "volume_db", MUSIC_DB if nightmare else -60.0, 0.6)
@@ -529,7 +529,7 @@ func _move_devil_into_world() -> void:
 
 func _collect_sigils() -> void:
 	for i in layout.sigils.size():
-		if sigil_collected[i] or layout.sigil_worlds[i] != world or layout.sigils[i] != player_cell:
+		if sigil_collected[i] or layout.sigils[i] != player_cell:
 			continue
 		sigil_collected[i] = true
 		(sigil_nodes[i] as KeyPickup).collect()
@@ -1221,6 +1221,9 @@ func _build_hud() -> void:
 	minimap = preload("res://scripts/minimap.gd").new()
 	minimap.name = "Minimap"
 	minimap.layout = layout
+	minimap.fog_colors = FOG_COLORS
+	minimap.glow_colors = GLOW_COLORS
+	minimap.sigil_colors = SIGIL_COLORS
 	minimap.sigil_collected = sigil_collected
 	minimap.circles = circles
 	minimap.traps = traps
