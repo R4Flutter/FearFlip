@@ -35,23 +35,14 @@ func test_1000_seeds_valid_and_fast() -> void:
 	assert_true(total_ms / 1000.0 < 50.0, "average %.1f ms (worst %.1f ms) over 50 ms budget" % [total_ms / 1000.0, worst_ms])
 
 
-func test_nightmare_changes_target_share_of_connectors() -> void:
-	var changed := 0
-	var connectors := 0
+## A flip never moves walls: WAKE and NIGHTMARE are the same maze.
+func test_nightmare_keeps_the_same_maze() -> void:
 	for seed_value in 50:
 		var layout := FloorLayout.generate(seed_value, ROOMS)
-		for y in range(1, layout.size - 1):
-			for x in range(1, layout.size - 1):
-				if x % 2 == y % 2:
-					continue
-				connectors += 1
-				if layout.is_open(WAKE, Vector2i(x, y)) != layout.is_open(NIGHTMARE, Vector2i(x, y)):
-					changed += 1
-	var share := float(changed) / connectors
-	assert_true(share > 0.15 and share < 0.35, "nightmare changed %.2f of connectors" % share)
+		assert_eq(layout.walls[NIGHTMARE], layout.walls[WAKE], "seed %d" % seed_value)
 
 
-func test_braiding_adds_loops() -> void:
+func test_wake_is_a_perfect_maze_like_2d() -> void:
 	var layout := FloorLayout.generate(7, ROOMS)
 	var open := 0
 	for y in layout.size:
@@ -59,7 +50,7 @@ func test_braiding_adds_loops() -> void:
 			if layout.is_open(WAKE, Vector2i(x, y)):
 				open += 1
 	# A perfect maze has exactly rooms^2 room cells + (rooms^2 - 1) connectors.
-	assert_gt(open, ROOMS * ROOMS * 2 - 1)
+	assert_eq(open, ROOMS * ROOMS * 2 - 1)
 
 
 func test_spawn_and_exit_identical_in_both_worlds() -> void:

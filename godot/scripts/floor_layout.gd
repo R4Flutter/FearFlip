@@ -6,13 +6,14 @@ extends RefCounted
 
 enum World { WAKE, NIGHTMARE }
 
+## Pseudo-world for is_open/distances/next_step: open in either world (reachable with flips).
+const ANY := -1
 const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 const SIGIL_COUNT := 3
 const MAX_ATTEMPTS := 20
-## Share of dead ends that get a loop knocked through (escape routes in a chase). Target.
-const BRAID_CHANCE := 0.3
-## Share of corridor connectors that differ in NIGHTMARE (opened or closed). Target 20-35%.
-const NIGHTMARE_CHANGE := 0.25
+## Share of corridor connectors that differ in NIGHTMARE (opened or closed). 0 = same maze in both
+## worlds (a flip changes mood, sigils and Devil speed only). Was 0.25 when NIGHTMARE rewired the maze.
+const NIGHTMARE_CHANGE := 0.0
 ## Devil spawn, in NIGHTMARE path cells from the player spawn.
 const MIN_DEVIL_DISTANCE := 10
 
@@ -44,7 +45,29 @@ static func generate(seed_value: int, rooms: int) -> FloorLayout:
 
 
 func is_open(world: int, cell: Vector2i) -> bool:
-	return cell.x >= 0 and cell.y >= 0 and cell.x < size and cell.y < size and walls[world][_idx(cell)] == 0
+	if cell.x < 0 or cell.y < 0 or cell.x >= size or cell.y >= size:
+		return false
+	if world == ANY:
+		return walls[0][_idx(cell)] == 0 or walls[1][_idx(cell)] == 0
+	return walls[world][_idx(cell)] == 0
+
+
+## Shortest path from -> to (both included) over cells open in either world. Empty if none.
+func route(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+	var dist := distances(ANY, to)
+	var path: Array[Vector2i] = []
+	if dist[_idx(from)] < 0:
+		return path
+	var cell := from
+	path.append(cell)
+	while cell != to:
+		for d in DIRS:
+			var next: Vector2i = cell + d
+			if is_open(ANY, next) and dist[_idx(next)] == dist[_idx(cell)] - 1:
+				cell = next
+				break
+		path.append(cell)
+	return path
 
 
 ## BFS path distance inside one world. -1 = unreachable.
@@ -122,7 +145,6 @@ func _build(rng: RandomNumberGenerator, rooms: int) -> void:
 	wake.fill(1)
 	walls = [wake]
 	_carve(rng)
-	_braid(rng)
 	var from_spawn := distances(World.WAKE, spawn)
 	exit = _farthest(from_spawn)
 	_protected.clear()
@@ -135,7 +157,8 @@ func _build(rng: RandomNumberGenerator, rooms: int) -> void:
 	_place_devil(rng)
 
 
-## Iterative recursive backtracker on room cells (odd, odd): long winding corridors.
+## The 2D game's MazeGenerator (lib/presentation/gameplay/maze_generator.dart): recursive
+## backtracker from the spawn room, one route only (a perfect maze). Exit = farthest room.
 func _carve(rng: RandomNumberGenerator) -> void:
 	var grid := walls[World.WAKE]
 	grid[_idx(spawn)] = 0
@@ -154,30 +177,6 @@ func _carve(rng: RandomNumberGenerator) -> void:
 		grid[_idx(cell + (pick - cell) / 2)] = 0
 		grid[_idx(pick)] = 0
 		stack.append(pick)
-
-
-## Knock a wall out of some dead ends so a chase has loops to use.
-func _braid(rng: RandomNumberGenerator) -> void:
-	var grid := walls[World.WAKE]
-	for y in range(1, size, 2):
-		for x in range(1, size, 2):
-			var cell := Vector2i(x, y)
-			if cell == spawn or _open_neighbors(grid, cell) != 1 or rng.randf() >= BRAID_CHANCE:
-				continue
-			var knockable: Array[Vector2i] = []
-			for d in DIRS:
-				if grid[_idx(cell + d)] == 1 and _interior(cell + d * 2):
-					knockable.append(cell + d)
-			if not knockable.is_empty():
-				grid[_idx(knockable[rng.randi_range(0, knockable.size() - 1)])] = 0
-
-
-func _open_neighbors(grid: PackedByteArray, cell: Vector2i) -> int:
-	var count := 0
-	for d in DIRS:
-		if grid[_idx(cell + d)] == 0:
-			count += 1
-	return count
 
 
 ## Copy WAKE, then toggle a share of the corridor connectors (one odd + one even coordinate).

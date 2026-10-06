@@ -8,8 +8,13 @@ const PAD := 10.0
 const READOUT_HEIGHT := 46.0
 const VIEW_CONE_DEGREES := 70.0
 const VIEW_CONE_CELLS := 3.0
+## Wall line thickness relative to a corridor, for the classic thin-wall maze look.
+const WALL_RATIO := 0.28
 const NIGHTMARE := FloorLayout.World.NIGHTMARE
-const SIGIL_COLORS: Array[Color] = [Color(0.55, 0.9, 1.0), Color(1.0, 0.35, 0.1)]
+const SIGIL_COLORS: Array[Color] = [Color(0.0, 0.5, 0.7), Color(0.9, 0.3, 0.0)]
+const WALL_COLOR := Color(0.97, 0.97, 0.95)
+const PATH_COLORS: Array[Color] = [Color(0.69, 0.81, 1.0), Color(1.0, 0.53, 0.68)]
+const PLAYER_COLOR := Color(0.05, 0.2, 0.75)
 
 var layout: FloorLayout
 var world := 0
@@ -17,13 +22,20 @@ var player_pos := Vector2.ZERO
 ## Map angle of the player's facing (0 = east, clockwise because map y points down).
 var facing := 0.0
 var devil_pos := Vector2.ZERO
-## Path distance in metres (-1 = no path in NIGHTMARE).
+## Path distance in metres, in the current world (-1 = no path).
 var devil_distance := -1.0
 ## Path distance to the exit in metres, in the current world (-1 = no path here).
 var exit_distance := -1.0
 var sigil_collected: Array[bool] = []
 var exit_open := false
+## False until the Devil wakes on this floor (plans/05 §3.4 spawn gating).
+var devil_awake := false
+var circles: SafeCircles
+var traps: TrapField
 var _time := 0.0
+## Corridor and wall widths in pixels for the current layout (set each draw).
+var _room := 0.0
+var _wall := 0.0
 
 
 func _ready() -> void:
@@ -43,23 +55,20 @@ func _draw() -> void:
 		return
 	var side := MAP_SIZE
 	var map_side := side - PAD * 2.0
-	var cell := map_side / layout.size
-	var nightmare := world == NIGHTMARE
-	var accent := Color(1.0, 0.35, 0.3) if nightmare else Color(0.35, 0.8, 1.0)
+	@warning_ignore("integer_division")
+	var rooms := (layout.size - 1) / 2
+	_room = map_side / (rooms + (rooms + 1) * WALL_RATIO)
+	_wall = _room * WALL_RATIO
+	# Marker scale (corridor-relative).
+	var cell := _room * 0.6
+	var accent := PATH_COLORS[world]
 	draw_style_box(_panel(accent), Rect2(0, 0, side, side))
-	# Walls dark, corridors lit: the paths you can walk are what stands out.
-	var wall_color := Color(0.05, 0.01, 0.015, 0.9) if nightmare else Color(0.02, 0.035, 0.05, 0.9)
-	var path_color := Color(0.3, 0.09, 0.1) if nightmare else Color(0.17, 0.24, 0.31)
-	draw_rect(Rect2(PAD, PAD, map_side, map_side), wall_color)
+	# Classic line maze: white wall strokes (even grid lines are thin), pastel corridors.
+	draw_rect(Rect2(PAD, PAD, map_side, map_side), WALL_COLOR)
 	for y in layout.size:
 		for x in layout.size:
 			if layout.is_open(world, Vector2i(x, y)):
-				draw_rect(Rect2(PAD + x * cell, PAD + y * cell, cell + 0.5, cell + 0.5), path_color)
-	# Faint grid like a real map.
-	var grid_color := Color(1, 1, 1, 0.04)
-	for i in range(0, layout.size + 1, 2):
-		draw_line(Vector2(PAD + i * cell, PAD), Vector2(PAD + i * cell, PAD + map_side), grid_color)
-		draw_line(Vector2(PAD, PAD + i * cell), Vector2(PAD + map_side, PAD + i * cell), grid_color)
+				draw_rect(Rect2(_axis(x), _axis(y), _span(x) + 0.5, _span(y) + 0.5), PATH_COLORS[world])
 
 	_draw_exit(_to_map(Vector2(layout.exit), cell), cell)
 	for i in layout.sigils.size():
@@ -69,16 +78,44 @@ func _draw() -> void:
 		if layout.sigil_worlds[i] != world:
 			color.a = 0.35
 		_draw_diamond(_to_map(Vector2(layout.sigils[i]), cell), cell * 0.32, color)
-	_draw_devil(_to_map(devil_pos, cell), cell, nightmare)
+	if circles != null:
+		for i in circles.cells.size():
+			var fill := circles.charge[i] / circles.capacity
+			draw_arc(_to_map(Vector2(circles.cells[i]), cell), maxf(cell * 0.45, 5.0), 0.0, TAU, 20, Color(0.1, 0.35, 0.9, 0.25 + 0.75 * fill), 2.0, true)
+	if traps != null:
+		for i in traps.cells.size():
+			if traps.states[i] != TrapField.State.HIDDEN:
+				var at := _to_map(Vector2(traps.cells[i]), cell)
+				var r := maxf(cell * 0.35, 4.0)
+				draw_line(at - Vector2(r, r), at + Vector2(r, r), Color(1.0, 0.55, 0.15), 2.0)
+				draw_line(at + Vector2(-r, r), at + Vector2(r, -r), Color(1.0, 0.55, 0.15), 2.0)
+	if devil_awake:
+		_draw_devil(_to_map(devil_pos, cell), cell)
 	_draw_player(_to_map(player_pos, cell), cell)
 
 	var font := ThemeDB.fallback_font
-	draw_string(font, Vector2(side * 0.5 - 5, PAD + 13), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, 0.8))
-	_draw_readout(font, side, nightmare)
+	draw_string(font, Vector2(side * 0.5 - 4, PAD - 1), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1, 1, 1, 0.8))
+	_draw_readout(font, side)
 
 
-func _to_map(grid: Vector2, cell: float) -> Vector2:
-	return Vector2(PAD, PAD) + (grid + Vector2(0.5, 0.5)) * cell
+## Grid cell centre (float, for smooth markers) -> map pixels on the thin-wall layout.
+func _to_map(grid: Vector2, _cell: float) -> Vector2:
+	return Vector2(_lerp_axis(grid.x + 0.5), _lerp_axis(grid.y + 0.5))
+
+
+## Pixel start of grid line i: even lines are thin walls, odd lines are corridors.
+func _axis(i: int) -> float:
+	@warning_ignore("integer_division")
+	return PAD + (i / 2) * (_room + _wall) + (_wall if i % 2 == 1 else 0.0)
+
+
+func _span(i: int) -> float:
+	return _room if i % 2 == 1 else _wall
+
+
+func _lerp_axis(u: float) -> float:
+	var i := clampi(floori(u), 0, layout.size - 1)
+	return _axis(i) + (u - i) * _span(i)
 
 
 func _draw_player(at: Vector2, cell: float) -> void:
@@ -87,9 +124,9 @@ func _draw_player(at: Vector2, cell: float) -> void:
 	for step in 9:
 		var angle := facing - half + half * 2.0 * step / 8.0
 		cone.append(at + Vector2.from_angle(angle) * cell * VIEW_CONE_CELLS)
-	draw_colored_polygon(cone, Color(1.0, 0.95, 0.7, 0.18))
+	draw_colored_polygon(cone, Color(PLAYER_COLOR, 0.25))
 	var r := maxf(cell * 0.55, 6.0)
-	draw_circle(at, r * 1.25, Color(0.2, 0.6, 1.0, 0.9))
+	draw_circle(at, r * 1.25, PLAYER_COLOR)
 	draw_arc(at, r * 1.25, 0.0, TAU, 24, Color.WHITE, 1.5, true)
 	var tip := at + Vector2.from_angle(facing) * r * 1.4
 	var left := at + Vector2.from_angle(facing + 2.5) * r
@@ -98,13 +135,10 @@ func _draw_player(at: Vector2, cell: float) -> void:
 	draw_colored_polygon(PackedVector2Array([tip, left, back, right]), Color.WHITE)
 
 
-## Pulses faster as it closes in; hollow and dim while it is in the other world.
-func _draw_devil(at: Vector2, cell: float, same_world: bool) -> void:
+## Pulses faster as it closes in.
+func _draw_devil(at: Vector2, cell: float) -> void:
 	var r := maxf(cell * 0.5, 5.5)
-	var red := Color(1.0, 0.15, 0.12)
-	if not same_world:
-		draw_arc(at, r, 0.0, TAU, 20, Color(red, 0.45), 1.5, true)
-		return
+	var red := Color(0.8, 0.0, 0.05)
 	var urgency := 1.0 if devil_distance < 0.0 else clampf(1.0 - devil_distance / 30.0, 0.15, 1.0)
 	var pulse := fmod(_time * (1.0 + urgency * 3.0), 1.0)
 	draw_circle(at, r * (1.0 + pulse * 2.2), Color(red, 0.45 * (1.0 - pulse)))
@@ -117,8 +151,8 @@ func _draw_devil(at: Vector2, cell: float, same_world: bool) -> void:
 
 func _draw_exit(at: Vector2, cell: float) -> void:
 	var half := maxf(cell * 0.42, 5.0)
-	var color := Color(0.2, 1.0, 0.5) if exit_open else Color(0.75, 0.25, 0.3)
-	draw_rect(Rect2(at - Vector2(half, half), Vector2(half, half) * 2.0), Color(color, 0.35))
+	var color := Color(0.0, 0.6, 0.25) if exit_open else Color(0.45, 0.1, 0.2)
+	draw_rect(Rect2(at - Vector2(half, half), Vector2(half, half) * 2.0), Color(color, 0.45))
 	draw_rect(Rect2(at - Vector2(half, half), Vector2(half, half) * 2.0), color, false, 1.5)
 	draw_string(ThemeDB.fallback_font, at + Vector2(-12, -half - 3), "EXIT", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, color)
 
@@ -128,12 +162,11 @@ func _draw_diamond(at: Vector2, r: float, color: Color) -> void:
 	draw_colored_polygon(PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, 0), at + Vector2(0, r), at + Vector2(-r, 0)]), color)
 
 
-func _draw_readout(font: Font, side: float, same_world: bool) -> void:
+func _draw_readout(font: Font, side: float) -> void:
 	var text := "DEVIL  --"
 	var color := Color(0.7, 0.75, 0.8, 0.85)
-	if not same_world:
-		text = "DEVIL IN NIGHTMARE"
-		color = Color(0.85, 0.5, 0.5, 0.8)
+	if not devil_awake:
+		text = "DEVIL  ASLEEP"
 	elif devil_distance >= 0.0:
 		text = "DEVIL  %d m" % roundi(devil_distance)
 		if devil_distance <= 10.0:
@@ -149,7 +182,7 @@ func _draw_readout(font: Font, side: float, same_world: bool) -> void:
 	# Legend.
 	var y := side + 36.0
 	var x := 10.0
-	draw_circle(Vector2(x + 4, y - 4), 4.5, Color(0.2, 0.6, 1.0))
+	draw_circle(Vector2(x + 4, y - 4), 4.5, PLAYER_COLOR.lightened(0.3))
 	draw_string(font, Vector2(x + 12, y), "YOU", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))
 	x += 50.0
 	draw_circle(Vector2(x + 4, y - 4), 4.5, Color(1.0, 0.15, 0.12))

@@ -1,7 +1,8 @@
 extends Node3D
-## One FearFlip floor (FEARFLIP_3D_GAME_APPROACH.md §4-§8): a seeded maze that exists in WAKE and
-## NIGHTMARE (FloorLayout), World Flip + Flipping Time (FlipSystem), 3 sigils open the exit,
-## and the Devil hunts in NIGHTMARE only. Grid is truth; 3D is the projection.
+## One FearFlip floor of the Descent: a seeded maze that exists in WAKE and NIGHTMARE (FloorLayout),
+## World Flip + Flipping Time (FlipSystem, inverts controls), 3 sigils open the exit, and the Devil
+## (DevilBrain) hunts in both worlds (slower in WAKE). plans/05 adds the floor curve + clock (StageRule, RunState),
+## safe circles, cracked floors and the death screen. Grid is truth; 3D is the projection.
 
 const CELL_SIZE := 2.4
 const WALL_HEIGHT := 2.8
@@ -16,18 +17,49 @@ const DEVIL_Y := 0.75
 const PLAYER_MESH_Y := -1.6
 const PLAYER_HEIGHT_RATIO := 0.6
 const DEVIL_HEIGHT_RATIO := 0.9
-## Depth-1 chase speed (§5). Walking (3.0 m/s) can't outrun it; sprinting, loops and flipping can.
-const DEVIL_CHASE_SPEED := 3.6
 const DEVIL_ENRAGE_MULTIPLIER := 1.2
 const DEVIL_ENRAGE_DURATION := 20.0
 ## A forced flip never drops you closer than this (path cells) to the Devil; it is moved first.
 const FAIR_FLIP_DISTANCE := 4
 const DEVIL_RETREAT_DISTANCE := 8
-## No grab for this long after entering NIGHTMARE: no instant catches.
+## No grab for this long after a flip: no instant catches.
 const FLIP_CATCH_GRACE := 0.6
 ## How fast the Devil turns to face where it runs (higher = snappier).
 const DEVIL_TURN_SPEED := 10.0
 const FLIP_ROLL_TIME := 0.35
+## A cell change only counts once you're this far (m) past the tile edge: grazing a corner is no step.
+const STEP_HYSTERESIS := 0.3
+## A catch is a visible lunge: it starts on a cell catch and only kills if it ends this close (m).
+const LUNGE_TIME := 0.35
+const LUNGE_RANGE := 1.3
+const LUNGE_SPEED := 7.0
+const LUNGE_MISS_STUN := 0.6
+## The Devil wakes this long after its telegraph (a distant slam).
+const SPAWN_TELEGRAPH := 1.5
+## Path tiles it backs off to while you stand in a safe circle.
+const CIRCLE_RETREAT_DISTANCE := 10
+const REVIVE_GRACE := 3.0
+const REVIVE_MIN_TIME := 30.0
+const PANIC_TIME := 10.0
+const FLOOR_CLEAR_TIME := 1.4
+## Trap fall: a jolt, a beat of "oh no", then down the shaft (seconds / metres).
+const FALL_BEAT := 0.2
+const FALL_TIME := 1.4
+const FALL_DEPTH := 7.0
+## The camera lets go of you and stays at the rim: this far back toward where you came from, this high.
+const FALL_CAM_BACK := 1.25
+const FALL_CAM_HEIGHT := 2.7
+const FALL_CAM_MOVE := 0.45
+## Falling body: turns back toward the camera and tips over backwards (radians).
+const FALL_TIP := 1.1
+const FALL_FOV_ZOOM := -16.0
+const FALL_END := 2.3
+## Held camera roll while controls are inverted: a constant "something is wrong" cue.
+const INVERT_TILT_DEGREES := 6.0
+## Keys float this high (m). At the chest you stop this far from it (m) to watch it open.
+const KEY_HEIGHT := 1.2
+const CHEST_VIEW_DISTANCE := 1.5
+const HEARTBEAT_TILES := 8
 
 const WAKE := FloorLayout.World.WAKE
 const NIGHTMARE := FloorLayout.World.NIGHTMARE
@@ -47,9 +79,9 @@ const MUSIC_DB := -14.0
 const PLAYER_MODEL = preload("res://assets/character/character2withrig.glb")
 const DEVIL_MODEL = preload("res://assets/character/skleton_added_devil.glb")
 const FOOTSTEP_PATHS: Array[String] = [
-	"res://assets/audio/footstep_1.wav",
-	"res://assets/audio/footstep_2.wav",
-	"res://assets/audio/footstep_3.wav",
+	"res://assets/audio/sfx_footstep_1.mp3",
+	"res://assets/audio/sfx_footstep_2.mp3",
+	"res://assets/audio/sfx_footstep_3.mp3",
 ]
 
 ## Movement, look, head-bob, FOV, flashlight and footstep tunables (res://resources/player_feel.tres).
@@ -58,8 +90,11 @@ const FOOTSTEP_PATHS: Array[String] = [
 @export_group("Floor")
 ## 0 = new random floor each run. Set a seed to replay or debug one floor.
 @export var fixed_seed: int = 0
-## Rooms per side; the maze is (2 * rooms + 1) tiles square. 7 = depth 1 (15x15).
-@export_range(4, 13) var rooms: int = 7
+## Rooms per side; the maze is (2 * rooms + 1) tiles square. 0 = from the floor's StageRule.
+@export_range(0, 30) var rooms: int = 0
+## Debug: also put a cracked floor on this tile of the route from spawn (3 = third tile). 0 = off.
+## Skips the fairness check, so a sigil behind it can force a second crossing.
+@export_range(0, 20) var debug_trap_step: int = 3
 
 @export_group("World Lights")
 ## Ceiling light on every Nth open cell (by (x+y) % N). Higher = darker, cheaper.
@@ -69,7 +104,44 @@ const FOOTSTEP_PATHS: Array[String] = [
 @export var world_light_shadows: bool = false
 
 var layout: FloorLayout
+var rule: StageRule
 var flip: FlipSystem
+var brain: DevilBrain
+var circles: SafeCircles
+var traps: TrapField
+## Floor route spawn -> exit (flips allowed) and path distance from spawn; for placement and progress.
+var route: Array[Vector2i] = []
+var from_spawn := PackedInt32Array()
+## Current-world path distance from the player (refreshed on each cell change).
+var player_dist := PackedInt32Array()
+## Path distance to the exit per world.
+var exit_dist: Array[PackedInt32Array] = []
+var visited := {}
+var last_player_cell := Vector2i(1, 1)
+var prev_devil_cell := Vector2i.ZERO
+var devil_active := false
+var devil_spawning := false
+var devil_retreating := false
+var steps_since_retreat := 0
+var lunge_left := 0.0
+var lunge_cooldown := 0.0
+var time_left := 0.0
+var panic := false
+## Revive point: saved on entering a safe circle {cell, time_left, traps}.
+var snapshot := {}
+var circle_materials: Array[StandardMaterial3D] = []
+var circle_lights: Array[OmniLight3D] = []
+var trap_nodes: Array[TrapPit] = []
+var floor_material: StandardMaterial3D
+var death_screen: DeathScreen
+var heartbeat_player: AudioStreamPlayer
+var alarm_player: AudioStreamPlayer
+var crack_player: AudioStreamPlayer
+var fall_player: AudioStreamPlayer
+var fall_time := -1.0
+var creak_player: AudioStreamPlayer
+var circle_player: AudioStreamPlayer
+var telegraph_player: AudioStreamPlayer
 var world: int = WAKE
 var player: CharacterBody3D
 var player_mesh: Node3D
@@ -79,6 +151,8 @@ var devil: Node3D
 var devil_mesh: Node3D
 var devil_rig: DevilRig
 var goal: Node3D
+var chest: TreasureChest
+var key_hud: KeyHud
 var minimap: Control
 var player_cell := Vector2i(1, 1)
 var devil_cell := Vector2i.ZERO
@@ -138,22 +212,58 @@ func _ready() -> void:
 	# Main keeps processing while paused so Esc can resume; gameplay loops check the pause flag.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	rng.randomize()
-	var seed_value := fixed_seed if fixed_seed != 0 else rng.randi()
-	print("FearFlip floor seed: %d" % seed_value)
-	layout = FloorLayout.generate(seed_value, rooms)
+	# A fixed seed is a debug floor: it never touches the save.
+	if fixed_seed == 0:
+		RunState.load_save()
+	rule = StageRule.for_floor(RunState.current_floor)
+	var seed_value := fixed_seed if fixed_seed != 0 else RunState.floor_seed()
+	print("FearFlip floor %d seed: %d" % [rule.floor_number, seed_value])
+	layout = FloorLayout.generate(seed_value, rooms if rooms > 0 else rule.rooms)
 	flip = FlipSystem.new(seed_value)
+	flip.first_forced_at = rule.first_forced_at
+	flip.next_forced_in = rule.first_forced_at
+	flip.forced_interval_min = rule.forced_interval_min
+	flip.forced_interval_max = rule.forced_interval_max
+	flip.min_forced_interval = rule.min_forced_interval
+	flip.warning_time = rule.flip_warning
 	flip.flipped.connect(_on_flipped)
 	flip.flip_denied.connect(_on_flip_denied)
 	flip.flipping_time_warning.connect(_on_flipping_time_warning)
+	route = layout.route(layout.spawn, layout.exit)
+	from_spawn = layout.distances(FloorLayout.ANY, layout.spawn)
+	exit_dist = [layout.distances(WAKE, layout.exit), layout.distances(NIGHTMARE, layout.exit)]
+	circles = SafeCircles.new()
+	circles.capacity = rule.safe_circle_protect_s
+	circles.single_use = rule.safe_circle_single_use
+	circles.place(route, rule.safe_circle_count, func(cell: Vector2i) -> bool:
+		return layout.is_open(WAKE, cell) and layout.is_open(NIGHTMARE, cell) and not layout.sigils.has(cell) and cell != layout.devil_spawn)
+	traps = TrapField.new()
+	var excluded: Array[Vector2i] = [layout.devil_spawn]
+	excluded.append_array(layout.sigils)
+	excluded.append_array(circles.cells)
+	var trap_rng := RandomNumberGenerator.new()
+	trap_rng.seed = seed_value
+	traps.place(layout, route, rule.trap_count, excluded, rule.dead_end_traps, trap_rng)
+	if debug_trap_step > 0 and debug_trap_step < route.size() - 1 and not excluded.has(route[debug_trap_step]):
+		traps.add(route[debug_trap_step])
+	time_left = rule.time_budget(_tour_tiles() * CELL_SIZE, feel.walk_speed)
+	brain = DevilBrain.new()
 	player_cell = layout.spawn
+	last_player_cell = player_cell
+	visited[player_cell] = true
+	brain.record(player_cell, true)
 	devil_cell = layout.devil_spawn
 	devil_target = devil_cell
+	prev_devil_cell = devil_cell
+	player_dist = layout.distances(world, player_cell)
 	_build_environment()
 	_build_audio()
 	_build_maze()
 	_build_player()
 	_build_goal()
 	_build_sigils()
+	_build_circles()
+	_build_traps()
 	_build_devil()
 	_build_hud()
 	_apply_world(WAKE)
@@ -163,28 +273,35 @@ func _process(delta: float) -> void:
 	if get_tree().paused:
 		return
 	_update_flashlight(delta)
-	for sigil in sigil_nodes:
-		sigil.rotate_y(delta * 1.5)
 	_animate_devil(delta)
+	var tilt := deg_to_rad(INVERT_TILT_DEGREES) if flip.forced_active and game_state == "playing" else 0.0
+	camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, tilt, clampf(4.0 * delta, 0.0, 1.0))
+	if game_state == "dying":
+		_animate_fall(delta)
 	if game_state != "playing":
 		return
 	elapsed += delta
+	time_left -= delta
 	catch_grace = maxf(catch_grace - delta, 0.0)
 	enrage_left = maxf(enrage_left - delta, 0.0)
+	lunge_cooldown = maxf(lunge_cooldown - delta, 0.0)
 	flip.advance(delta, _spot_open(WAKE), _spot_open(NIGHTMARE))
 	_strobe_lights(flip.warning_active)
-	devil_timer += delta
-	if devil_timer >= _devil_step_interval():
-		devil_timer = 0.0
-		_step_devil()
+	if circles.drain(player_cell, delta):
+		_flash_message("The circle is empty. Move.")
+	_refresh_circles()
+	_tick_devil(delta)
 	_collect_sigils()
+	if not panic and time_left <= PANIC_TIME:
+		panic = true
+		alarm_player.play()
 	_update_hud()
 	_refresh_minimap()
 	_update_devil_audio()
 	if exit_open and player_cell == layout.exit:
-		_win_game()
-	elif world == NIGHTMARE and catch_grace <= 0.0 and devil_cell == player_cell:
-		_lose_game()
+		_unlock_chest()
+	elif time_left <= 0.0:
+		_lose_game("time")
 
 func _physics_process(delta: float) -> void:
 	if player == null or game_state != "playing" or get_tree().paused:
@@ -219,7 +336,7 @@ func _physics_process(delta: float) -> void:
 		player_mesh.position.y = PLAYER_MESH_Y + player_rig.animate(h_speed, delta)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("restart"):
+	if event.is_action_pressed("restart") and game_state != "dying":
 		get_tree().paused = false
 		_restart_game()
 		return
@@ -327,12 +444,13 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 	flash_rect.color = Color(SIGIL_COLORS[new_world], 0.6)
 	tween.tween_property(flash_rect, "color:a", 0.0, 0.3)
 	tween.chain().tween_callback(func() -> void: camera.rotation.z = 0.0)
-	if new_world == NIGHTMARE:
-		catch_grace = FLIP_CATCH_GRACE
-		if forced:
-			_keep_devil_fair()
-	else:
-		devil_target = player_cell
+	# It follows you across worlds: re-path on the new walls, never a catch on the flip itself.
+	player_dist = layout.distances(world, player_cell)
+	catch_grace = FLIP_CATCH_GRACE
+	lunge_left = 0.0
+	_move_devil_into_world()
+	if forced:
+		_keep_devil_fair()
 
 func _on_flip_denied() -> void:
 	deny_player.play()
@@ -360,7 +478,7 @@ func _apply_world(new_world: int) -> void:
 	accent_material.emission = GLOW_COLORS[world] * 0.2
 	for light in world_lights:
 		light.light_color = GLOW_COLORS[world]
-	devil.visible = nightmare
+	devil.visible = devil_active
 	for i in sigil_nodes.size():
 		sigil_nodes[i].visible = not sigil_collected[i] and layout.sigil_worlds[i] == world
 	var tween := create_tween().set_parallel()
@@ -376,7 +494,9 @@ func _strobe_lights(on: bool) -> void:
 		light.light_energy = energy
 
 func _keep_devil_fair() -> void:
-	var dist := layout.distances(NIGHTMARE, player_cell)
+	if not devil_active:
+		return
+	var dist := player_dist
 	var devil_dist := dist[devil_cell.y * layout.size + devil_cell.x]
 	if devil_dist < 0 or devil_dist >= FAIR_FLIP_DISTANCE:
 		return
@@ -389,6 +509,22 @@ func _keep_devil_fair() -> void:
 	devil_cell = options[rng.randi_range(0, options.size() - 1)]
 	devil.position = _devil_world_position()
 
+## Only when NIGHTMARE_CHANGE > 0: if its cell is a wall in this world, it reappears on the nearest open one.
+func _move_devil_into_world() -> void:
+	if not devil_active or layout.is_open(world, devil_cell):
+		return
+	var best := devil_cell
+	var best_d := 1 << 30
+	for i in player_dist.size():
+		var cell := layout.cell_at(i)
+		var d := absi(cell.x - devil_cell.x) + absi(cell.y - devil_cell.y)
+		if player_dist[i] >= 0 and d < best_d:
+			best = cell
+			best_d = d
+	devil_cell = best
+	prev_devil_cell = best
+	devil.position = _devil_world_position()  # teleport: never glide through a wall
+
 # --- Sigils, exit, Devil ----------------------------------------------------
 
 func _collect_sigils() -> void:
@@ -396,10 +532,13 @@ func _collect_sigils() -> void:
 		if sigil_collected[i] or layout.sigil_worlds[i] != world or layout.sigils[i] != player_cell:
 			continue
 		sigil_collected[i] = true
-		sigil_nodes[i].visible = false
+		(sigil_nodes[i] as KeyPickup).collect()
+		key_hud.fly_in(sigils_collected, _screen_point(sigil_nodes[i].global_position))
 		sigils_collected += 1
+		sigil_player.pitch_scale = 1.0
 		sigil_player.play()
 		if sigils_collected == FloorLayout.SIGIL_COUNT:
+			key_hud.all_found()
 			_open_exit()
 		_refresh_minimap()
 
@@ -407,32 +546,293 @@ func _open_exit() -> void:
 	exit_open = true
 	enrage_left = DEVIL_ENRAGE_DURATION
 	_set_exit_look()
-	_show_message("THE EXIT IS OPEN — RUN")
+	_show_message("ALL KEYS FOUND — GET TO THE CHEST")
 	get_tree().create_timer(2.5).timeout.connect(func() -> void:
 		if game_state == "playing":
 			_show_message(""))
 
+## Where a world point is on screen (for the key flying to the HUD); behind you = low centre.
+func _screen_point(at: Vector3) -> Vector2:
+	if camera.is_position_behind(at):
+		return get_viewport().get_visible_rect().size * Vector2(0.5, 0.75)
+	return camera.unproject_position(at)
+
+## At the chest with every key: you stop facing it (clock and Devil freeze), the keys fly into its
+## locks, it opens, the floor is cleared.
+func _unlock_chest() -> void:
+	game_state = "unlocking"
+	_show_message("")
+	# Looking down at the chest you would see your own head.
+	player_mesh.visible = false
+	var exit_world := cell_to_world(layout.exit)
+	var arrival := cell_to_world(last_player_cell) - exit_world
+	arrival = arrival.normalized() if arrival.length() > 0.1 else chest.global_transform.basis.z
+	chest.rotation.y = atan2(arrival.x, arrival.z)
+	var stand := exit_world + arrival * CHEST_VIEW_DISTANCE
+	stand.y = player.global_position.y
+	yaw = player.rotation.y + wrapf(atan2(arrival.x, arrival.z) - player.rotation.y, -PI, PI)
+	var eye_y := stand.y + camera_pivot.position.y
+	pitch = -atan2(eye_y - TreasureChest.BASE_HEIGHT, CHEST_VIEW_DISTANCE)
+	var tween := create_tween().set_parallel()
+	tween.tween_property(player, "global_position", stand, 0.45).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(player, "rotation:y", yaw, 0.45).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(camera_pivot, "rotation:x", pitch, 0.45).set_trans(Tween.TRANS_SINE)
+	tween.chain().tween_callback(chest.unlock.bind(camera))
+
+func _on_key_turned(index: int) -> void:
+	key_hud.spend(index)
+	sigil_player.pitch_scale = 1.3 + 0.15 * index
+	sigil_player.play()
+
+func _on_chest_opened() -> void:
+	flash_rect.color = Color(1.0, 0.85, 0.5, 0.55)
+	var tween := create_tween()
+	tween.tween_property(flash_rect, "color", Color(1.0, 0.85, 0.5, 0.0), 0.6)
+	tween.tween_callback(_win_game).set_delay(0.2)
+
+## Seconds per cell: DevilBrain's rubber band (far = faster, close = slower), enraged once the exit opens.
 func _devil_step_interval() -> float:
-	return CELL_SIZE / (DEVIL_CHASE_SPEED * (DEVIL_ENRAGE_MULTIPLIER if enrage_left > 0.0 else 1.0))
+	var enraged := enrage_left > 0.0
+	var ratio := rule.devil_base_ratio * DevilBrain.WORLD_SPEED[world] * (DEVIL_ENRAGE_MULTIPLIER if enraged else 1.0)
+	return CELL_SIZE / DevilBrain.speed(_devil_distance(), feel.walk_speed, feel.walk_speed * feel.sprint_multiplier, ratio, enraged)
+
+## Current-world path tiles between the Devil and you (a large number if there is no path).
+func _devil_distance() -> int:
+	var d := player_dist[devil_cell.y * layout.size + devil_cell.x]
+	return d if d >= 0 else 999
 
 func _devil_world_position() -> Vector3:
 	return cell_to_world(devil_cell) + Vector3(0, DEVIL_Y, 0)
 
-## Glide toward the Devil's grid cell, face the way it runs, and drive the run cycle from real speed.
+## Glide toward the Devil's grid cell (or lunge at you), face the way it runs, drive the run cycle.
 func _animate_devil(delta: float) -> void:
-	var next := devil.position.move_toward(_devil_world_position(), CELL_SIZE / _devil_step_interval() * delta)
+	var goal_position := _devil_world_position()
+	var move_speed := CELL_SIZE / _devil_step_interval()
+	if lunge_left > 0.0:
+		goal_position = Vector3(player.global_position.x, DEVIL_Y, player.global_position.z)
+		move_speed = LUNGE_SPEED
+	var next := devil.position.move_toward(goal_position, move_speed * delta)
 	var moved := next - devil.position
 	devil.position = next
+	var face := Vector3.ZERO
 	if moved.length_squared() > 0.000001:
-		devil.rotation.y = lerp_angle(devil.rotation.y, atan2(moved.x, moved.z), clampf(DEVIL_TURN_SPEED * delta, 0.0, 1.0))
+		face = moved
+	elif devil_active and _devil_distance() <= DevilBrain.SIGHT_TILES and DevilBrain.line_of_sight(layout, world, devil_cell, player_cell):
+		face = player.global_position - devil.position  # paused but sees you: turn to track you
+	if face != Vector3.ZERO:
+		devil.rotation.y = lerp_angle(devil.rotation.y, atan2(face.x, face.z), clampf(DEVIL_TURN_SPEED * delta, 0.0, 1.0))
 	var speed := moved.length() / delta if delta > 0.0 else 0.0
 	devil_mesh.position.y = -DEVIL_Y + devil_rig.animate(speed, delta)
 
+func _tick_devil(delta: float) -> void:
+	if not devil_active:
+		if not devil_spawning and DevilBrain.can_spawn(elapsed, rule.devil_spawn_delay, _progress(), circles.protects(player_cell)):
+			_try_spawn_devil()
+		return
+	devil_timer += delta
+	# Next cell only once the body is on its current cell centre: it walks corridors, never cuts a wall corner.
+	if devil_timer >= _devil_step_interval() and devil.position.distance_to(_devil_world_position()) < 0.05:
+		devil_timer = 0.0
+		_step_devil()
+	_check_catch(delta)
+
+## One cell along the BFS shortest path to you (or to its retreat spot), through open cells only.
 func _step_devil() -> void:
-	# ponytail: omniscient in NIGHTMARE, waits where you vanished in WAKE. Senses + Director (§7) replace this.
-	if world == NIGHTMARE:
-		devil_target = player_cell
-	devil_cell = layout.next_step(NIGHTMARE, devil_cell, devil_target)
+	prev_devil_cell = devil_cell
+	if devil_retreating and steps_since_retreat >= rule.devil_respawn_steps and not circles.protects(player_cell):
+		devil_retreating = false
+	devil_cell = layout.next_step(world, devil_cell, devil_target if devil_retreating else player_cell)
+
+## Same cell or a cross-through starts a 0.35 s lunge; it only kills if it really reaches you.
+func _check_catch(delta: float) -> void:
+	if lunge_left > 0.0:
+		if circles.protects(player_cell):
+			lunge_left = 0.0
+			return
+		lunge_left -= delta
+		if lunge_left <= 0.0:
+			var gap := Vector2(devil.position.x - player.global_position.x, devil.position.z - player.global_position.z)
+			if gap.length() < LUNGE_RANGE:
+				_lose_game("devil")
+			else:
+				lunge_cooldown = LUNGE_MISS_STUN
+		return
+	if catch_grace > 0.0 or lunge_cooldown > 0.0 or devil_retreating or circles.protects(player_cell):
+		return
+	var crossed := devil_cell == last_player_cell and prev_devil_cell == player_cell
+	if devil_cell == player_cell or crossed:
+		lunge_left = LUNGE_TIME
+
+## Fraction of the spawn -> exit distance you've covered (flips allowed).
+func _progress() -> float:
+	var total := maxi(from_spawn[layout.exit.y * layout.size + layout.exit.x], 1)
+	return float(from_spawn[player_cell.y * layout.size + player_cell.x]) / float(total)
+
+## Wakes behind you on your own trail, far away and out of sight, after a telegraph. Never ahead.
+func _try_spawn_devil() -> void:
+	var cell := brain.pick_spawn(player_dist, layout.size, rule.devil_spawn_distance, _seen_by_player)
+	if cell.x < 0:
+		var fallback := layout.devil_spawn
+		if player_dist[fallback.y * layout.size + fallback.x] < rule.devil_spawn_distance or _seen_by_player(fallback):
+			return
+		cell = fallback
+	devil_spawning = true
+	devil_cell = cell
+	prev_devil_cell = cell
+	telegraph_player.play()
+	_flash_message("Something woke up behind you...")
+	get_tree().create_timer(SPAWN_TELEGRAPH).timeout.connect(_wake_devil)
+
+func _wake_devil() -> void:
+	devil_spawning = false
+	devil_active = true
+	devil.position = _devil_world_position()
+	devil.visible = true
+
+func _seen_by_player(cell: Vector2i) -> bool:
+	return DevilBrain.line_of_sight(layout, world, player_cell, cell) or circles.index_at(cell) >= 0
+
+## In a safe circle: it backs off (visibly, at its own speed) to the nearest spot far from you.
+func _start_retreat() -> void:
+	devil_retreating = true
+	steps_since_retreat = 0
+	lunge_left = 0.0
+	var from_devil := layout.distances(world, devil_cell)
+	var best := -1
+	for i in player_dist.size():
+		if player_dist[i] >= CIRCLE_RETREAT_DISTANCE and from_devil[i] >= 0 and (best < 0 or from_devil[i] < from_devil[best]):
+			best = i
+	devil_target = layout.cell_at(best) if best >= 0 else devil_cell
+
+# --- Cells, circles, traps ------------------------------------------------------
+
+## Hysteresis: the new cell only counts once you're STEP_HYSTERESIS past its edge.
+func _update_player_cell() -> void:
+	var candidate := world_to_cell(player.global_position)
+	if candidate == player_cell or not layout.is_open(world, candidate):
+		return
+	var offset := Vector2(player.global_position.x, player.global_position.z) - Vector2(candidate) * CELL_SIZE
+	if maxf(absf(offset.x), absf(offset.y)) > CELL_SIZE * 0.5 - STEP_HYSTERESIS:
+		return
+	_enter_cell(candidate)
+
+func _enter_cell(cell: Vector2i) -> void:
+	last_player_cell = player_cell
+	player_cell = cell
+	player_dist = layout.distances(world, player_cell)
+	if not visited.has(cell):
+		visited[cell] = true
+		circles.on_new_cell()
+		steps_since_retreat += 1
+	brain.record(cell, true)
+	if cell == layout.exit and not exit_open:
+		_flash_message("THE CHEST IS LOCKED   find %d more keys" % (FloorLayout.SIGIL_COUNT - sigils_collected))
+	if traps.creak(cell):
+		creak_player.play()
+	match traps.step(cell):
+		TrapField.State.CRACKED:
+			crack_player.play()
+			trap_nodes[traps.index_at(cell)].crack()
+			create_tween().tween_method(_shake, 0.035, 0.0, 0.3)
+			_flash_message("The floor cracked. It won't hold you twice.")
+		TrapField.State.COLLAPSED:
+			_collapse(traps.index_at(cell))
+	if game_state == "playing" and circles.protects(cell):
+		_enter_circle()
+
+func _enter_circle() -> void:
+	circle_player.play()
+	snapshot = {"cell": player_cell, "time_left": time_left, "traps": traps.states.duplicate()}
+	if devil_active and not devil_retreating:
+		_start_retreat()
+
+func _refresh_circles() -> void:
+	for i in circles.cells.size():
+		var fill := circles.charge[i] / circles.capacity
+		circle_materials[i].emission_energy_multiplier = 0.15 + 3.0 * fill
+		circle_lights[i].light_energy = 0.1 + 1.2 * fill
+
+func _refresh_traps() -> void:
+	for i in traps.cells.size():
+		trap_nodes[i].show_state(traps.states[i])
+
+## Second step on a cracked floor: it drops under you, a beat, then the camera lets go and stays at
+## the rim while your body tips back and falls flailing into the shaft. Then the death screen.
+func _collapse(index: int) -> void:
+	game_state = "dying"
+	fall_time = 0.0
+	trap_nodes[index].collapse(player.global_position)
+	fall_player.pitch_scale = 0.75
+	fall_player.play()
+	var start := player.global_position
+	var hole := cell_to_world(traps.cells[index])
+	# Toward where you came from: always open, so the rim camera never sits in a wall.
+	var back := cell_to_world(last_player_cell) - hole
+	back = back.normalized() if back.length() > 0.1 else player.global_transform.basis.z
+	var rim := hole + back * FALL_CAM_BACK + Vector3(0, FALL_CAM_HEIGHT, 0)
+	var t := create_tween().set_parallel()
+	t.tween_method(_shake, 0.08, 0.0, 0.45)
+	t.tween_property(player, "global_position:y", start.y - 0.08, 0.07).set_ease(Tween.EASE_OUT)
+	t.tween_callback(_release_camera).set_delay(FALL_BEAT)
+	t.tween_property(camera, "global_position", rim, FALL_CAM_MOVE).set_delay(FALL_BEAT + 0.01).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(camera, "fov", feel.base_fov + FALL_FOV_ZOOM, FALL_TIME).set_delay(FALL_BEAT).set_trans(Tween.TRANS_SINE)
+	# The body: stumbles over the hole, twists back toward you, tips over backwards and drops.
+	t.tween_property(player, "global_position:x", lerpf(start.x, hole.x, 0.8), 0.35).set_delay(FALL_BEAT).set_trans(Tween.TRANS_SINE)
+	t.tween_property(player, "global_position:z", lerpf(start.z, hole.z, 0.8), 0.35).set_delay(FALL_BEAT).set_trans(Tween.TRANS_SINE)
+	t.tween_property(player, "rotation:y", _facing(back), 0.4).set_delay(FALL_BEAT).set_trans(Tween.TRANS_SINE)
+	t.tween_property(player, "rotation:x", FALL_TIP, FALL_TIME).set_delay(FALL_BEAT + 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	# Gravity: slow first, then gone.
+	t.tween_property(player, "global_position:y", start.y - FALL_DEPTH, FALL_TIME).set_delay(FALL_BEAT + 0.07).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	flash_rect.color = Color(0.55, 0.05, 0.0, 0.35)
+	t.tween_property(flash_rect, "color", Color(0.55, 0.05, 0.0, 0.0), 0.25)
+	t.tween_property(flash_rect, "color", Color(0, 0, 0, 1), FALL_TIME * 0.5).set_delay(FALL_BEAT + FALL_TIME * 0.65).set_ease(Tween.EASE_IN)
+	t.tween_callback(_fall_impact).set_delay(FALL_BEAT + FALL_TIME)
+	t.tween_callback(_lose_game.bind("trap")).set_delay(FALL_END)
+
+## Yaw that makes the body (forward = -Z) face `direction`, unwrapped next to the current yaw.
+func _facing(direction: Vector3) -> float:
+	var target := atan2(-direction.x, -direction.z)
+	return player.rotation.y + wrapf(target - player.rotation.y, -PI, PI)
+
+## Camera stops following the body: it stays where it is in the world.
+func _release_camera() -> void:
+	var at := camera.global_transform
+	camera.top_level = true
+	camera.global_transform = at
+	camera.rotation.z = 0.0
+
+func _animate_fall(delta: float) -> void:
+	fall_time += delta
+	if player_rig != null and fall_time > FALL_BEAT:
+		player_rig.flail(fall_time - FALL_BEAT)
+	if camera.top_level:
+		camera.look_at(player.global_position + Vector3(0, 0.3, 0))
+
+func _fall_impact() -> void:
+	fall_player.pitch_scale = 0.45
+	fall_player.play()
+	_shake(0.12)
+
+## Camera shake via lens offset, so it never fights look, bob or flip roll.
+func _shake(amount: float) -> void:
+	camera.h_offset = randf_range(-amount, amount)
+	camera.v_offset = randf_range(-amount, amount)
+
+## Spawn -> each sigil (nearest first) -> exit, in path tiles: what the clock budgets for.
+func _tour_tiles() -> int:
+	var total := 0
+	var at := layout.spawn
+	var left: Array[Vector2i] = layout.sigils.duplicate()
+	while not left.is_empty():
+		var dist := layout.distances(FloorLayout.ANY, at)
+		var pick := left[0]
+		for cell in left:
+			if dist[cell.y * layout.size + cell.x] < dist[pick.y * layout.size + pick.x]:
+				pick = cell
+		total += maxi(dist[pick.y * layout.size + pick.x], 0)
+		at = pick
+		left.erase(pick)
+	return total + maxi(layout.distances(FloorLayout.ANY, at)[layout.exit.y * layout.size + layout.exit.x], 0)
 
 # --- Build ------------------------------------------------------------------
 
@@ -456,18 +856,26 @@ func _build_environment() -> void:
 	add_child(moon)
 
 func _build_audio() -> void:
-	calm_player = _audio("CalmLoop", "res://assets/audio/calm_loop.mp3", MUSIC_DB)
-	intense_player = _audio("IntenseLoop", "res://assets/audio/intense_loop.mp3", -60.0)
+	calm_player = _audio("CalmLoop", "res://assets/audio/sfx_ambient_calm.mp3", MUSIC_DB)
+	intense_player = _audio("IntenseLoop", "res://assets/audio/sfx_ambient_intense.mp3", -60.0)
 	for music in [calm_player, intense_player]:
 		(music.stream as AudioStreamMP3).loop = true
 		music.play()
-	win_player = _audio("WinSfx", "res://assets/audio/winning_soundeffect.mp3", -4.0)
-	lose_player = _audio("LoseSfx", "res://assets/audio/gamelost_soundeffect.mp3", -4.0)
-	flip_player = _audio("FlipSfx", "res://assets/audio/maze_shift_audio.mp3", -6.0)
-	deny_player = _audio("FlipDenied", "res://assets/audio/glitch_screen_sound_effect.mp3", -8.0)
-	warning_player = _audio("FlippingTimeWarning", "res://assets/audio/fahhhhh_flippingtime.mp3", -4.0)
-	sigil_player = _audio("SigilSfx", "res://assets/audio/safe_zone_sound.mp3", -6.0)
-	devil_approach_player = _audio("DevilApproach", "res://assets/audio/devil_approach.wav", -10.0)
+	win_player = _audio("WinSfx", "res://assets/audio/sfx_win.mp3", -4.0)
+	lose_player = _audio("LoseSfx", "res://assets/audio/sfx_lose.mp3", -4.0)
+	flip_player = _audio("FlipSfx", "res://assets/audio/sfx_flip.mp3", -6.0)
+	deny_player = _audio("FlipDenied", "res://assets/audio/sfx_flip_denied.mp3", -8.0)
+	warning_player = _audio("FlippingTimeWarning", "res://assets/audio/sfx_flipping_warning.mp3", -4.0)
+	sigil_player = _audio("SigilSfx", "res://assets/audio/sfx_sigil.mp3", -6.0)
+	devil_approach_player = _audio("DevilApproach", "res://assets/audio/sfx_devil_approach.mp3", -10.0)
+	heartbeat_player = _audio("Heartbeat", "res://assets/audio/sfx_heartbeat.mp3", -20.0)
+	(heartbeat_player.stream as AudioStreamMP3).loop = true
+	alarm_player = _audio("LowTimeAlarm", "res://assets/audio/sfx_low_time.mp3", -8.0)
+	crack_player = _audio("FloorCrack", "res://assets/audio/sfx_floor_crack.mp3", -6.0)
+	fall_player = _audio("FloorCollapse", "res://assets/audio/sfx_floor_crack.mp3", 0.0)
+	creak_player = _audio("FloorCreak", "res://assets/audio/sfx_floor_creak.mp3", -12.0)
+	circle_player = _audio("SafeCircle", "res://assets/audio/sfx_safe_circle.mp3", -6.0)
+	telegraph_player = _audio("DevilWakes", "res://assets/audio/sfx_devil_wakes.mp3", -4.0)
 
 func _audio(node_name: String, path: String, volume_db: float) -> AudioStreamPlayer:
 	var audio := AudioStreamPlayer.new()
@@ -481,19 +889,33 @@ func _build_maze() -> void:
 	var span := layout.size * CELL_SIZE
 	var center := Vector3((layout.size - 1) * CELL_SIZE * 0.5, 0, (layout.size - 1) * CELL_SIZE * 0.5)
 	var floor_body := StaticBody3D.new()
-	var floor_mesh := BoxMesh.new()
-	floor_mesh.size = Vector3(span, 0.15, span)
 	floor_body.position = center + Vector3(0, -0.08, 0)
-	var floor := MeshInstance3D.new()
-	floor.mesh = floor_mesh
-	var floor_material := StandardMaterial3D.new()
+	floor_material = StandardMaterial3D.new()
 	floor_material.albedo_color = Color(0.025, 0.035, 0.05)
 	floor_material.roughness = 0.9
-	floor.material_override = floor_material
-	floor_body.add_child(floor)
+	# One tile per cell so trap cells are real holes (TrapPit fills them). Collision stays one slab:
+	# the grid decides who falls, not physics.
+	var tile_mesh := BoxMesh.new()
+	tile_mesh.size = Vector3(CELL_SIZE, 0.15, CELL_SIZE)
+	tile_mesh.material = floor_material
+	var tiles := MultiMesh.new()
+	tiles.transform_format = MultiMesh.TRANSFORM_3D
+	tiles.mesh = tile_mesh
+	tiles.instance_count = layout.size * layout.size - traps.cells.size()
+	var tile := 0
+	for row in layout.size:
+		for col in layout.size:
+			if traps.cells.has(Vector2i(col, row)):
+				continue
+			tiles.set_instance_transform(tile, Transform3D(Basis(), cell_to_world(Vector2i(col, row)) + Vector3(0, -0.08, 0)))
+			tile += 1
+	var floor_tiles := MultiMeshInstance3D.new()
+	floor_tiles.name = "FloorTiles"
+	floor_tiles.multimesh = tiles
+	add_child(floor_tiles)
 	var floor_collision := CollisionShape3D.new()
 	var floor_shape := BoxShape3D.new()
-	floor_shape.size = floor_mesh.size
+	floor_shape.size = Vector3(span, 0.15, span)
 	floor_collision.shape = floor_shape
 	floor_body.add_child(floor_collision)
 	add_child(floor_body)
@@ -641,6 +1063,7 @@ func _build_player() -> void:
 	ModelFit.fit_height(player_mesh, WALL_HEIGHT * PLAYER_HEIGHT_RATIO, PLAYER_MESH_Y)
 	player.add_child(player_mesh)
 	player_rig = DevilRig.new(player_mesh, false)
+	player_rig.unstick_hands()
 
 	camera_pivot = Node3D.new()
 	camera_pivot.position.y = 0.45
@@ -681,48 +1104,29 @@ func _build_goal() -> void:
 	base.position.y = 0.06
 	goal.add_child(base)
 
-	var ring := MeshInstance3D.new()
-	var ring_mesh := TorusMesh.new()
-	ring_mesh.inner_radius = 0.48
-	ring_mesh.outer_radius = 0.58
-	ring_mesh.rings = 32
-	ring_mesh.ring_segments = 12
-	ring.mesh = ring_mesh
-	ring.position.y = 1.0
-	ring.rotation_degrees.x = 90
-	goal.add_child(ring)
-
 	goal_material = StandardMaterial3D.new()
 	goal_material.emission_enabled = true
 	goal_material.emission_energy_multiplier = 3.0
 	base.material_override = goal_material
-	ring.material_override = goal_material
 
-	var beam := MeshInstance3D.new()
-	var beam_mesh := CylinderMesh.new()
-	beam_mesh.top_radius = 0.06
-	beam_mesh.bottom_radius = 0.06
-	beam_mesh.height = 2.0
-	beam.mesh = beam_mesh
-	beam.position.y = 1.0
-	beam.material_override = goal_material
-	goal.add_child(beam)
-
-	var portal_texture := load("res://assets/images/exit_portal.png") as Texture2D
-	if portal_texture != null:
-		var portal_sprite := Sprite3D.new()
-		portal_sprite.texture = portal_texture
-		portal_sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		portal_sprite.pixel_size = 0.004
-		portal_sprite.position = Vector3(0, 1.0, 0)
-		goal.add_child(portal_sprite)
+	# The exit is a treasure chest on the glowing disc, its locks facing the way in.
+	chest = TreasureChest.new()
+	chest.name = "TreasureChest"
+	goal.add_child(chest)
+	chest.build(LAYER_SHARED)
+	for d in FloorLayout.DIRS:
+		if layout.is_open(FloorLayout.ANY, layout.exit + d):
+			chest.rotation.y = atan2(float(d.x), float(d.y))
+			break
+	chest.key_turned.connect(_on_key_turned)
+	chest.opened.connect(_on_chest_opened)
 
 	goal_light = OmniLight3D.new()
 	goal_light.omni_range = 4.0
 	goal.add_child(goal_light)
 	_set_exit_look()
 
-## Locked: dim and red. Open (3 sigils): bright green.
+## Locked: dim and red. Open (all keys): bright green.
 func _set_exit_look() -> void:
 	var color := Color(0.1, 1.0, 0.45) if exit_open else Color(0.35, 0.05, 0.08)
 	goal_material.albedo_color = color
@@ -730,35 +1134,65 @@ func _set_exit_look() -> void:
 	goal_light.light_color = color
 	goal_light.light_energy = 2.5 if exit_open else 0.6
 
+## Keys (the sigils' rules, the key art): one per sigil cell, glowing in the colour of its world.
 func _build_sigils() -> void:
-	var materials: Array[StandardMaterial3D] = []
-	for color in SIGIL_COLORS:
-		var material := StandardMaterial3D.new()
-		material.albedo_color = color
-		material.emission_enabled = true
-		material.emission = color
-		material.emission_energy_multiplier = 3.0
-		materials.append(material)
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.3, 0.3, 0.3)
 	for i in layout.sigils.size():
-		var sigil_world := layout.sigil_worlds[i]
-		var sigil := Node3D.new()
-		sigil.name = "Sigil%d" % i
-		sigil.position = cell_to_world(layout.sigils[i]) + Vector3(0, 1.1, 0)
-		var gem := MeshInstance3D.new()
-		gem.mesh = mesh
-		gem.rotation_degrees = Vector3(45, 0, 45)
-		gem.material_override = materials[sigil_world]
-		sigil.add_child(gem)
-		var light := OmniLight3D.new()
-		light.light_color = SIGIL_COLORS[sigil_world]
-		light.light_energy = 1.2
-		light.omni_range = 3.0
-		sigil.add_child(light)
-		add_child(sigil)
-		sigil_nodes.append(sigil)
+		var key := KeyPickup.new()
+		key.name = "Key%d" % i
+		key.position = cell_to_world(layout.sigils[i]) + Vector3(0, KEY_HEIGHT, 0)
+		add_child(key)
+		key.build(SIGIL_COLORS[layout.sigil_worlds[i]], i * 1.3)
+		sigil_nodes.append(key)
 		sigil_collected.append(false)
+
+## A blue floor ring per circle; its glow is the drain meter.
+func _build_circles() -> void:
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.inner_radius = 0.8
+	ring_mesh.outer_radius = 0.95
+	for cell in circles.cells:
+		var material := StandardMaterial3D.new()
+		material.albedo_color = Color(0.2, 0.55, 1.0)
+		material.emission_enabled = true
+		material.emission = Color(0.25, 0.6, 1.0)
+		var ring := MeshInstance3D.new()
+		ring.name = "SafeCircle"
+		ring.mesh = ring_mesh
+		ring.scale = Vector3(1.0, 0.15, 1.0)
+		ring.position = cell_to_world(cell) + Vector3(0, 0.03, 0)
+		ring.material_override = material
+		add_child(ring)
+		var light := OmniLight3D.new()
+		light.light_color = Color(0.3, 0.6, 1.0)
+		light.omni_range = 2.5
+		light.position = ring.position + Vector3(0, 0.6, 0)
+		add_child(light)
+		circle_materials.append(material)
+		circle_lights.append(light)
+	_refresh_circles()
+
+## Cracked floors: stone plates over a shaft (TrapPit). Seams glow faintly (cue strength) while hidden.
+func _build_traps() -> void:
+	var shaft_material := StandardMaterial3D.new()
+	shaft_material.albedo_color = Color(0.05, 0.04, 0.04)
+	shaft_material.roughness = 1.0
+	var dust_mesh := BoxMesh.new()
+	dust_mesh.size = Vector3.ONE * 0.035
+	var dust_material := StandardMaterial3D.new()
+	dust_material.albedo_color = Color(0.32, 0.28, 0.24)
+	dust_mesh.material = dust_material
+	for cell in traps.cells:
+		var pit := TrapPit.new()
+		pit.name = "CrackedFloor"
+		pit.process_mode = Node.PROCESS_MODE_PAUSABLE
+		pit.cell_size = CELL_SIZE
+		pit.cue = rule.trap_cue_strength
+		pit.player = player
+		pit.position = cell_to_world(cell)
+		add_child(pit)
+		pit.build(cell, floor_material, shaft_material, dust_mesh)
+		trap_nodes.append(pit)
+	_refresh_traps()
 
 func _build_devil() -> void:
 	devil = Node3D.new()
@@ -771,6 +1205,8 @@ func _build_devil() -> void:
 	ModelFit.fit_height(devil_mesh, WALL_HEIGHT * DEVIL_HEIGHT_RATIO, -DEVIL_Y)
 	devil.add_child(devil_mesh)
 	devil_rig = DevilRig.new(devil_mesh)
+	# The devil model's chest is ~24 deg off +Z; square it up so it runs straight, not crabwise.
+	devil_mesh.rotation.y = -devil_rig.facing_yaw()
 
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.02, 0.02)
@@ -786,12 +1222,19 @@ func _build_hud() -> void:
 	minimap.name = "Minimap"
 	minimap.layout = layout
 	minimap.sigil_collected = sigil_collected
+	minimap.circles = circles
+	minimap.traps = traps
 	hud.add_child(minimap)
 
 	status_label = _hud_label(hud, "Status", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	status_label.offset_left = -360
 	status_label.offset_right = -24
 	status_label.offset_top = 20
+
+	key_hud = KeyHud.new()
+	key_hud.name = "Keys"
+	hud.add_child(key_hud)
+	key_hud.build(FloorLayout.SIGIL_COUNT)
 
 	state_label = _hud_label(hud, "Message", 30, Control.PRESET_CENTER_TOP, HORIZONTAL_ALIGNMENT_CENTER)
 	state_label.offset_left = -560
@@ -809,7 +1252,7 @@ func _build_hud() -> void:
 	var hint := _hud_label(hud, "Hint", 16, Control.PRESET_BOTTOM_WIDE, HORIZONTAL_ALIGNMENT_LEFT)
 	hint.offset_left = 24
 	hint.offset_top = -34
-	hint.text = "WASD  MOVE     SHIFT  SPRINT     SPACE / E  FLIP     F  FLASHLIGHT     ESC  PAUSE     R  RESTART"
+	hint.text = "WASD  MOVE     SHIFT  SPRINT     SPACE / E  FLIP     F  FLASHLIGHT     ESC  PAUSE     R  RETRY FLOOR"
 	hint.add_theme_color_override("font_color", Color(0.55, 0.7, 0.82, 0.8))
 
 	flash_rect = ColorRect.new()
@@ -818,6 +1261,16 @@ func _build_hud() -> void:
 	flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	flash_rect.color = Color(1, 1, 1, 0)
 	hud.add_child(flash_rect)
+
+	var overlays := CanvasLayer.new()
+	overlays.name = "Overlays"
+	overlays.layer = 10
+	add_child(overlays)
+	death_screen = DeathScreen.new()
+	death_screen.name = "DeathScreen"
+	death_screen.retry_pressed.connect(_restart_game)
+	death_screen.revive_pressed.connect(_revive)
+	overlays.add_child(death_screen)
 
 func _hud_label(hud: CanvasLayer, node_name: String, font_size: int, preset: Control.LayoutPreset, align: HorizontalAlignment) -> Label:
 	var label := Label.new()
@@ -839,15 +1292,24 @@ func _update_hud() -> void:
 		flip_line = "CONTROLS INVERTED  %ds" % ceili(maxf(flip.forced_left, 0.0))
 	elif flip.cooldown_left > 0.0:
 		flip_line = "FLIP  %.1fs" % flip.cooldown_left
-	var goal_line := "EXIT OPEN" if exit_open else "SIGILS  %d / %d" % [sigils_collected, FloorLayout.SIGIL_COUNT]
-	status_label.text = "%s   %s\n%s\n%s" % [WORLD_NAMES[world], _format_time(elapsed), goal_line, flip_line]
+	var goal_line := "OPEN THE CHEST" if exit_open else "KEYS  %d / %d" % [sigils_collected, FloorLayout.SIGIL_COUNT]
+	status_label.text = "FLOOR %d  ·  %s\n%s   %s\n%s\n%s" % [rule.floor_number, rule.act_name, WORLD_NAMES[world], _format_time(maxf(time_left, 0.0)), goal_line, flip_line]
+	status_label.modulate = Color(1.0, 0.35, 0.3, 0.6 + 0.4 * absf(sin(elapsed * 6.0))) if panic else Color.WHITE
 	if warning_label.visible:
 		warning_label.text = "FLIPPING TIME  %d
 CONTROLS WILL INVERT" % maxi(ceili(flip.next_forced_in), 0)
 		warning_label.modulate.a = 0.55 + 0.45 * sin(elapsed * 18.0)
 
+## Heartbeat inside HEARTBEAT_TILES (louder as it closes), its breath inside DEVIL_NEAR_DISTANCE.
 func _update_devil_audio() -> void:
-	var should_play := world == NIGHTMARE and _manhattan(devil_cell, player_cell) <= DEVIL_NEAR_DISTANCE
+	var d := _devil_distance() if devil_active else 999
+	if d <= HEARTBEAT_TILES:
+		heartbeat_player.volume_db = lerpf(-4.0, -22.0, float(d) / HEARTBEAT_TILES)
+		if not heartbeat_player.playing:
+			heartbeat_player.play()
+	elif heartbeat_player.playing:
+		heartbeat_player.stop()
+	var should_play := d <= DEVIL_NEAR_DISTANCE
 	if should_play and not devil_approach_playing:
 		devil_approach_player.play()
 		devil_approach_playing = true
@@ -855,48 +1317,110 @@ func _update_devil_audio() -> void:
 		devil_approach_player.stop()
 		devil_approach_playing = false
 
+func _stop_tension_audio() -> void:
+	for audio in [devil_approach_player, heartbeat_player, alarm_player]:
+		audio.stop()
+	devil_approach_playing = false
+	warning_label.visible = false
+
+## Floor clear (2D): a short overlay, then the next floor with a new maze and a fresh clock.
 func _win_game() -> void:
 	if game_state == "won":
 		return
 	game_state = "won"
 	win_player.play()
-	devil_approach_player.stop()
-	warning_label.visible = false
-	_show_message("ESCAPED IN %s   (R for a new floor)" % _format_time(elapsed))
+	_stop_tension_audio()
+	if rule.floor_number >= StageRule.LAST_FLOOR:
+		_show_message("YOU ESCAPED THE DESCENT   (R for a new run)")
+		return
+	# Save progress now, so R during the overlay (or quitting) still lands on the next floor.
+	if fixed_seed == 0:
+		RunState.advance_floor()
+	_show_message("FLOOR %d CLEARED   %s to spare" % [rule.floor_number, _format_time(time_left)])
+	get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_restart_game)
 
-## The death screen teaches the rule and shows how close you were (§5).
-func _lose_game() -> void:
+const DEATH_TEXT := {
+	"devil": ["THE DEVIL GOT YOU", "It is slow up close: keep walking. It is slower in WAKE: flip to lose it, or stand in a safe circle."],
+	"trap": ["THE FLOOR GAVE WAY", "Cracked floors break on the second step. Listen for the creak; look for the cracks."],
+	"time": ["CLOCK HIT ZERO", "Dead ends eat time. Grab the keys on the way, not one at a time."],
+}
+
+## The death screen teaches the rule and shows how close you were (plans/05 §3.8).
+func _lose_game(cause: String = "devil") -> void:
 	if game_state == "lost":
 		return
 	game_state = "lost"
 	lose_player.play()
-	devil_approach_player.stop()
-	warning_label.visible = false
-	var steps := layout.distances(world, layout.exit)[player_cell.y * layout.size + player_cell.x]
-	var near := "  You were %d m from the exit." % roundi(steps * CELL_SIZE) if steps > 0 else ""
-	_show_message("THE DEVIL GOT YOU.%s\nIt only hunts in NIGHTMARE: sprint, use loops, or flip to WAKE.   (R to retry)" % near)
+	_stop_tension_audio()
+	_show_message("")
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	var steps := maxi(exit_dist[world][player_cell.y * layout.size + player_cell.x], 0)
+	var floor_progress := clampf(_progress(), 0.0, 1.0)
+	var comeback := "Inches away. Lock in." if floor_progress >= 0.9 else ("Strong run. Try again." if floor_progress >= 0.7 else "Momentum is building.")
+	@warning_ignore("integer_division")
+	var next_checkpoint := (rule.act * StageRule.FLOORS_PER_ACT) + 1
+	var checkpoint_text := "next checkpoint: floor %d" % next_checkpoint if next_checkpoint <= StageRule.LAST_FLOOR else "final act"
+	var detail := "%d m from the exit   ·   Floor %d / %d  (%d%% of the Descent)   ·   %s\n%s" % [
+		roundi(steps * CELL_SIZE), rule.floor_number, StageRule.LAST_FLOOR,
+		roundi(100.0 * rule.floor_number / StageRule.LAST_FLOOR), checkpoint_text, comeback]
+	var can_revive := not snapshot.is_empty() and RunState.revives_left() > 0
+	var revive_text := "REVIVE  (%d left)" % RunState.revives_left() if not snapshot.is_empty() else "REVIVE  (reach a safe circle)"
+	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive)
 
+## Back to the last safe circle you used, with its clock and floor cracks. Max 3 per act.
+func _revive() -> void:
+	if game_state != "lost" or snapshot.is_empty() or not RunState.use_revive():
+		return
+	# Ad hook: a rewarded ad plays here before the revive; premium skips it (plans/ads_managment_prompt.md).
+	death_screen.visible = false
+	var cell: Vector2i = snapshot["cell"]
+	player.global_position = cell_to_world(cell) + Vector3(0, PLAYER_HEIGHT, 0)
+	player.velocity = Vector3.ZERO
+	camera_pivot.position.y = 0.45
+	camera_pivot.rotation.x = pitch
+	player.rotation = Vector3(0.0, yaw, 0.0)
+	camera.top_level = false
+	camera.transform = Transform3D()
+	fall_time = -1.0
+	camera.fov = feel.base_fov
+	_shake(0.0)
+	flash_rect.color = Color(1, 1, 1, 0)
+	player_cell = cell
+	last_player_cell = cell
+	player_dist = layout.distances(world, cell)
+	time_left = maxf(snapshot["time_left"], REVIVE_MIN_TIME)
+	panic = false
+	traps.states.assign(snapshot["traps"])
+	_refresh_traps()
+	circles.charge[circles.index_at(cell)] = circles.capacity
+	catch_grace = REVIVE_GRACE
+	lunge_left = 0.0
+	if devil_active:
+		_start_retreat()
+	game_state = "playing"
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_flash_message("REVIVED   %d left this act" % RunState.revives_left())
+
+## Same floor, same seed (instant retry). After the last floor, R starts a new run.
 func _restart_game() -> void:
+	if fixed_seed == 0 and game_state == "won" and rule.floor_number >= StageRule.LAST_FLOOR:
+		RunState.new_run()
 	get_tree().reload_current_scene()
 
-func _update_player_cell() -> void:
-	var candidate := world_to_cell(player.global_position)
-	if candidate != player_cell and layout.is_open(world, candidate):
-		player_cell = candidate
-
-## Push live positions to the minimap (grid cells, floats). Devil distance = NIGHTMARE path length.
+## Push live positions to the minimap (grid cells, floats). Devil distance = current-world path length.
 func _refresh_minimap() -> void:
 	if minimap == null:
 		return
 	minimap.world = world
 	minimap.exit_open = exit_open
+	minimap.devil_awake = devil_active
 	minimap.player_pos = Vector2(player.global_position.x, player.global_position.z) / CELL_SIZE
 	minimap.devil_pos = Vector2(devil.position.x, devil.position.z) / CELL_SIZE
 	var forward := -player.global_transform.basis.z
 	minimap.facing = Vector2(forward.x, forward.z).angle()
-	var steps := layout.distances(NIGHTMARE, devil_cell)[player_cell.y * layout.size + player_cell.x]
-	minimap.devil_distance = steps * CELL_SIZE if steps >= 0 else -1.0
-	var to_exit := layout.distances(world, layout.exit)[player_cell.y * layout.size + player_cell.x]
+	var steps := _devil_distance()
+	minimap.devil_distance = steps * CELL_SIZE if steps < 999 else -1.0
+	var to_exit := exit_dist[world][player_cell.y * layout.size + player_cell.x]
 	minimap.exit_distance = to_exit * CELL_SIZE if to_exit >= 0 else -1.0
 
 func _show_message(text: String) -> void:
@@ -904,11 +1428,15 @@ func _show_message(text: String) -> void:
 		return
 	state_label.text = text
 
+## A message that clears itself after 2.5 s (unless the game ended meanwhile).
+func _flash_message(text: String) -> void:
+	_show_message(text)
+	get_tree().create_timer(2.5).timeout.connect(func() -> void:
+		if game_state == "playing" and state_label.text == text:
+			_show_message(""))
+
 func cell_to_world(cell: Vector2i) -> Vector3:
 	return Vector3(cell.x * CELL_SIZE, 0, cell.y * CELL_SIZE)
 
 func world_to_cell(position: Vector3) -> Vector2i:
 	return Vector2i(round(position.x / CELL_SIZE), round(position.z / CELL_SIZE))
-
-func _manhattan(a: Vector2i, b: Vector2i) -> int:
-	return abs(a.x - b.x) + abs(a.y - b.y)
