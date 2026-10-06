@@ -22,6 +22,8 @@ const TIP_LENGTH := 0.12
 
 ## Re-weighted mesh, shared by every devil and kept across scene reloads.
 static var _smooth_mesh: ArrayMesh
+## Player mesh with the hem freed from the hands (unstick_hands), kept across scene reloads.
+static var _unstuck_mesh: ArrayMesh
 
 ## Run-cycle tunables (degrees / metres). Tune by eye.
 var stride_angle := 38.0
@@ -58,6 +60,13 @@ func _init(model: Node, repair := true) -> void:
 		_left_axis = Vector3(hips_span.x, 0.0, hips_span.z).normalized()
 
 
+## Yaw (radians, atan2(x, z)) the model's chest faces, measured from the hips. Set the model's
+## rotation.y to (wanted_yaw - facing_yaw()) to make it walk straight along wanted_yaw.
+func facing_yaw() -> float:
+	var forward := _left_axis.cross(Vector3.UP)
+	return atan2(forward.x, forward.z)
+
+
 ## speed in m/s. Returns a vertical bob offset (metres) for the body.
 func animate(speed: float, delta: float) -> float:
 	if skeleton == null:
@@ -79,6 +88,34 @@ func animate(speed: float, delta: float) -> float:
 		_pose(prefix + "Arm", Quaternion(axis, deg_to_rad(arm_swing) * sin(p) * _blend))
 		_pose(prefix + "ForeArm", Quaternion(axis, -deg_to_rad(elbow_bend) * _blend))
 	return absf(sin(_phase)) * 0.04 * _blend
+
+
+## Falling: arms thrown up overhead and grabbing at nothing, legs kicking, back arched. t = seconds falling.
+## Arms are aimed by direction (works for T- and A-pose rests) and stay mostly overhead: wide or
+## forward swings stretch the character2withrig jacket, which is skinned to the arms.
+func flail(t: float) -> void:
+	if skeleton == null:
+		return
+	var axis := _left_axis
+	var forward := axis.cross(Vector3.UP)
+	var panic := minf(t * 7.0, 1.0)
+	_pose("Spine", Quaternion(axis, -deg_to_rad(20.0) * panic))
+	_pose("Head", Quaternion(axis, -deg_to_rad(25.0) * panic))
+	for side in [1.0, -1.0]:
+		var prefix := "Left" if side > 0.0 else "Right"
+		var w := t * 11.0 + (0.0 if side > 0.0 else 1.9)
+		_pose(prefix + "UpLeg", Quaternion(axis, -deg_to_rad(20.0 + 30.0 * sin(w * 0.8)) * panic))
+		_pose(prefix + "Leg", Quaternion(axis, deg_to_rad(35.0 + 30.0 * sin(w * 0.8 + 1.2)) * panic))
+		var arm: int = _bones.get(prefix + "Arm", -1)
+		var fore: int = _bones.get(prefix + "ForeArm", -1)
+		if arm < 0 or fore < 0:
+			continue
+		var rest_dir := (skeleton.get_bone_global_rest(fore).origin - skeleton.get_bone_global_rest(arm).origin).normalized()
+		var out := Vector3(rest_dir.x, 0.0, rest_dir.z)
+		out = out.normalized() if out.length() > 0.1 else axis * side
+		var reach := (Vector3.UP + out * 0.3 + forward * 0.2 * sin(w)).normalized()
+		_pose(prefix + "Arm", Quaternion(rest_dir, rest_dir.slerp(reach, panic).normalized()))
+		_pose(prefix + "ForeArm", Quaternion(axis, -deg_to_rad(30.0 + 30.0 * sin(w + 1.0)) * panic))
 
 
 ## Apply `rotation` (skeleton space, relative to the rest pose) to a bone.
@@ -125,6 +162,104 @@ func _repair(model: Node) -> void:
 	if _smooth_mesh == null:
 		_smooth_mesh = _reweight(mesh_instance.mesh as ArrayMesh, bind_globals, bind_of_bone)
 	mesh_instance.mesh = _smooth_mesh
+
+
+## character2withrig.glb rests in A-pose with the hands against the jacket hem, and ~3k hem vertices
+## carry forearm/hand weight. Raise the arms and they stretch from hip to hand like rope. Measured:
+## sleeves and hands sit within 0.05 (mesh units) of the arm bones, the stray hem 0.06-0.16. A vertex
+## drops its forearm/hand weights when it is further than `arm_radius` from the arm, or when those
+## weights are a minority (the hem touching the hand at rest). The model is AI-generated and its hands
+## are fused into the hips, so triangles joining a hand to bare body are cut out. Cached across reloads.
+func unstick_hands(arm_radius := 0.055, min_share := 0.5) -> void:
+	if skeleton == null:
+		return
+	var meshes := skeleton.get_parent().find_children("*", "MeshInstance3D", true, false)
+	if meshes.is_empty() or (meshes[0] as MeshInstance3D).skin == null:
+		return
+	var mesh_instance: MeshInstance3D = meshes[0]
+	if _unstuck_mesh == null:
+		_unstuck_mesh = _drop_hand_weights(mesh_instance.mesh as ArrayMesh, mesh_instance.skin, arm_radius, min_share)
+	mesh_instance.mesh = _unstuck_mesh
+
+
+func _drop_hand_weights(source: ArrayMesh, skin: Skin, arm_radius: float, min_share: float) -> ArrayMesh:
+	var hand_binds := {}
+	var arm_binds := {}
+	var origin := {}
+	for b in skin.get_bind_count():
+		var bone := skin.get_bind_bone(b)
+		var bone_name := skeleton.get_bone_name(bone) if bone >= 0 else String(skin.get_bind_name(b))
+		if bone_name.contains("ForeArm") or bone_name.contains("Hand"):
+			hand_binds[b] = true
+		if bone_name.contains("Arm") or bone_name.contains("Hand") or bone_name.contains("Shoulder"):
+			arm_binds[b] = true
+		for part in ["Arm", "ForeArm", "Hand"]:
+			for side in ["Left", "Right"]:
+				if bone_name.ends_with("_" + side + part) or bone_name.ends_with(":" + side + part) or bone_name == side + part:
+					origin[side + part] = skin.get_bind_pose(b).affine_inverse().origin
+	# Shoulder -> elbow -> wrist -> fingertips, both arms, in mesh space.
+	var segments: Array[Vector3] = []
+	for side in ["Left", "Right"]:
+		if not (origin.has(side + "Arm") and origin.has(side + "ForeArm") and origin.has(side + "Hand")):
+			return source
+		var hand: Vector3 = origin[side + "Hand"]
+		var tip: Vector3 = hand + (hand - (origin[side + "ForeArm"] as Vector3)) * 0.6
+		segments.append_array([origin[side + "Arm"], origin[side + "ForeArm"], origin[side + "ForeArm"], hand, hand, tip])
+	var mesh := ArrayMesh.new()
+	for surface in source.get_surface_count():
+		var arrays := source.surface_get_arrays(surface)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var bones: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
+		var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
+		var per := bones.size() / maxi(vertices.size(), 1)
+		for v in vertices.size():
+			var hand := 0.0
+			for k in per:
+				if hand_binds.has(bones[v * per + k]):
+					hand += weights[v * per + k]
+			if hand <= 0.0 or hand >= 0.999 or (hand >= min_share and _distance_to_segments(vertices[v], segments) <= arm_radius):
+				continue
+			for k in per:
+				var i := v * per + k
+				weights[i] = 0.0 if hand_binds.has(bones[i]) else weights[i] / (1.0 - hand)
+		arrays[Mesh.ARRAY_WEIGHTS] = weights
+		arrays[Mesh.ARRAY_INDEX] = _cut_fused(arrays[Mesh.ARRAY_INDEX], bones, weights, per, hand_binds, arm_binds)
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, source.surface_get_format(surface) & Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS)
+		mesh.surface_set_material(surface, source.surface_get_material(surface))
+	return mesh
+
+
+## Drops triangles that join a hand-dominated vertex to a vertex with no arm weight at all.
+static func _cut_fused(indices: PackedInt32Array, bones: PackedInt32Array, weights: PackedFloat32Array, per: int, hand_binds: Dictionary, arm_binds: Dictionary) -> PackedInt32Array:
+	var kept := PackedInt32Array()
+	for t in range(0, indices.size(), 3):
+		var handy := false
+		var bare := false
+		for c in 3:
+			var v := indices[t + c]
+			var hand := 0.0
+			var arm := 0.0
+			for k in per:
+				var w := weights[v * per + k]
+				if hand_binds.has(bones[v * per + k]):
+					hand += w
+				if arm_binds.has(bones[v * per + k]):
+					arm += w
+			handy = handy or hand >= 0.5
+			bare = bare or arm <= 0.001
+		if not (handy and bare):
+			kept.append_array([indices[t], indices[t + 1], indices[t + 2]])
+	return kept
+
+
+static func _distance_to_segments(p: Vector3, segments: Array[Vector3]) -> float:
+	var best := INF
+	for s in range(0, segments.size(), 2):
+		var a := segments[s]
+		var ab := segments[s + 1] - a
+		var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 0.000001), 0.0, 1.0)
+		best = minf(best, (a + ab * t).distance_to(p))
+	return best
 
 
 ## Each vertex gets the 4 nearest bone segments, weighted by 1/d^4 (smooth blend across joints).

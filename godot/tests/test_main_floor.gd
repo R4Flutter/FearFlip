@@ -26,6 +26,8 @@ func test_flip_swaps_collision_and_visuals() -> void:
 	assert_eq(main.world, NIGHTMARE)
 	assert_eq(main.player.collision_mask, main.LAYER_SHARED | main.LAYER_NIGHTMARE)
 	assert_true(main.nightmare_walls.visible and not main.wake_walls.visible)
+	assert_false(main.devil.visible, "asleep until it wakes")
+	main._wake_devil()
 	assert_true(main.devil.visible)
 
 
@@ -39,6 +41,9 @@ func test_three_sigils_open_exit_then_win() -> void:
 	main.player_cell = main.layout.exit
 	main.devil_cell = main.layout.devil_spawn
 	main._process(0.016)
+	assert_eq(main.game_state, "unlocking", "keys go into the chest first; clock and Devil freeze")
+	main._on_chest_opened()
+	main._win_game()
 	assert_eq(main.game_state, "won")
 
 
@@ -50,20 +55,96 @@ func test_wrong_world_sigil_is_not_collected() -> void:
 	assert_eq(main.sigils_collected, 0)
 
 
-func test_devil_grabs_only_in_nightmare() -> void:
+func _run(main: Node3D, seconds: float) -> void:
+	for _frame in int(seconds / 0.05):
+		main._process(0.05)
+
+
+func test_devil_walks_shortest_path_through_open_cells() -> void:
 	var main := _spawn_floor()
-	main.devil_cell = main.player_cell
-	main.devil_target = main.player_cell
-	main._process(0.016)
-	assert_eq(main.game_state, "playing", "safe in WAKE")
+	main._wake_devil()
+	main.devil_cell = main.layout.devil_spawn
+	var left: int = main._devil_distance()
+	while left > 0:
+		var from: Vector2i = main.devil_cell
+		main._step_devil()
+		var to: Vector2i = main.devil_cell
+		assert_eq(absi(to.x - from.x) + absi(to.y - from.y), 1, "one neighbour per step")
+		assert_true(main.layout.is_open(main.world, to), "walked into a wall at %s" % to)
+		left -= 1
+		assert_eq(main._devil_distance(), left, "not the shortest path")
+	assert_eq(main.devil_cell, main.player_cell)
+
+
+func test_devil_grabs_in_both_worlds_with_a_lunge() -> void:
+	for w: int in [WAKE, NIGHTMARE]:
+		var main := _spawn_floor()
+		main._wake_devil()
+		main._apply_world(w)
+		main.catch_grace = 0.0
+		main.devil_cell = main.player_cell
+		main.devil.position = main._devil_world_position()
+		main._process(0.05)
+		assert_gt(main.lunge_left, 0.0, "a catch is a visible lunge first (world %d)" % w)
+		assert_eq(main.game_state, "playing")
+		_run(main, 0.5)
+		assert_eq(main.game_state, "lost", "world %d" % w)
+		assert_true(main.death_screen.visible)
+
+
+func test_safe_circle_blocks_catch_and_revive_returns_there() -> void:
+	var main := _spawn_floor()
+	var circle: Vector2i = main.circles.cells[0]
+	main._wake_devil()
 	main._apply_world(NIGHTMARE)
 	main.catch_grace = 0.0
-	main._process(0.016)
+	main._enter_cell(circle)
+	assert_false(main.snapshot.is_empty(), "entering a circle saves the revive point")
+	assert_true(main.devil_retreating)
+	main.devil_cell = circle
+	_run(main, 0.5)
+	assert_eq(main.game_state, "playing", "no catch inside a circle")
+	RunState.save_path = "user://test_run_state.cfg"
+	main._lose_game("time")
+	var revives: int = RunState.revives_left()
+	main._revive()
+	assert_eq(main.game_state, "playing")
+	assert_eq(main.player_cell, circle)
+	assert_eq(RunState.revives_left(), revives - 1)
+	RunState.revives_used = 0
+
+
+func test_cracked_floor_kills_on_second_step() -> void:
+	var main := _spawn_floor()
+	var away: Vector2i = main.player_cell
+	var cell := away
+	for d in FloorLayout.DIRS:
+		if main.layout.is_open(WAKE, away + d):
+			cell = away + d
+	main.traps.cells.assign([cell])
+	main.traps.states.assign([TrapField.State.HIDDEN])
+	main.traps._primed.assign([true])
+	main.trap_nodes.clear()
+	main._build_traps()
+	main._enter_cell(cell)
+	assert_eq(main.traps.states[0], TrapField.State.CRACKED)
+	assert_eq(main.game_state, "playing", "the first step is always safe")
+	main._enter_cell(away)
+	main._enter_cell(cell)
+	assert_eq(main.game_state, "dying")
+
+
+func test_clock_zero_loses() -> void:
+	var main := _spawn_floor()
+	assert_gt(main.time_left, 60.0)
+	main.time_left = 0.01
+	main._process(0.05)
 	assert_eq(main.game_state, "lost")
 
 
 func test_forced_flip_moves_close_devil_away() -> void:
 	var main := _spawn_floor()
+	main._wake_devil()
 	for d in FloorLayout.DIRS:
 		if main.layout.is_open(NIGHTMARE, main.player_cell + d):
 			main.devil_cell = main.player_cell + d
