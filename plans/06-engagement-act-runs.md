@@ -7,6 +7,14 @@
 > StageRule tests extend `godot/tests/test_descent_rules.gd` instead of a new `test_stage_rule.gd`; the act
 > picker reuses the How-To overlay (`main_menu.gd` `_modal()`); act art is optional, with prompts in
 > `godot/assets/images/menu/PROMPTS.md`.
+>
+> **P2 (Rewards) done** on `feature/godot-3d-rewards`. Differences from §3/§6: floors have 2 keys, so a key
+> pays 4 shards (the D1 table assumed 3 × 3); grades use pace (time used ÷ time to walk the key tour, so
+> S stays reachable in Act 5) with −1 grade per revive and −1 if chased over 40% of the floor; chest
+> omen tokens and lore notes are profile counters until P4/P5 use them, and "rare" is a 30-shard haul;
+> the first unlock costs 70 with 14 starter shards (the 20% head start); the menu's two goal cards became
+> NEXT UNLOCK + the next act's shortcut ("Daily status" waits for P6); B3 (off-route chests) waits for P3's
+> Vault/Greed cards. Shards bank at the chest, on death and on restart, not per pickup.
 
 ## Context
 
