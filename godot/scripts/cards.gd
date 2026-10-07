@@ -1,0 +1,199 @@
+class_name Cards
+extends RefCounted
+## Floor variety (plans/06 P3). Every modifier is a card {id, name, text, mods}: the rule cards a floor
+## is dealt (a deck per act), the door you pick into it, each act's Gate twist and the Sanctuary.
+## RunState.mod() folds a floor's cards into one value per mod, and LIMITS keep any stack fair. Omens,
+## curses and ranks (P4, P8) join later as more cards of the same shape.
+
+## Mods that count (neutral 0) add up across cards; every other mod is a factor (neutral 1).
+const ADDED: Array[String] = ["keys", "chests", "mirror", "follow_flips", "devil_awake", "omen_token", "rare_chest"]
+const MAX_KEYS := 5
+const MAX_TRAPS := 16
+const MIN_FLIP_INTERVAL := 12.0
+const MIN_CIRCLE_TIME := 2.0
+const MIN_ROOMS := 6
+## Folded values are held inside these (in each system's own units), whatever the stack.
+const LIMITS := {
+	"devil_speed": Vector2(0.8, 1.3),
+	"devil_distance": Vector2(StageRule.MIN_DEVIL_SPAWN_DISTANCE, 99.0),
+	"trap_cue": Vector2(StageRule.MIN_TRAP_CUE, 1.0),
+	"flip_interval": Vector2(MIN_FLIP_INTERVAL, 999.0),
+	"circle_time": Vector2(MIN_CIRCLE_TIME, 99.0),
+	"clock": Vector2(0.75, 1.5),
+	"keys": Vector2(1.0, MAX_KEYS),
+	"chests": Vector2(0.0, 3.0),
+	"traps": Vector2(0.0, MAX_TRAPS),
+	"circles": Vector2(1.0, 6.0),
+	"rooms": Vector2(MIN_ROOMS, 99.0),
+	"shards": Vector2(0.5, 3.0),
+}
+## Hunt doors are Act 2's new thing, and never lead into an act's first two floors.
+const HUNT_FROM_ACT := 2
+const HUNT_FROM_FLOOR := 3
+
+## Rule cards (A1): one per floor from its act's deck ("from" = the first act that deals it).
+const RULES: Array[Dictionary] = [
+	{"id": "thick_fog", "from": 1, "name": "THICK FOG", "text": "Fog rolls in. You see half as far.", "mods": {"fog": 1.8}},
+	{"id": "safe_haven", "from": 1, "name": "SAFE HAVEN", "text": "Twice the safe circles, but they drain twice as fast.", "mods": {"circles": 2.0, "circle_time": 0.5}},
+	{"id": "blackout", "from": 1, "name": "BLACKOUT", "text": "The ceiling lights are dead. Your flashlight is all you have.", "mods": {"lights": 0.0}},
+	{"id": "hungry_dark", "from": 2, "name": "HUNGRY DARK", "text": "It runs faster tonight, and every shard counts half again.", "mods": {"devil_speed": 1.15, "shards": 1.5}},
+	{"id": "short_fuse", "from": 2, "name": "SHORT FUSE", "text": "Flipping Time comes twice as often.", "mods": {"flip_interval": 0.5}},
+	{"id": "cracked_earth", "from": 2, "name": "CRACKED EARTH", "text": "Twice the cracked floors, but every crack glows.", "mods": {"traps": 2.0, "trap_cue": 2.0}},
+	{"id": "greed", "from": 2, "name": "GREED", "text": "A chest waits down a dead end. It wakes sooner.", "mods": {"chests": 1, "devil_delay": 0.6}},
+	{"id": "deaf_night", "from": 3, "name": "DEAF NIGHT", "text": "No music. Only your heartbeat says it's close.", "mods": {"music": 0.0}},
+	{"id": "mirror_night", "from": 3, "name": "MIRROR NIGHT", "text": "In NIGHTMARE your controls are mirrored.", "mods": {"mirror": 1}},
+	{"id": "static", "from": 3, "name": "STATIC", "text": "The map is gone. Remember the way.", "mods": {"minimap": 0.0}},
+	{"id": "tight_clock", "from": 4, "name": "TIGHT CLOCK", "text": "Less time, more shards.", "mods": {"clock": 0.85, "shards": 1.3}},
+	{"id": "relentless", "from": 5, "name": "RELENTLESS", "text": "WAKE no longer slows it down.", "mods": {"follow_flips": 1}},
+]
+## Doors into the next floor (A2). "safe" doors never raise the danger.
+const DOORS: Array[Dictionary] = [
+	{"id": "normal", "name": "NORMAL", "text": "The floor's own rule card. Nothing more.", "mods": {}, "safe": true},
+	{"id": "shrine", "name": "SHRINE", "text": "A quiet floor with no rule card. An omen token, fewer shards.", "mods": {"shards": 0.75, "omen_token": 1}, "safe": true},
+	{"id": "vault", "name": "VAULT", "text": "One more key and two chests down dead ends. It wakes sooner.", "mods": {"keys": 1, "chests": 2, "devil_delay": 0.6}},
+	{"id": "hunt", "name": "HUNT", "text": "Two rule cards, double shards and a rare chest.", "mods": {"shards": 2.0, "rare_chest": 1}},
+	{"id": "mystery", "name": "MYSTERY", "text": "One of the other doors; you find out inside. A quarter more shards.", "mods": {"shards": 1.25}},
+]
+## Each act's Gate (F10, A3): its F8 difficulty plus one twist, never a raw spike.
+const GATES: Array[Dictionary] = [
+	{"id": "first_blood", "name": "FIRST BLOOD", "text": "It is awake from the start, but far away.", "mods": {"devil_awake": 1}},
+	{"id": "ritual", "name": "RITUAL", "text": "Five keys. Flipping Time every 25 seconds.", "mods": {"keys": 3, "flip_interval": 0.55}},
+	{"id": "mind_break", "name": "MIND BREAK", "text": "Flipping Time keeps coming back, and there is no map.", "mods": {"flip_interval": 0.6, "minimap": 0.0}},
+	{"id": "precision_hell", "name": "PRECISION HELL", "text": "A gauntlet of cracked floors on a tight clock.", "mods": {"traps": 1.8, "clock": 0.85}},
+	{"id": "the_breaker", "name": "THE BREAKER", "text": "Awake from the start, and WAKE won't slow it. Run.", "mods": {"devil_awake": 1, "follow_flips": 1}},
+]
+## The Sanctuary (F5, A4): the act's breather.
+const SANCTUARY := {"id": "sanctuary", "name": "SANCTUARY", "text": "A small, quiet floor. Nothing hunts you here. Take an omen token.", "mods": {"devil": 0.0, "rooms": 0.6, "omen_token": 1}}
+
+
+static func find(id: String) -> Dictionary:
+	return _lookup(id)[0]
+
+
+## "rule", "door", "gate" or "sanctuary" ("" for an unknown id).
+static func kind(id: String) -> String:
+	return _lookup(id)[1]
+
+
+static func deck(act: int) -> Array[String]:
+	var ids: Array[String] = []
+	for card: Dictionary in RULES:
+		if card["from"] <= act:
+			ids.append(card["id"])
+	return ids
+
+
+## `count` rule cards from `act`'s deck, none of them in `exclude`, shuffled by `seed_value`.
+static func draw(seed_value: int, act: int, count: int, exclude: Array) -> Array[String]:
+	var pool: Array[String] = []
+	for id in deck(act):
+		if not exclude.has(id):
+			pool.append(id)
+	_shuffle(pool, hash([seed_value, "rules"]))
+	return pool.slice(0, count)
+
+
+## A floor's cards: the Gate's or the Sanctuary's own, else the door taken (a Mystery also shows which door
+## it was) and the rule cards it deals, none repeated from `exclude` (the floor before). The game's first
+## floor has none: the core loop comes first.
+static func deal(seed_value: int, rule: StageRule, door: String, exclude: Array) -> Array[String]:
+	var cards: Array[String] = []
+	if rule.is_gate:
+		cards.append(GATES[rule.act - 1]["id"])
+		return cards
+	if rule.is_sanctuary:
+		cards.append(SANCTUARY["id"])
+		return cards
+	if rule.floor_number == 1:
+		return cards
+	if door == "mystery":
+		cards.append(door)
+		door = _mystery(seed_value, rule, exclude)
+		cards.append(door)
+	elif door != "normal" and door != "":
+		cards.append(door)
+	var count := 0 if door == "shrine" else (2 if door == "hunt" else 1)
+	cards.append_array(draw(seed_value, rule.act, count, exclude))
+	return cards
+
+
+## Doors lead into every floor but the Sanctuary and the Gate (they play their own card).
+static func offers_doors(rule: StageRule) -> bool:
+	return not rule.is_gate and not rule.is_sanctuary
+
+
+## Three different doors into `rule`'s floor, at least one of them safe; never a Shrine twice in a row
+## (`last_door` = the door taken into the floor just cleared).
+static func doors(seed_value: int, rule: StageRule, last_door: String) -> Array[String]:
+	var pool := _open_doors(rule)
+	if last_door == "shrine":
+		pool.erase("shrine")
+	_shuffle(pool, hash([seed_value, "doors"]))
+	var picks := pool.slice(0, 3)
+	if not picks.any(_is_safe):
+		for id in pool:
+			if _is_safe(id):
+				picks[2] = id
+				break
+		_shuffle(picks, hash([seed_value, "door order"]))
+	return picks
+
+
+## `base` folded through every card in `ids` that has `key` (factors multiply, ADDED mods add), then
+## held inside LIMITS. RunState.mod() is this over the floor's cards.
+static func fold(ids: Array, key: String, base: float) -> float:
+	var value := base
+	for id in ids:
+		var mods: Dictionary = find(id).get("mods", {})
+		if mods.has(key):
+			value = value + mods[key] if ADDED.has(key) else value * mods[key]
+	if LIMITS.has(key):
+		var limit: Vector2 = LIMITS[key]
+		value = clampf(value, limit.x, limit.y)
+	return value
+
+
+## id -> [card, kind], built on first use (every fold looks cards up).
+static var _by_id := {}
+
+
+static func _lookup(id: String) -> Array:
+	if _by_id.is_empty():
+		for entry: Array in [[RULES, "rule"], [DOORS, "door"], [GATES, "gate"], [[SANCTUARY], "sanctuary"]]:
+			for card: Dictionary in entry[0]:
+				_by_id[card["id"]] = [card, entry[1]]
+	return _by_id.get(id, [{}, ""])
+
+
+static func _is_safe(id: String) -> bool:
+	return find(id).get("safe", false)
+
+
+static func _open_doors(rule: StageRule) -> Array[String]:
+	var ids: Array[String] = []
+	for door: Dictionary in DOORS:
+		if door["id"] != "hunt" or (rule.act >= HUNT_FROM_ACT and rule.floor_in_act >= HUNT_FROM_FLOOR):
+			ids.append(door["id"])
+	return ids
+
+
+## Which door a Mystery was: any other door this floor could have offered (no Shrine right after a Shrine
+## floor, `exclude` being the floor before), from the floor's seed.
+static func _mystery(seed_value: int, rule: StageRule, exclude: Array) -> String:
+	var options := _open_doors(rule)
+	options.erase("mystery")
+	if exclude.has("shrine"):
+		options.erase("shrine")
+	_shuffle(options, hash([seed_value, "mystery"]))
+	return options[0]
+
+
+## Fisher-Yates from a seed (Array.shuffle() uses the global RNG, so it would not repeat).
+static func _shuffle(items: Array, seed_value: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	for i in range(items.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var swap: Variant = items[i]
+		items[i] = items[j]
+		items[j] = swap

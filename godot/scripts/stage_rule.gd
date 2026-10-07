@@ -37,6 +37,8 @@ const ROOMS_3D := Vector2i(8, 14)
 
 # Curve endpoints: [difficulty 0 (Act 1 F1), difficulty 1 (Act 5 F9)].
 const TIME_SLACK := Vector2(2.6, 1.7)
+## However a floor's cards squeeze the clock, it never drops below walking the key tour this many times over.
+const MIN_TIME_SLACK := 1.5
 const FIRST_FORCED_AT := Vector2(45.0, 22.0)
 const FORCED_INTERVAL_MIN := Vector2(40.0, 20.0)
 const FORCED_INTERVAL_MAX := Vector2(60.0, 30.0)
@@ -141,9 +143,10 @@ static func act_start(act_number: int) -> int:
 	return (clampi(act_number, 1, ACT_COUNT) - 1) * FLOORS_PER_ACT + 1
 
 
-## Seconds for a floor: walking the route at `walk` m/s, times the slack, plus 15 s, rounded up to 5 s.
-func time_budget(route_m: float, walk: float) -> float:
-	return ceilf((route_m / walk * time_slack + 15.0) / 5.0) * 5.0
+## Seconds for a floor: walking the route at `walk` m/s, times the slack (squeezed or stretched by the
+## floor's cards via `clock`, never under MIN_TIME_SLACK), plus 15 s, rounded up to 5 s.
+func time_budget(route_m: float, walk: float, clock := 1.0) -> float:
+	return ceilf((route_m / walk * maxf(time_slack * clock, MIN_TIME_SLACK) + 15.0) / 5.0) * 5.0
 
 
 ## "S", "A", "B" or "C" for a cleared floor: `time_used` and `chased` in seconds, the route as time_budget().
