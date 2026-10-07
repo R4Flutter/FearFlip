@@ -57,6 +57,13 @@ const TRAPS := Vector2(2.0, 10.0)
 const TRAP_CUE := Vector2(1.0, 0.06)
 ## Cracks must stay readable: a doom trap is only fair if you can see it coming (§2.5).
 const MIN_TRAP_CUE := 0.35
+## Floor grades (plans/06 C3), best first. Pace = seconds used / seconds to walk the key tour (the route
+## time_budget() is built on), so the same pace earns the same grade on every floor. GRADE_PACE is the
+## slowest pace each grade allows; every revive costs a grade, and so does being chased (the Devil within
+## heartbeat range) for over GRADE_CHASED of the floor.
+const GRADES := "SABC"
+const GRADE_PACE: Array[float] = [1.35, 1.8, 2.4]
+const GRADE_CHASED := 0.4
 
 @export var floor_number := 1
 @export var act := 1
@@ -137,6 +144,24 @@ static func act_start(act_number: int) -> int:
 ## Seconds for a floor: walking the route at `walk` m/s, times the slack, plus 15 s, rounded up to 5 s.
 func time_budget(route_m: float, walk: float) -> float:
 	return ceilf((route_m / walk * time_slack + 15.0) / 5.0) * 5.0
+
+
+## "S", "A", "B" or "C" for a cleared floor: `time_used` and `chased` in seconds, the route as time_budget().
+static func grade(time_used: float, route_m: float, walk: float, revives: int, chased: float) -> String:
+	var pace := time_used / maxf(route_m / walk, 1.0)
+	var rank := GRADE_PACE.size()
+	for i in GRADE_PACE.size():
+		if pace <= GRADE_PACE[i]:
+			rank = i
+			break
+	rank += revives + (1 if chased > GRADE_CHASED * time_used else 0)
+	return GRADES[mini(rank, GRADES.length() - 1)]
+
+
+## Floors still to clear, this one included, before its act's Gate falls (and the next act's shortcut opens).
+static func floors_to_gate(number: int) -> int:
+	var f := clampi(number, 1, LAST_FLOOR)
+	return act_start(act_of(f)) + GATE_FLOOR - f
 
 
 static func _curve(ends: Vector2, t: float) -> float:

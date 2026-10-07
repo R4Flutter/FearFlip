@@ -122,3 +122,26 @@ func test_spawn_is_far_behind_and_unseen() -> void:
 	assert_false(DevilBrain.can_spawn(20.0, 10.0, 0.1, false), "not far enough in")
 	assert_false(DevilBrain.can_spawn(20.0, 10.0, 0.9, true), "you're in a circle")
 	assert_true(DevilBrain.can_spawn(20.0, 10.0, 0.9, false))
+
+
+func test_grade_boundaries() -> void:
+	# A key tour walked in 100 s: pace = seconds used / 100.
+	var route := 100.0 * WALK
+	assert_eq(StageRule.grade(135.0, route, WALK, 0, 0.0), "S", "pace 1.35 is still S")
+	assert_eq(StageRule.grade(136.0, route, WALK, 0, 0.0), "A")
+	assert_eq(StageRule.grade(180.0, route, WALK, 0, 0.0), "A")
+	assert_eq(StageRule.grade(181.0, route, WALK, 0, 0.0), "B")
+	assert_eq(StageRule.grade(240.0, route, WALK, 0, 0.0), "B")
+	assert_eq(StageRule.grade(241.0, route, WALK, 0, 0.0), "C")
+	assert_eq(StageRule.grade(100.0, route, WALK, 1, 0.0), "A", "a revive drops one grade")
+	assert_eq(StageRule.grade(100.0, route, WALK, 0, 41.0), "A", "chased for over 40% of the floor drops one")
+	assert_eq(StageRule.grade(100.0, route, WALK, 0, 40.0), "S", "40% exactly is fine")
+	assert_eq(StageRule.grade(241.0, route, WALK, 3, 241.0), "C", "never below C")
+
+
+func test_floors_to_gate_counts_down_to_the_shortcut() -> void:
+	assert_eq(StageRule.floors_to_gate(1), 10)
+	assert_eq(StageRule.floors_to_gate(8), 3)
+	assert_eq(StageRule.floors_to_gate(StageRule.GATE_FLOOR), 1, "standing on the Gate")
+	assert_eq(StageRule.floors_to_gate(11), 10, "each act counts on its own")
+	assert_eq(StageRule.floors_to_gate(StageRule.LAST_FLOOR), 1)
