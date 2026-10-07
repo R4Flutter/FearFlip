@@ -18,6 +18,8 @@ const MAX_ATTEMPTS := 20
 const NIGHTMARE_CHANGE := 0.0
 ## Devil spawn, in NIGHTMARE path cells from the player spawn.
 const MIN_DEVIL_DISTANCE := 10
+## Chests down dead ends (plans/06 B3) sit about this many path tiles off the route: a real detour.
+const DETOUR_TILES := 6
 
 var seed_value: int
 var size: int
@@ -26,6 +28,7 @@ var walls: Array[PackedByteArray] = []
 var spawn := Vector2i(1, 1)
 var exit := Vector2i.ZERO
 var devil_spawn := Vector2i.ZERO
+var sigil_count := SIGIL_COUNT
 var sigils: Array[Vector2i] = []
 var sigil_worlds: Array[int] = []
 ## Cells never changed between worlds (spawn room, exit chamber).
@@ -33,9 +36,10 @@ var _protected: Dictionary = {}
 
 
 ## rooms = rooms per side; the grid is (2 * rooms + 1) tiles square.
-static func generate(seed_value: int, rooms: int) -> FloorLayout:
+static func generate(seed_value: int, rooms: int, keys := SIGIL_COUNT) -> FloorLayout:
 	var layout := FloorLayout.new()
 	layout.seed_value = seed_value
+	layout.sigil_count = keys
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	for _attempt in MAX_ATTEMPTS:
@@ -74,13 +78,44 @@ func route(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
 
 ## BFS path distance inside one world. -1 = unreachable.
 func distances(world: int, from: Vector2i) -> PackedInt32Array:
+	return _distances_from(world, [from])
+
+
+## Up to `count` dead-end rooms off the spawn -> exit route for chests (open in both worlds, never in
+## `excluded`, never side by side), each as close to DETOUR_TILES off the route as the maze allows.
+func detours(count: int, excluded: Array[Vector2i]) -> Array[Vector2i]:
+	var path := route(spawn, exit)
+	var off := _distances_from(ANY, path)
+	var ends: Array[Vector2i] = []
+	for y in range(1, size, 2):
+		for x in range(1, size, 2):
+			var cell := Vector2i(x, y)
+			if cell == spawn or cell == exit or excluded.has(cell) or not (is_open(World.WAKE, cell) and is_open(World.NIGHTMARE, cell)):
+				continue
+			var ways := 0
+			for d in DIRS:
+				ways += 1 if is_open(ANY, cell + d) else 0
+			if ways == 1:
+				ends.append(cell)
+	ends.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return absi(off[_idx(a)] - DETOUR_TILES) < absi(off[_idx(b)] - DETOUR_TILES))
+	var picks: Array[Vector2i] = []
+	for cell in ends:
+		if picks.size() < count and picks.all(func(p: Vector2i) -> bool: return absi(p.x - cell.x) + absi(p.y - cell.y) > 2):
+			picks.append(cell)
+	return picks
+
+
+## Path tiles from the nearest of `sources` over cells open in `world` (-1 = unreachable).
+func _distances_from(world: int, sources: Array[Vector2i]) -> PackedInt32Array:
 	var dist := PackedInt32Array()
 	dist.resize(size * size)
 	dist.fill(-1)
-	if not is_open(world, from):
-		return dist
-	dist[_idx(from)] = 0
-	var queue: Array[Vector2i] = [from]
+	var queue: Array[Vector2i] = []
+	for cell in sources:
+		if is_open(world, cell) and dist[_idx(cell)] == -1:
+			dist[_idx(cell)] = 0
+			queue.append(cell)
 	var head := 0
 	while head < queue.size():
 		var cell: Vector2i = queue[head]
@@ -212,7 +247,7 @@ func _place_sigils() -> void:
 	nearest.fill(1 << 30)
 	_update_nearest(nearest, spawn)
 	_update_nearest(nearest, exit)
-	for i in SIGIL_COUNT:
+	for i in sigil_count:
 		var world := World.WAKE if i % 2 == 0 else World.NIGHTMARE
 		var candidates: Array[Vector2i] = []
 		for cell in on_route:

@@ -80,3 +80,43 @@ func test_next_step_moves_closer() -> void:
 	var step := layout.next_step(NIGHTMARE, layout.devil_spawn, layout.spawn)
 	assert_eq(dist[step.y * layout.size + step.x], dist[layout.devil_spawn.y * layout.size + layout.devil_spawn.x] - 1)
 	assert_eq(layout.next_step(NIGHTMARE, layout.spawn, layout.spawn), layout.spawn)
+
+
+func test_key_count_is_a_parameter() -> void:
+	var valid := 0
+	for seed_value in 200:
+		var layout := FloorLayout.generate(seed_value, ROOMS + 2, Cards.MAX_KEYS)
+		if layout.sigils.size() == Cards.MAX_KEYS and layout.validate().is_empty():
+			valid += 1
+	assert_eq(valid, 200, "five keys placed and reachable on every seed")
+
+
+func test_sanctuary_sized_floors_stay_valid() -> void:
+	var valid := 0
+	for seed_value in 300:
+		if FloorLayout.generate(seed_value, Cards.MIN_ROOMS).validate().is_empty():
+			valid += 1
+	assert_eq(valid, 300)
+
+
+func test_detours_are_dead_ends_off_the_route() -> void:
+	var checked := 0
+	for seed_value in 100:
+		var layout := FloorLayout.generate(seed_value, ROOMS + 2)
+		var route := layout.route(layout.spawn, layout.exit)
+		var every := layout.detours(999, [])
+		var problem := "" if layout.detours(3, layout.sigils).size() == 3 else "fewer than 3"
+		for cell in layout.detours(3, layout.sigils):
+			if layout.sigils.has(cell):
+				problem = "%s is excluded" % cell
+		for cell in every:
+			var ways := 0
+			for d in FloorLayout.DIRS:
+				ways += 1 if layout.is_open(FloorLayout.ANY, cell + d) else 0
+			if ways != 1 or route.has(cell) or every.count(cell) > 1 					or not (layout.is_open(WAKE, cell) and layout.is_open(NIGHTMARE, cell)):
+				problem = "%s is no dead end off the route" % cell
+		if problem != "":
+			assert_true(false, "seed %d: %s" % [seed_value, problem])
+			return
+		checked += 1
+	assert_eq(checked, 100)
