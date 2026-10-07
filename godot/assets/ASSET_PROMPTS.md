@@ -27,8 +27,18 @@ exist under those names, so replacing one needs no code change at all.
 - **Normal/roughness maps:** take them from the generator if it offers PBR. Otherwise send only the albedo and Claude
   will derive the rest. Plan B for any tileable material: free CC0 libraries (ambientCG, Poly Haven) often beat AI here.
 
+## Status (7 Oct 2026)
+
+- **Delivered, not wired into the game yet**, in `godot/assets/new_assets/`: world materials (wake/nightmare wall,
+  floor and ceiling, wall trim), decals (cracks, blood, handprint, scratches), safe circle, exit circle, chest, key,
+  ceiling lamp, gate arch and sanctuary altar models, key icon, both overlays, the FX sheet and Oswald (zip).
+- **Still to generate:** card frame, pick backdrop, omen sigils and card art (`images/cards/PROMPTS.md`); act cards,
+  padlock and act-cleared burst (`images/menu/PROMPTS.md`, Act-Runs); the HUD plate, minimap frame, banner and
+  keycaps (§4 below); audio (§6, optional).
+
 ## Priority (what removes the most ugliness first)
 
+0. Card picker: `card_frame.png` + `pick_backdrop.png` (`images/cards/PROMPTS.md`), seen after every floor.
 1. World materials (§1): on screen every single frame.
 2. Chest + exit circle, safe circle, cracked-floor decals (§2, §3).
 3. Key model + key icon (§3, §4).
@@ -194,6 +204,38 @@ or pure black. It must read at 32 px.
 **Font** (no AI needed): download **Oswald SemiBold** from Google Fonts (free, OFL) and save it as
 `godot/assets/fonts/ui.ttf`. The menu and death screen already look for that file, and the HUD will be switched to it.
 
+### Added 7 Oct 2026 (from the P4 screenshots: the HUD is bare text floating over the 3D view)
+
+**hud_plate.png** (behind the top-right status block: act/floor, cards, world + clock, keys, flip). 720x400 PNG,
+stretched as a 9-slice with 48 px corners, so put the decoration only in the four corners and keep the edges plain.
+Transparent is best; an opaque plate works too (Godot draws it at about 80% opacity).
+> Game HUD backing plate for a dark fantasy horror game, flat front view, a wide rectangle of dark smoky charcoal
+> glass with a thin worn blackened-iron border, tiny rivets and small thorn ornaments only in the four corners,
+> plain straight edges between the corners, faint inner smoke texture, evenly lit, fills the canvas edge to edge,
+> no text, no icons, no watermark.
+
+**minimap_frame.png** (around the minimap and its DEVIL / EXIT readout). 520x612 PNG with a **fully transparent
+centre window** (the map shows through it), so use a background remover if your tool can't make transparency. The
+window is the middle 480x572 px; the frame is the 20 px band around it.
+> Ornate square-ish frame for a game minimap, flat front view, portrait 520x612, blackened iron with thin bone-gold
+> filigree, small horned skull ornament at the top centre and a compass "N" notch shape (no letter) at the top, a
+> thin divider bar across the frame about 84% of the way down, the whole inside window fully transparent, frame
+> band thin and even, no text, no watermark.
+
+**banner.png** (behind the centre messages: floor title, FLOOR CLEARED, ACT CLEARED, PAUSED, "Something woke up").
+1536x384 PNG. Paint it as dark marks on **pure white**: Godot multiplies it, so the white vanishes and only the smoke
+darkens the scene behind the words.
+> A long horizontal band of soft charcoal-black smoke with torn, feathered ends fading to nothing at the left and
+> right, densest in the middle, painted on a pure white background, grayscale only, no hard edges, no text.
+
+**keycap.png** + **keycap_wide.png** (optional; the bottom control hints are plain text). 128x128 and 256x128 PNG,
+transparent or pure black, blank caps (Godot writes the letter on them).
+> A single blank keyboard keycap icon for a dark fantasy game UI, front view, worn dark iron cap with a bone-gold
+> rim and a soft inner shadow, the top face completely blank, centred, isolated, no letters, no text.
+> (For `keycap_wide.png`, the same keycap twice as wide, like a SHIFT or SPACE key.)
+
+No new art needed for the HUD shard counter: it will reuse the GEM cell of the menu's `ui_icons.png`.
+
 ---
 
 ## 5. FX sprites
@@ -245,3 +287,13 @@ and never use meme or soundboard clips. Save over the same file in `godot/assets
 - **Spawn view:** the player spawns facing a wall corner, so the first frame is black plus a flashlight circle. Face
   down the open corridor instead.
 - **HUD font:** the HUD uses Godot's default font while the menu uses Impact. Switch it to `ui.ttf` once the font is in.
+- **Death screen:** the HUD (minimap, status, hints, omens) stays drawn on top of GAME OVER, and the Devil tip is cut
+  off mid-sentence ("...or stand in a safe"). Hide the HUD on death and wrap the tip.
+- **Pause:** a line of mint-green text over the live view, with no dim. Dim the view and centre it.
+- **Message colour:** floor title, FLOOR CLEARED and PAUSED are mint green, which clashes with the red/violet look.
+  Use bone/gold.
+- **Flipping Time warning:** dark red text on the red NIGHTMARE view is barely readable. Brighten it, add an outline
+  and add the delivered overlay.
+- **Pickers:** the door cards cover the minimap's EXIT readout, and the busy HUD shows through every pick. Hide or dim
+  the HUD while choosing.
+- **Card stand-in:** with no art, a card's top 60% is empty. Until art lands, centre the text block.
