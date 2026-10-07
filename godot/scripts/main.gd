@@ -1367,7 +1367,7 @@ func _lose_game(cause: String = "devil") -> void:
 		roundi(steps * CELL_SIZE), rule.floor_number, StageRule.LAST_FLOOR,
 		roundi(100.0 * rule.floor_number / StageRule.LAST_FLOOR), checkpoint_text, comeback]
 	var can_revive := not snapshot.is_empty() and RunState.revives_left() > 0
-	var revive_text := "REVIVE  (%d left)" % RunState.revives_left() if not snapshot.is_empty() else "REVIVE  (reach a safe circle)"
+	var revive_text := "%d LEFT  ·  [V]" % RunState.revives_left() if not snapshot.is_empty() else "REACH A SAFE CIRCLE FIRST"
 	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive)
 
 ## Back to the last safe circle you used, with its clock and floor cracks. Max 3 per act.
