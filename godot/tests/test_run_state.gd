@@ -102,11 +102,59 @@ func test_old_saves_start_a_fresh_run() -> void:
 	assert_ne(RunState.run_seed, 99)
 
 
+func test_mod_folds_this_floors_cards() -> void:
+	RunState.floor_cards.assign(["thick_fog", "hunt"])
+	assert_eq(RunState.mod("fog", 1.0), 1.8)
+	assert_eq(RunState.mod("shards", 1.0), 2.0)
+	assert_eq(RunState.mod("keys", 2.0), 2.0, "no card here touches the keys")
+
+
+func test_each_floor_is_dealt_its_cards() -> void:
+	assert_eq(RunState.floor_cards, [], "the game opens on the core loop")
+	RunState.advance_floor()
+	assert_eq(RunState.floor_cards.size(), 1, "floor 2 through the normal door: one rule card")
+	for _i in StageRule.SANCTUARY_FLOOR - 2:
+		RunState.advance_floor()
+	assert_eq(RunState.floor_cards, ["sanctuary"])
+
+
+func test_a_door_redeals_the_floor_and_survives_a_relaunch() -> void:
+	MetaState.unlock_act(2)
+	RunState.start_run(2)
+	RunState.advance_floor()
+	var cleared := RunState.floor_cards.duplicate()
+	RunState.advance_floor()
+	RunState.choose_door("hunt")
+	assert_eq(RunState.door, "hunt")
+	assert_eq(RunState.floor_cards[0], "hunt")
+	assert_eq(RunState.floor_cards.size(), 3, "Hunt: two rule cards")
+	for id in cleared:
+		assert_false(RunState.floor_cards.has(id), "%s was on the floor before" % id)
+	var dealt := RunState.floor_cards.duplicate()
+	_relaunch()
+	assert_eq(RunState.floor_cards, dealt, "a relaunch replays the same cards")
+	assert_eq(RunState.door, "hunt")
+
+
+func test_the_door_taken_is_remembered_for_the_next_choice() -> void:
+	RunState.advance_floor()
+	RunState.choose_door("mystery")
+	var resolved := RunState.door
+	assert_eq(resolved, RunState.floor_cards[1], "a Mystery keeps the door it turned out to be")
+	RunState.advance_floor()
+	assert_eq(RunState.last_door, resolved)
+	RunState.choose_door("shrine")
+	RunState.advance_floor()
+	assert_eq(RunState.last_door, "shrine", "the next doors know a Shrine came last")
+
+
 ## Forget everything in memory and read it back, as a new process would.
 func _relaunch() -> void:
 	RunState._loaded = false
 	MetaState._loaded = false
 	RunState.current_floor = 1
 	RunState.run_seed = 0
+	RunState.floor_cards.clear()
+	RunState.door = ""
 	MetaState.acts_unlocked = 1
 	RunState.load_save()

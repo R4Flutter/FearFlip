@@ -16,6 +16,14 @@ static var best_floor := 1
 static var revives_used := 0
 ## Shards banked since this run started: the death screen's "dying still pays".
 static var run_shards := 0
+## This floor's cards (Cards ids, plans/06 P3): what mod() folds. Dealt from the floor seed and its door.
+static var floor_cards: Array[String] = []
+## The door taken into this floor ("" on an act's first floor; a Mystery keeps the door it turned out to
+## be) and the one into the floor before (doors never offer a Shrine twice running).
+static var door := ""
+static var last_door := ""
+## The cards of the floor just cleared: a door picked afterwards never deals one of them again.
+static var _cleared_cards: Array[String] = []
 ## True once the run has ended (death or act clear): playing again starts a new run, never resumes it.
 static var run_over := false
 static var _loaded := false
@@ -35,6 +43,8 @@ static func load_save() -> void:
 		revives_used = cfg.get_value("run", "revives_used", 0)
 		run_over = cfg.get_value("run", "run_over", false)
 		run_shards = cfg.get_value("run", "shards", 0)
+		floor_cards.assign(cfg.get_value("run", "cards", []))
+		door = cfg.get_value("run", "door", "")
 	if run_seed == 0 or not MetaState.is_act_unlocked(act()):
 		start_run(1)
 
@@ -48,6 +58,8 @@ static func save() -> void:
 	cfg.set_value("run", "revives_used", revives_used)
 	cfg.set_value("run", "run_over", run_over)
 	cfg.set_value("run", "shards", run_shards)
+	cfg.set_value("run", "cards", floor_cards)
+	cfg.set_value("run", "door", door)
 	cfg.save(save_path)
 
 
@@ -61,6 +73,10 @@ static func start_run(act_number: int) -> bool:
 	revives_used = 0
 	run_over = false
 	run_shards = 0
+	door = ""
+	last_door = ""
+	_cleared_cards.clear()
+	_deal()
 	save()
 	return true
 
@@ -98,10 +114,33 @@ static func floor_seed() -> int:
 	return hash([run_seed, current_floor])
 
 
+## On to the next floor, through the normal door until choose_door() picks another.
 static func advance_floor() -> void:
+	_cleared_cards = floor_cards.duplicate()
+	last_door = door
+	door = "normal"
 	current_floor = mini(current_floor + 1, StageRule.LAST_FLOOR)
 	best_floor = maxi(best_floor, current_floor)
+	_deal()
 	save()
+
+
+## The door picked into this floor (just advanced to): its cards are dealt again through it.
+static func choose_door(id: String) -> void:
+	door = id
+	_deal()
+	if id == "mystery" and floor_cards.size() > 1:
+		door = floor_cards[1]
+	save()
+
+
+## One mod for this floor: `base` folded through its cards, held inside the fairness limits (Cards.fold).
+static func mod(key: String, base: float) -> float:
+	return Cards.fold(floor_cards, key, base)
+
+
+static func _deal() -> void:
+	floor_cards = Cards.deal(floor_seed(), StageRule.for_floor(current_floor), door, _cleared_cards)
 
 
 static func revives_left() -> int:
