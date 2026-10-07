@@ -15,6 +15,16 @@
 > the first unlock costs 70 with 14 starter shards (the 20% head start); the menu's two goal cards became
 > NEXT UNLOCK + the next act's shortcut ("Daily status" waits for P6); B3 (off-route chests) waits for P3's
 > Vault/Greed cards. Shards bank at the chest, on death and on restart, not per pickup.
+>
+> **P3 (Floor variety) done** on `feature/godot-3d-floor-variety` (cut from the image-free `fearflip-3D-game`).
+> Differences from §3/§6: 12 rule cards ship (`scripts/cards.gd`); Locked Flip, Lost Sigil and Hunted Wake wait
+> for the systems they need, and Tight Clock (Act 4) and Relentless (Act 5) carry those acts' new thing. Until
+> omens (P4) the Shrine is a quiet floor with no rule card, an omen token and x0.75 shards, and the Sanctuary is
+> small, has no Devil and gives an omen token (its omen pick and lore note wait for P4/P5). Mystery is one of the
+> other doors, shown at floor start, +25% shards. The game's very first floor has no card; there is no door into
+> the Sanctuary or the Gate; Hunt opens from Act 2 floor 3. Card mods fold through `RunState.mod()` (counts add,
+> factors multiply) and are clamped by `Cards.LIMITS` and `StageRule.MIN_TIME_SLACK`. The per-act look is a hue
+> shift of WAKE and the walls (NIGHTMARE stays red). Vault/Greed chests sit down dead ends (B3) and open on reach.
 
 ## Context
 
