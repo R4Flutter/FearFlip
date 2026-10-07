@@ -61,3 +61,12 @@ func test_a_new_offer_replaces_the_last_cards() -> void:
 	choice.flash("", ["thick_fog"])
 	choice.offer("", ["normal", "vault", "mystery"])
 	assert_eq(choice._row.get_child_count(), 3)
+
+
+func test_the_cards_sit_in_the_middle_of_the_screen() -> void:
+	var choice := _choice()
+	choice.offer("CHOOSE YOUR DOOR", ["normal", "vault", "mystery"])
+	var screen := choice.get_viewport_rect().size
+	assert_eq(choice.size, screen, "the picker covers the screen")
+	var row := choice._row.get_global_rect()
+	assert_true(absf(row.get_center().x - screen.x * 0.5) < 2.0, "centred: %s on %s" % [row, screen])

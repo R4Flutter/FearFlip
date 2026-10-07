@@ -27,7 +27,8 @@ var _fade: Tween
 
 
 func _ready() -> void:
-	set_anchors_preset(PRESET_FULL_RECT)
+	# Offsets too: set_anchors_preset() alone keeps an in-tree node at its current (zero) size.
+	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	mouse_filter = MOUSE_FILTER_IGNORE
 	_font = DeathScreen.ui_font()
 	var column := VBoxContainer.new()
