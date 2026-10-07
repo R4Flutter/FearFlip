@@ -1,7 +1,8 @@
 class_name DeathScreen
 extends Control
 ## Death screen (plans/05 §3.8): what killed you and the rule that beats it, how close you were,
-## then TRY AGAIN (same maze, instant) or REVIVE (back to the last safe circle you used).
+## then TRY AGAIN (a new run from the act's first floor, plans/06) or REVIVE (back to the last safe
+## circle you used).
 ## Impact first (red flash, glass cracks, shake), then GAME OVER slams down and the choices rise.
 ## Art: assets/images/menu/ (shares the dashboard's frames, demon and sweep shader).
 
@@ -42,6 +43,7 @@ var _cause: Label
 var _rule: Label
 var _detail: Label
 var _retry: Button
+var _retry_sub: Label
 var _revive: Button
 var _revive_sub: Label
 var _heart: TextureRect
@@ -84,7 +86,8 @@ func _ready() -> void:
 	_pool.stretch_mode = TextureRect.STRETCH_SCALE
 	_build_title()
 	_build_text()
-	_retry = _big_button(load(ART + "ui_play_button.png"), Icon.RETRY, "TRY AGAIN", "SAME MAZE  ·  [R]", 0)
+	_retry = _big_button(load(ART + "ui_play_button.png"), Icon.RETRY, "TRY AGAIN", "NEW RUN  ·  [R]", 0)
+	_retry_sub = _retry.get_node("Content/Line/Words/Sub")
 	_revive = _big_button(load(ART + "ui_revive_button.png"), Icon.HEART, "REVIVE", "", 1)
 	_revive_sub = _revive.get_node("Content/Line/Words/Sub")
 	_heart = _revive.get_node("Content/Line/Icon")
@@ -111,10 +114,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			accept_event()
 
 
-func show_death(title: String, rule: String, detail: String, revive_text: String, can_revive: bool) -> void:
+func show_death(title: String, rule: String, detail: String, revive_text: String, can_revive: bool,
+		retry_text := "NEW RUN  ·  [R]") -> void:
 	_cause.text = title
 	_rule.text = rule
 	_detail.text = detail
+	_retry_sub.text = retry_text
 	_revive_sub.text = revive_text
 	_revive.disabled = not can_revive
 	_revive.modulate = Color.WHITE if can_revive else SPENT

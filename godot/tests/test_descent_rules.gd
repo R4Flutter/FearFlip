@@ -1,6 +1,6 @@
 extends McpTestSuite
-## plans/05 invariants: the floor curve (StageRule), the Devil's speed caps and senses (DevilBrain),
-## the run's revives (RunState).
+## plans/05 + plans/06 invariants: the floor curve (StageRule: 5 acts of 10, a sawtooth) and the
+## Devil's speed caps and senses (DevilBrain). The run itself (RunState) is in test_run_state.gd.
 
 const WALK := 3.0
 const SPRINT := 4.5
@@ -27,10 +27,18 @@ func test_floor_curve_invariants() -> void:
 			assert_true(speed < SPRINT, "F%d d=%d outruns a sprint" % [f, d])
 			if d <= DevilBrain.RAGE_CAP_TILES:
 				assert_true(speed < WALK, "F%d d=%d enraged Devil faster than a walk" % [f, d])
-	assert_eq(StageRule.for_floor(21).act, 2)
-	assert_true(StageRule.for_floor(21).is_breather)
-	assert_eq(StageRule.for_floor(1).rooms, StageRule.ROOMS_3D.x, "floor 1 = smallest maze")
-	assert_eq(StageRule.for_floor(100).rooms, StageRule.ROOMS_3D.y, "floor 100 = largest maze")
+	assert_eq(StageRule.LAST_FLOOR, 50)
+	assert_eq(StageRule.for_floor(10).act, 1)
+	assert_eq(StageRule.for_floor(11).act, 2)
+	assert_eq(StageRule.for_floor(11).floor_in_act, 1)
+	assert_eq(StageRule.act_start(5), 41)
+	for f in [5, 15, 45]:
+		assert_true(StageRule.for_floor(f).is_sanctuary, "F%d is a Sanctuary" % f)
+	for f in [10, 20, 50]:
+		assert_true(StageRule.for_floor(f).is_gate, "F%d is a Gate" % f)
+	assert_false(StageRule.for_floor(9).is_gate or StageRule.for_floor(9).is_sanctuary)
+	assert_eq(StageRule.for_floor(1).rooms, StageRule.ROOMS_3D.x, "Act 1 F1 = smallest maze")
+	assert_eq(StageRule.for_floor(49).rooms, StageRule.ROOMS_3D.y, "Act 5 F9 = largest maze")
 	assert_false(StageRule.for_floor(1).dead_end_traps, "no doom traps in Act 1")
 
 
@@ -39,7 +47,7 @@ func test_devil_is_slower_in_wake() -> void:
 	assert_true(DevilBrain.speed(10, WALK, SPRINT, 0.85 * DevilBrain.WORLD_SPEED[FloorLayout.World.WAKE]) < WALK, "WAKE Devil outpaces a walk")
 
 
-## Clearing a floor gives a different maze that is harder than the last (breathers excepted).
+## Clearing a floor gives a different maze; inside an act every regular floor is harder than the last.
 func test_next_floor_is_new_and_harder() -> void:
 	RunState.run_seed = 12345
 	for f in range(2, StageRule.LAST_FLOOR + 1):
@@ -49,12 +57,33 @@ func test_next_floor_is_new_and_harder() -> void:
 		var prev_seed := RunState.floor_seed()
 		RunState.current_floor = f
 		assert_true(RunState.floor_seed() != prev_seed, "F%d same seed as F%d" % [f, f - 1])
-		if rule.is_breather or prev.is_breather:
+		# The sawtooth's planned dips (a new act, the Sanctuary, the Gate) have their own test below.
+		if rule.floor_in_act == 1 or rule.is_sanctuary or prev.is_sanctuary or rule.is_gate:
 			continue
 		assert_true(rule.devil_base_ratio > prev.devil_base_ratio, "F%d Devil not faster" % f)
 		assert_true(rule.time_slack < prev.time_slack, "F%d clock not tighter" % f)
 		assert_true(rule.trap_count >= prev.trap_count, "F%d fewer traps" % f)
 	assert_true(StageRule.for_floor(10).rooms > StageRule.for_floor(1).rooms, "maze grows over Act 1")
+	RunState.current_floor = 1
+
+
+## plans/06 §2: each act climbs, the Sanctuary eases off, the Gate plays like F8, and the next act starts
+## above this act's start but below its F9. No floor ever gets harder than the old floor 100.
+func test_difficulty_is_a_sawtooth() -> void:
+	for act in range(1, StageRule.ACT_COUNT + 1):
+		var start := StageRule.act_start(act)
+		var d := func(k: int) -> float: return StageRule.for_floor(start + k - 1).difficulty
+		assert_true(d.call(5) < d.call(4), "Act %d: the Sanctuary eases off" % act)
+		assert_true(d.call(10) > d.call(7) and d.call(10) < d.call(9), "Act %d: the Gate plays like F8" % act)
+		if act < StageRule.ACT_COUNT:
+			var next_start := StageRule.for_floor(StageRule.act_start(act + 1)).difficulty
+			assert_true(next_start < d.call(9), "Act %d F1 is easier than Act %d F9" % [act + 1, act])
+			assert_true(next_start > d.call(1), "Act %d starts harder than Act %d" % [act + 1, act])
+	for f in range(1, StageRule.LAST_FLOOR + 1):
+		var t := StageRule.for_floor(f).difficulty
+		assert_true(t >= 0.0 and t <= 1.0 + 1e-6, "F%d difficulty %.3f" % [f, t])
+	assert_eq(StageRule.for_floor(1).difficulty, 0.0)
+	assert_true(is_equal_approx(StageRule.for_floor(49).difficulty, 1.0), "Act 5 F9 is the hardest floor")
 
 
 func test_far_devil_is_faster_than_close() -> void:
@@ -93,19 +122,3 @@ func test_spawn_is_far_behind_and_unseen() -> void:
 	assert_false(DevilBrain.can_spawn(20.0, 10.0, 0.1, false), "not far enough in")
 	assert_false(DevilBrain.can_spawn(20.0, 10.0, 0.9, true), "you're in a circle")
 	assert_true(DevilBrain.can_spawn(20.0, 10.0, 0.9, false))
-
-
-func test_revives_cap_per_act_and_reset_at_checkpoint() -> void:
-	RunState.save_path = "user://test_run_state.cfg"
-	RunState.current_floor = StageRule.FLOORS_PER_ACT - 1
-	RunState.revives_used = 0
-	for _i in RunState.REVIVES_PER_ACT:
-		assert_true(RunState.use_revive())
-	assert_false(RunState.use_revive(), "max 3 per act")
-	RunState.advance_floor()
-	assert_eq(RunState.revives_left(), RunState.REVIVES_PER_ACT - RunState.REVIVES_PER_ACT, "last floor of Act 1")
-	RunState.advance_floor()
-	assert_eq(RunState.current_floor, StageRule.FLOORS_PER_ACT + 1)
-	assert_eq(RunState.revives_left(), RunState.REVIVES_PER_ACT, "Act 2 checkpoint resets revives")
-	RunState.current_floor = 1
-	RunState.revives_used = 0

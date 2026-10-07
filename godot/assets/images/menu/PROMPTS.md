@@ -18,3 +18,68 @@ Font (optional): `res://assets/fonts/ui.ttf` (Oswald SemiBold, Google Fonts, OFL
 
 Style line used for all art: dark fantasy horror mobile game art, semi-realistic painterly anime style, crimson red +
 deep violet + ember orange, volumetric fog, glowing lava rim light, no text/UI/watermark.
+
+## Act-Runs (plans/06 Phase 1)
+
+All optional: until a file exists the game shows a stand-in (tinted panel, "LOCKED" text, plain gold words).
+Drop the PNG here with the exact name and Godot picks it up on the next import; no code change needed.
+Keep the full-size original in `src/`, and put a copy downscaled to ~2x display size here (same rule as above).
+
+| File | Used as | Generate at | Ship here at |
+|---|---|---|---|
+| `act_1.png` … `act_5.png` | act picker cards (`main_menu.gd` `_act_card`, cover-fit 200x290) | portrait 2:3, e.g. 1024x1536 | 400x600 |
+| `act_locked.png` | padlock over locked act cards (110x110) | 1024x1024, transparent | 256x256 |
+| `act_cleared_burst.png` | flare behind "ACT CLEARED" when the Gate is beaten (`main.gd` `_show_act_cleared`, drawn additively) | 3:1, e.g. 1536x512, on pure black | 1440x480 |
+
+Card layout rule (all five): portrait, edge to edge, no frame. Keep the subject in the top 60%; the bottom 40% sits
+under a dark gradient with the act name. The sides may be cropped. No text, letters or numbers anywhere.
+
+**act_1.png: AWAKENING** (cold blue)
+> Dark fantasy horror mobile game card art, semi-realistic painterly anime style, portrait 2:3. A lone young survivor
+> seen from behind holds a flashlight at the entrance of a vast stone maze at night; cold blue moonlight, tall wet
+> walls, drifting fog, a thin line of red glow leaking from far down the corridor, two faint glowing keys floating in
+> the dark. Mood: uneasy calm before the hunt. Deep navy and steel blue, one small ember-red accent, volumetric
+> fog, rim light, high detail, no text, no UI, no watermark.
+
+**act_2.png: HUNTED** (blood red)
+> Dark fantasy horror mobile game card art, semi-realistic painterly anime style, portrait 2:3. A horned Devil
+> silhouette with burning eyes fills the far end of a long maze corridor drowned in red light; claw marks gouged
+> into the stone walls; in the foreground a young survivor sprints toward the viewer, red scarf trailing, dust and
+> embers whipping past. Mood: the chase. Crimson and black with lava rim light, volumetric red fog, motion, high
+> detail, no text, no UI, no watermark.
+
+**act_3.png: MIND BREAK** (deep violet)
+> Dark fantasy horror mobile game card art, semi-realistic painterly anime style, portrait 2:3. A stone maze folding
+> over itself like an impossible Escher drawing: corridors running up walls and across the ceiling, staircases
+> into nowhere; the image is split down the middle by a jagged glowing crack, the left half cold blue and calm, the
+> right half blood red and hellish; a small survivor floats upside down, disoriented. Mood: reality breaking. Deep
+> violet, cold blue and crimson, volumetric fog, high detail, no text, no UI, no watermark.
+
+**act_4.png: PRECISION HELL** (ember orange)
+> Dark fantasy horror mobile game card art, semi-realistic painterly anime style, portrait 2:3. A narrow path of
+> cracked stone floor tiles hanging over a bottomless abyss of embers and lava; glowing orange cracks spiderweb
+> through the tiles, several tiles already crumbling and falling away; a young survivor balances mid-step,
+> flashlight beam on the next tile; a faint circular rune like a clock face glows in the smoke above. Mood: one wrong
+> step and you fall. Ember orange and charcoal black, heat haze, rising sparks, high detail, no text, no UI, no
+> watermark.
+
+**act_5.png: THE BREAKER** (crimson and black)
+> Dark fantasy horror mobile game card art, semi-realistic painterly anime style, portrait 2:3. The bottom of the
+> maze: a colossal horned demon rises behind a shattered iron gate bound with snapped chains, molten cracks across
+> its body, eyes blazing; a tiny survivor silhouette stands before it on a ledge of broken stone, flashlight raised.
+> Mood: the final escape. Crimson, black and molten gold, lava glow from below, volumetric smoke, epic scale, high
+> detail, no text, no UI, no watermark.
+
+**act_locked.png**
+> A heavy rusted iron padlock wrapped in thick chains, front view, perfectly centered, isolated on a transparent
+> background. Dark fantasy painterly style matching a horror mobile game, worn metal with scratches, faint ember-red
+> rim light along the edges, soft shadowless lighting so it sits cleanly over any art. No text, no background, no
+> watermark.
+
+**act_cleared_burst.png**
+> A radiant victory burst for a dark fantasy horror game: an ornate demonic seal shattering outward from the center,
+> shards of glowing gold and crimson, light rays and sparks exploding horizontally, wide 3:1 composition, centered
+> and symmetrical, empty middle area for overlaid words, painted on a pure black background (the black will be made
+> invisible). Gold, crimson and ember orange glow, painterly, high detail, no text, no letters, no watermark.
+
+No 3D models are needed for Phase 1. Phase 3 (Sanctuary altar, Gate arch) will come with its own model prompts.

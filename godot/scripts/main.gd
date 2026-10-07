@@ -42,6 +42,14 @@ const REVIVE_GRACE := 3.0
 const REVIVE_MIN_TIME := 30.0
 const PANIC_TIME := 10.0
 const FLOOR_CLEAR_TIME := 1.4
+## Beating the Gate: time to read "ACT CLEARED" before the menu.
+const ACT_CLEAR_TIME := 3.0
+## Mid-floor, R costs the whole run (and sits next to the flip key), so a second press must follow this fast.
+const RESTART_ARM_TIME := 2.5
+const PAUSE_TEXT := "PAUSED  (Esc to resume, R twice to restart the act)"
+## Optional art (plans/06 P1 prompts in assets/images/menu/PROMPTS.md); without it the words stand alone.
+const ACT_CLEARED_ART := "res://assets/images/menu/act_cleared_burst.png"
+const GOLD := Color(1.0, 0.78, 0.3)
 ## Trap fall: a jolt, a beat of "oh no", then down the shaft (seconds / metres).
 const FALL_BEAT := 0.2
 const FALL_TIME := 1.4
@@ -205,6 +213,7 @@ var flicker_target := 0.0
 var flicker_timer := 0.0
 var stutter_left := 0.0
 var rng := RandomNumberGenerator.new()
+var restart_armed := false
 
 func _ready() -> void:
 	if feel == null:
@@ -215,6 +224,9 @@ func _ready() -> void:
 	# A fixed seed is a debug floor: it never touches the save.
 	if fixed_seed == 0:
 		RunState.load_save()
+		# A run that already ended (died, then quit) never resumes: its act starts over on a new maze.
+		if RunState.run_over:
+			RunState.start_run(RunState.act())
 	rule = StageRule.for_floor(RunState.current_floor)
 	var seed_value := fixed_seed if fixed_seed != 0 else RunState.floor_seed()
 	print("FearFlip floor %d seed: %d" % [rule.floor_number, seed_value])
@@ -268,6 +280,16 @@ func _ready() -> void:
 	_build_hud()
 	_apply_world(WAKE)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_flash_message(_floor_title())
+
+## Shown as a floor starts: where you are in the act, and what kind of floor this is.
+func _floor_title() -> String:
+	var title := "%s  ·  FLOOR %d / %d" % [rule.act_name.to_upper(), rule.floor_in_act, StageRule.FLOORS_PER_ACT]
+	if rule.is_sanctuary:
+		return title + "\nSANCTUARY  ·  A QUIETER FLOOR"
+	if rule.is_gate:
+		return title + "\nTHE GATE  ·  ESCAPE IT TO CLEAR ACT %d" % rule.act
+	return title
 
 func _process(delta: float) -> void:
 	if get_tree().paused:
@@ -336,7 +358,12 @@ func _physics_process(delta: float) -> void:
 		player_mesh.position.y = PLAYER_MESH_Y + player_rig.animate(h_speed, delta)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("restart") and game_state != "dying":
+	if event.is_action_pressed("restart") and game_state != "dying" and game_state != "won":
+		if game_state == "playing" and not restart_armed:
+			restart_armed = true
+			_flash_message("PRESS R AGAIN: RESTART ACT %d ON A NEW MAZE" % rule.act)
+			get_tree().create_timer(RESTART_ARM_TIME).timeout.connect(_disarm_restart)
+			return
 		get_tree().paused = false
 		_restart_game()
 		return
@@ -373,7 +400,13 @@ func _toggle_pause() -> void:
 	var paused := not get_tree().paused
 	get_tree().paused = paused
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if paused else Input.MOUSE_MODE_CAPTURED
-	_show_message("PAUSED  (Esc to resume, R to restart)" if paused else "")
+	_show_message(PAUSE_TEXT if paused else "")
+
+## The second R never came: back to normal (and back to the pause notice, if the game is paused).
+func _disarm_restart() -> void:
+	restart_armed = false
+	if get_tree().paused:
+		_show_message(PAUSE_TEXT)
 
 func _update_head_bob(h_speed: float, sprinting: bool, delta: float) -> void:
 	var on_floor := player.is_on_floor()
@@ -1255,7 +1288,7 @@ func _build_hud() -> void:
 	var hint := _hud_label(hud, "Hint", 16, Control.PRESET_BOTTOM_WIDE, HORIZONTAL_ALIGNMENT_LEFT)
 	hint.offset_left = 24
 	hint.offset_top = -34
-	hint.text = "WASD  MOVE     SHIFT  SPRINT     SPACE / E  FLIP     F  FLASHLIGHT     ESC  PAUSE     R  RETRY FLOOR"
+	hint.text = "WASD  MOVE     SHIFT  SPRINT     SPACE / E  FLIP     F  FLASHLIGHT     ESC  PAUSE     R R  RESTART ACT"
 	hint.add_theme_color_override("font_color", Color(0.55, 0.7, 0.82, 0.8))
 
 	flash_rect = ColorRect.new()
@@ -1296,7 +1329,12 @@ func _update_hud() -> void:
 	elif flip.cooldown_left > 0.0:
 		flip_line = "FLIP  %.1fs" % flip.cooldown_left
 	var goal_line := "OPEN THE CHEST" if exit_open else "KEYS  %d / %d" % [sigils_collected, FloorLayout.SIGIL_COUNT]
-	status_label.text = "FLOOR %d  ·  %s\n%s   %s\n%s\n%s" % [rule.floor_number, rule.act_name, WORLD_NAMES[world], _format_time(maxf(time_left, 0.0)), goal_line, flip_line]
+	var where := "ACT %d  ·  FLOOR %d / %d" % [rule.act, rule.floor_in_act, StageRule.FLOORS_PER_ACT]
+	if rule.is_gate:
+		where += "\nTHE GATE"
+	elif rule.is_sanctuary:
+		where += "\nSANCTUARY"
+	status_label.text = "%s\n%s   %s\n%s\n%s" % [where, WORLD_NAMES[world], _format_time(maxf(time_left, 0.0)), goal_line, flip_line]
 	status_label.modulate = Color(1.0, 0.35, 0.3, 0.6 + 0.4 * absf(sin(elapsed * 6.0))) if panic else Color.WHITE
 	if warning_label.visible:
 		warning_label.text = "FLIPPING TIME  %d
@@ -1327,20 +1365,62 @@ func _stop_tension_audio() -> void:
 	warning_label.visible = false
 
 ## Floor clear (2D): a short overlay, then the next floor with a new maze and a fresh clock.
+## The Gate (F10) clears the act instead: the next act opens for good and the run ends at the menu.
 func _win_game() -> void:
 	if game_state == "won":
 		return
 	game_state = "won"
 	win_player.play()
 	_stop_tension_audio()
-	if rule.floor_number >= StageRule.LAST_FLOOR:
-		_show_message("YOU ESCAPED THE DESCENT   (R for a new run)")
+	if not rule.is_gate:
+		# Save progress now, so quitting during the overlay still lands on the next floor.
+		if fixed_seed == 0:
+			RunState.advance_floor()
+		_show_message("FLOOR %d / %d CLEARED   %s to spare" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT, _format_time(time_left)])
+		get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_next_floor)
 		return
-	# Save progress now, so R during the overlay (or quitting) still lands on the next floor.
 	if fixed_seed == 0:
-		RunState.advance_floor()
-	_show_message("FLOOR %d CLEARED   %s to spare" % [rule.floor_number, _format_time(time_left)])
-	get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_restart_game)
+		RunState.clear_act()
+	if rule.act == StageRule.ACT_COUNT:
+		_show_message("YOU ESCAPED THE DESCENT")
+	else:
+		_show_message("ACT %d CLEARED\nACT %d  ·  %s  UNLOCKED" % [rule.act, rule.act + 1, StageRule.ACT_NAMES[rule.act].to_upper()])
+	_show_act_cleared()
+	get_tree().create_timer(ACT_CLEAR_TIME).timeout.connect(_to_menu)
+
+func _next_floor() -> void:
+	get_tree().reload_current_scene()
+
+func _to_menu() -> void:
+	get_tree().paused = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_tree().change_scene_to_file(DeathScreen.MENU_SCENE)
+
+## The act-clear moment in gold; the burst art (once it lands in assets/images/menu/) flares behind it.
+func _show_act_cleared() -> void:
+	state_label.add_theme_color_override("font_color", GOLD)
+	if not ResourceLoader.exists(ACT_CLEARED_ART):
+		return
+	var burst := TextureRect.new()
+	burst.name = "ActClearedBurst"
+	burst.texture = load(ACT_CLEARED_ART)
+	burst.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	burst.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	burst.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	var additive := CanvasItemMaterial.new()
+	additive.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD  # painted on black: the black vanishes
+	burst.material = additive
+	burst.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	burst.offset_left = -480
+	burst.offset_right = 480
+	burst.offset_top = 10
+	burst.offset_bottom = 330
+	burst.pivot_offset = Vector2(480, 160)
+	state_label.add_sibling(burst)
+	state_label.get_parent().move_child(burst, state_label.get_index())  # behind the words
+	var tween := burst.create_tween().set_parallel().set_trans(Tween.TRANS_QUINT).set_ease(Tween.EASE_OUT)
+	tween.tween_property(burst, "modulate:a", 1.0, 0.3).from(0.0)
+	tween.tween_property(burst, "scale", Vector2.ONE, 0.6).from(Vector2.ONE * 1.4)
 
 const DEATH_TEXT := {
 	"devil": ["THE DEVIL GOT YOU", "It is slow up close: keep walking. It is slower in WAKE: flip to lose it, or stand in a safe circle."],
@@ -1357,18 +1437,19 @@ func _lose_game(cause: String = "devil") -> void:
 	_stop_tension_audio()
 	_show_message("")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# Death ends the run now (quitting here can't buy a retry of this maze); a revive brings it back.
+	if fixed_seed == 0:
+		RunState.end_run()
 	var steps := maxi(exit_dist[world][player_cell.y * layout.size + player_cell.x], 0)
 	var floor_progress := clampf(_progress(), 0.0, 1.0)
 	var comeback := "Inches away. Lock in." if floor_progress >= 0.9 else ("Strong run. Try again." if floor_progress >= 0.7 else "Momentum is building.")
-	@warning_ignore("integer_division")
-	var next_checkpoint := (rule.act * StageRule.FLOORS_PER_ACT) + 1
-	var checkpoint_text := "next checkpoint: floor %d" % next_checkpoint if next_checkpoint <= StageRule.LAST_FLOOR else "final act"
-	var detail := "%d m from the exit   ·   Floor %d / %d  (%d%% of the Descent)   ·   %s\n%s" % [
-		roundi(steps * CELL_SIZE), rule.floor_number, StageRule.LAST_FLOOR,
-		roundi(100.0 * rule.floor_number / StageRule.LAST_FLOOR), checkpoint_text, comeback]
+	var detail := "%d m from the exit   ·   Act %d, floor %d / %d   ·   best floor %d / %d\n%s" % [
+		roundi(steps * CELL_SIZE), rule.act, rule.floor_in_act, StageRule.FLOORS_PER_ACT,
+		RunState.best_floor, StageRule.LAST_FLOOR, comeback]
 	var can_revive := not snapshot.is_empty() and RunState.revives_left() > 0
 	var revive_text := "%d LEFT  ·  [V]" % RunState.revives_left() if not snapshot.is_empty() else "REACH A SAFE CIRCLE FIRST"
-	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive)
+	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive,
+			"NEW RUN  ·  ACT %d  ·  [R]" % rule.act)
 
 ## Back to the last safe circle you used, with its clock and floor cracks. Max 3 per act.
 func _revive() -> void:
@@ -1404,10 +1485,10 @@ func _revive() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_flash_message("REVIVED   %d left this act" % RunState.revives_left())
 
-## Same floor, same seed (instant retry). After the last floor, R starts a new run.
+## TRY AGAIN: a new run from this act's first floor, on a new maze (a debug seed just reloads).
 func _restart_game() -> void:
-	if fixed_seed == 0 and game_state == "won" and rule.floor_number >= StageRule.LAST_FLOOR:
-		RunState.new_run()
+	if fixed_seed == 0:
+		RunState.start_run(rule.act)
 	get_tree().reload_current_scene()
 
 ## Push live positions to the minimap (grid cells, floats). Devil distance = current-world path length.

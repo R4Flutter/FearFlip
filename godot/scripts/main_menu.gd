@@ -96,13 +96,24 @@ const CARDS := [
 	["MULTIPLAYER", "PLAY WITH FRIENDS", "card_multiplayer", Color(0.75, 0.4, 1.0)],
 ]
 
+# The act picker (plans/06 P1). Art is optional: act_N.png / act_locked.png in ART, see PROMPTS.md.
+const ACT_CARD_SIZE := Vector2(200, 290)
+const ACT_CARD_GAP := 14
+const LOCK_SIZE := Vector2(110, 110)
+const LOCKED_TINT := Color(0.35, 0.33, 0.38)
+const ROMAN: Array[String] = ["I", "II", "III", "IV", "V"]
+## One colour per act (cold, blood, violet, ember, crimson): the card's border, numeral and art stand-in.
+const ACT_TINTS: Array[Color] = [Color(0.35, 0.6, 1.0), Color(0.95, 0.2, 0.15), Color(0.65, 0.35, 1.0),
+		Color(1.0, 0.5, 0.15), Color(0.8, 0.05, 0.1)]
+
 const HOW_TO := [
 	["WASD  ·  MOUSE", "Move and look. Shift sprints, F toggles the flashlight."],
 	["E  /  SPACE", "Flip between WAKE and NIGHTMARE. Each world has its own walls."],
 	["FLIPPING TIME", "Sometimes the Nightmare takes you on its own, and your controls invert."],
 	["KEYS", "Find every key, then open the chest. Some keys only exist in the Nightmare."],
 	["THE DEVIL", "Slower in WAKE and slower up close. Flip to lose it, or stand in a safe circle."],
-	["ESC  ·  R", "Pause. Retry the same floor."],
+	["THE DESCENT", "Five acts of ten floors. Escape floor 10, the Gate, to open the next act. Dying restarts the act."],
+	["ESC  ·  R R", "Pause. Press R twice to restart the act on a new maze."],
 ]
 
 const ATMOS_SHADER := """
@@ -171,6 +182,7 @@ var _toast: Label
 var _how_to: Control
 var _how_box: Control
 var _how_back: Button
+var _acts: Control
 var _fade: ColorRect
 var _music: AudioStreamPlayer
 var _flip_sfx: AudioStreamPlayer
@@ -178,7 +190,6 @@ var _thunder: Timer
 var _world_tween: Tween
 var _parallax := Vector2.ZERO
 var _nightmare_on := false
-var _new_run_armed := false
 var _leaving := false
 
 
@@ -197,6 +208,7 @@ func _ready() -> void:
 	_build_right()
 	_build_toast()
 	_build_how_to()
+	_build_acts()
 	_fade = ColorRect.new()
 	_fade.color = Color.BLACK
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -221,9 +233,12 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _leaving:
 		return
-	if _how_to.visible:
+	if _how_to.visible or _acts.visible:
 		if event.is_action_pressed("ui_cancel") or event.is_action_pressed("pause"):
-			_close_how_to()
+			if _how_to.visible:
+				_close_how_to()
+			else:
+				_close_acts()
 			accept_event()
 		return
 	# Nothing is focused until asked (so the demon doesn't wake on load); the first nav key lands on top.
@@ -235,12 +250,26 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # --- Flow -------------------------------------------------------------------------------------
 
-func _start(fresh: bool) -> void:
+## One tap (plans/06 G1): resume the run in progress, else start the highest act unlocked.
+func _play_now() -> void:
+	if _leaving:
+		return
+	if not RunState.has_progress():
+		RunState.start_run(MetaState.acts_unlocked)
+	_start()
+
+
+## Picking an act starts a fresh run there (abandoning any run in progress).
+func _pick_act(act: int) -> void:
+	if not _leaving and RunState.start_run(act):
+		_start()
+
+
+## Into the maze with whatever run RunState holds.
+func _start() -> void:
 	if _leaving:
 		return
 	_leaving = true
-	if fresh:
-		RunState.new_run()
 	_fade.mouse_filter = Control.MOUSE_FILTER_STOP
 	_thunder.stop()
 	_flip_sfx.play()
@@ -259,22 +288,20 @@ func _start(fresh: bool) -> void:
 	get_tree().change_scene_to_packed(ResourceLoader.load_threaded_get(GAME_SCENE) as PackedScene)
 
 
-## Abandoning a run is the one destructive choice here, so it takes a second press.
-func _on_new_run() -> void:
-	if _new_run_armed:
-		_start(true)
-		return
-	_new_run_armed = true
-	var sub: Label = _menu.get_node("NewRun/Content/Sub")
-	sub.text = "PRESS AGAIN: ABANDON FLOOR %d" % RunState.current_floor
-	sub.add_theme_color_override("font_color", BLOOD)
+## The picker is the second step before abandoning a run: nothing is lost until an act is picked.
+func _open_acts() -> void:
+	_acts.visible = true
+	_acts.modulate.a = 0.0
+	_retarget(_acts).tween_property(_acts, "modulate:a", 1.0, 0.2)
+	var act := RunState.act() if RunState.has_progress() else MetaState.acts_unlocked
+	(_acts.find_child("Act%d" % act, true, false) as Control).grab_focus()
 
 
-func _disarm_new_run() -> void:
-	_new_run_armed = false
-	var sub: Label = _menu.get_node("NewRun/Content/Sub")
-	sub.text = "START AGAIN FROM FLOOR 1"
-	sub.add_theme_color_override("font_color", DIM)
+func _close_acts() -> void:
+	var tween := _retarget(_acts)
+	tween.tween_property(_acts, "modulate:a", 0.0, 0.14)
+	tween.chain().tween_callback(_acts.hide)
+	(_menu.get_node("NewRun") as Control).grab_focus()
 
 
 func _soon(what: String) -> void:
@@ -382,7 +409,7 @@ func _set_nightmare(on: bool) -> void:
 ## Lightning: a double flicker that lights the demon up. Gentle (low alpha, >= 6 s apart), not a strobe.
 func _on_thunder() -> void:
 	_thunder.start(randf_range(THUNDER_EVERY.x, THUNDER_EVERY.y))
-	if _nightmare_on or _how_to.visible or _leaving:
+	if _nightmare_on or _how_to.visible or _acts.visible or _leaving:
 		return
 	_flash.color = Color(LIGHTNING, 0.0)
 	var flash := _retarget(_flash).set_parallel(false)
@@ -566,13 +593,15 @@ func _build_column() -> void:
 	_menu.position = Vector2(MARGIN, MENU_TOP)
 	_menu.add_theme_constant_override("separation", ROW_GAP)
 	add_child(_menu)
-	var floor_number := RunState.current_floor
-	var where := "FLOOR %d  ·  %s" % [floor_number, StageRule.for_floor(floor_number).act_name.to_upper()]
-	if floor_number > 1:
-		_row("CONTINUE", where, Icon.MAZE, _start.bind(false), true)
-		_row("NEW RUN", "START AGAIN FROM FLOOR 1", Icon.TARGET, _on_new_run).focus_exited.connect(_disarm_new_run)
+	if RunState.has_progress():
+		var rule := StageRule.for_floor(RunState.current_floor)
+		_row("CONTINUE", "FLOOR %d / %d  ·  %s" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT, rule.act_name.to_upper()],
+				Icon.MAZE, _start, true)
 	else:
-		_row("PLAY", where, Icon.MAZE, _start.bind(false), true)
+		var top := MetaState.acts_unlocked
+		_row("PLAY", "ACT %d  ·  %s" % [top, StageRule.ACT_NAMES[top - 1].to_upper()], Icon.MAZE, _play_now, true)
+	if RunState.has_progress() or MetaState.acts_unlocked > 1:
+		_row("NEW RUN", "CHOOSE YOUR ACT", Icon.TARGET, _open_acts)
 	_row("CHARACTER", "SKINS & GEAR", Icon.HELMET, _soon.bind("CHARACTER"))
 	_how_row = _row("THE DEVIL", "HOW TO SURVIVE", Icon.DEMON, _open_how_to)
 	_row("PROGRESSION", "BEST FLOOR %d / %d" % [RunState.best_floor, StageRule.LAST_FLOOR], Icon.CHART,
@@ -786,7 +815,7 @@ func _build_play() -> void:
 	beat.tween_interval(0.9)
 
 	_hoverable(_play)
-	_play.pressed.connect(_start.bind(false))
+	_play.pressed.connect(_play_now)
 	_play.focus_entered.connect(_grow.bind(_play, true))
 	_play.focus_exited.connect(_grow.bind(_play, false))
 	_play.focus_entered.connect(_set_nightmare.bind(true))
@@ -826,7 +855,7 @@ func _card(index: int) -> void:
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_place(label, Vector2(0, text[3]), Vector2(CARD_SIZE.x, 0))
 	if index == 0:
-		card.pressed.connect(_start.bind(false))
+		card.pressed.connect(_play_now)
 		card.focus_entered.connect(_set_nightmare.bind(true))
 		card.focus_exited.connect(_set_nightmare.bind(false))
 	else:
@@ -853,23 +882,10 @@ func _build_toast() -> void:
 
 
 func _build_how_to() -> void:
-	_how_to = Control.new()
-	_how_to.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_how_to.visible = false
-	add_child(_how_to)
-	var dim := ColorRect.new()
-	dim.color = Color(0.0, 0.0, 0.0, 0.94)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_how_to.add_child(dim)
-	var box := VBoxContainer.new()
-	box.set_anchors_preset(Control.PRESET_CENTER)
-	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	box.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var box := _modal("HOW TO SURVIVE")
 	box.custom_minimum_size = Vector2(760, 0)
-	box.add_theme_constant_override("separation", 16)
-	_how_to.add_child(box)
+	_how_to = box.get_parent()
 	_how_box = box
-	_label(box, "HOW TO SURVIVE", 32, BONE)
 	_gap(box, 6)
 	for line: Array in HOW_TO:
 		var entry := HBoxContainer.new()
@@ -887,6 +903,99 @@ func _build_how_to() -> void:
 	_how_back = _text_button(box, "BACK   [ESC]", 20)
 	_how_back.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_how_back.pressed.connect(_close_how_to)
+
+
+## Every act as a card. With a run in progress, a warning names the floor that picking an act abandons.
+func _build_acts() -> void:
+	var box := _modal("CHOOSE YOUR ACT")
+	_acts = box.get_parent()
+	if RunState.has_progress():
+		var floor_in_act := StageRule.for_floor(RunState.current_floor).floor_in_act
+		_label(box, "Starting an act abandons your run on floor %d." % floor_in_act, 16, BLOOD, _body)
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", ACT_CARD_GAP)
+	box.add_child(cards)
+	for act in range(1, StageRule.ACT_COUNT + 1):
+		_act_card(cards, act)
+	var back := _text_button(box, "BACK   [ESC]", 20)
+	back.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	back.pressed.connect(_close_acts)
+
+
+## One act: its art (a tinted panel until act_N.png lands), numeral, name and floors. Locked acts are
+## dimmed, padlocked, and name the act whose Gate opens them.
+func _act_card(parent: Control, act: int) -> void:
+	var unlocked := MetaState.is_act_unlocked(act)
+	var tint := ACT_TINTS[act - 1]
+	var card := Button.new()
+	card.name = "Act%d" % act
+	card.flat = true
+	card.disabled = not unlocked
+	card.custom_minimum_size = ACT_CARD_SIZE
+	parent.add_child(card)
+	var content := _holder(card, "Content")
+	content.clip_contents = true
+	var art_path := ART + "act_%d.png" % act
+	var art_texture: Texture2D = load(art_path) if ResourceLoader.exists(art_path) \
+			else _gradient(tint.darkened(0.55), Color.BLACK, Vector2(0, 1))
+	var art := _image(content, art_texture, TextureRect.STRETCH_KEEP_ASPECT_COVERED, true)
+	art.name = "Art"
+	art.pivot_offset = ACT_CARD_SIZE * 0.5
+	var shade := _gradient(Color(0, 0, 0, 0), Color(0, 0, 0, 0.92), Vector2(0, 1))
+	shade.gradient.set_offset(0, 0.45)
+	_image(content, shade, TextureRect.STRETCH_SCALE, true)
+	var border := Panel.new()
+	border.name = "Border"
+	border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var outline := _panel_style(tint.darkened(0.25), 2, Color.TRANSPARENT)
+	outline.set_corner_radius_all(6)
+	border.add_theme_stylebox_override("panel", outline)
+	border.set_anchors_preset(Control.PRESET_FULL_RECT)
+	content.add_child(border)
+	var first := StageRule.act_start(act)
+	var sub := "FLOORS %d-%d" % [first, first + StageRule.FLOORS_PER_ACT - 1] if unlocked \
+			else "CLEAR ACT %d TO OPEN" % (act - 1)
+	for line: Array in [[ROMAN[act - 1], 54, tint.lightened(0.35), 18.0],
+			[StageRule.ACT_NAMES[act - 1].to_upper(), 20, Color.WHITE, ACT_CARD_SIZE.y - 74],
+			[sub, 11, BONE if unlocked else BLOOD, ACT_CARD_SIZE.y - 40]]:
+		var label := _label(content, line[0], line[1], line[2])
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_place(label, Vector2(0, line[3]), Vector2(ACT_CARD_SIZE.x, 0))
+	if not unlocked:
+		art.modulate = LOCKED_TINT
+		var lock_path := ART + "act_locked.png"
+		if ResourceLoader.exists(lock_path):
+			_place(_image(content, load(lock_path), TextureRect.STRETCH_KEEP_ASPECT_CENTERED),
+					(ACT_CARD_SIZE - LOCK_SIZE) * 0.5, LOCK_SIZE)
+		else:
+			var lock := _label(content, "LOCKED", 18, DIM)
+			lock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_place(lock, Vector2(0, ACT_CARD_SIZE.y * 0.5 - 12), Vector2(ACT_CARD_SIZE.x, 0))
+	card.pressed.connect(_pick_act.bind(act))
+	_hoverable(card)
+	card.focus_entered.connect(_card_highlight.bind(content, true))
+	card.focus_exited.connect(_card_highlight.bind(content, false))
+
+
+## A full-screen dim with a titled, centred column, hidden until opened. Returns the column; its parent
+## is the modal itself.
+func _modal(title: String) -> VBoxContainer:
+	var modal := Control.new()
+	modal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	modal.visible = false
+	add_child(modal)
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.94)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	modal.add_child(dim)
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	box.grow_vertical = Control.GROW_DIRECTION_BOTH
+	box.add_theme_constant_override("separation", 16)
+	modal.add_child(box)
+	_label(box, title, 32, BONE)
+	return box
 
 
 func _build_audio() -> void:

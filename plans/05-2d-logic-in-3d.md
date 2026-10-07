@@ -30,7 +30,7 @@ they drain. 50 floors, 5 acts, checkpoints, and at most 3 revives per act.
 | L5 | Timer | **Real timer. 0 = you lose** (2D). On the exit at 0 = win. Panic in the last 10 s. |
 | L6 | Traps | **2D two-step death**: 1st step cracks, 2nd step kills |
 | L7 | Safe circles | 2D placement (⅓ and ⅔ of the main route) + a drain timer + 2D step-gated re-acquire. The Devil **retreats**, it doesn't vanish. |
-| L8 | Structure | Campaign **"Descent"**: 50 floors in 5 acts of 10. A curve with hand overrides. Checkpoints 11/21/31/41. Daily Maze = a seed. No omens or meta before the fun test. |
+| L8 | Structure | Campaign **"Descent"**: 50 floors in 5 acts of 10. A curve with hand overrides. Checkpoints 11/21/31/41. Daily Maze = a seed. No omens or meta before the fun test. **Replaced by `plans/06` (Act-Runs: each act is one run, sawtooth difficulty).** |
 | L9 | Revive | GEMINI.md: **max 3 per act**. A revive returns you to the **last safe circle you used**. Premium = free. Ads **only on the death screen**. |
 | L10 | Maze Shift | **Not now.** Not in this plan. |
 
