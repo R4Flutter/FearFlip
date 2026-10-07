@@ -14,6 +14,8 @@ static var current_floor := 1
 static var run_seed := 0
 static var best_floor := 1
 static var revives_used := 0
+## Shards banked since this run started: the death screen's "dying still pays".
+static var run_shards := 0
 ## True once the run has ended (death or act clear): playing again starts a new run, never resumes it.
 static var run_over := false
 static var _loaded := false
@@ -32,6 +34,7 @@ static func load_save() -> void:
 		best_floor = cfg.get_value("run", "best_floor", 1)
 		revives_used = cfg.get_value("run", "revives_used", 0)
 		run_over = cfg.get_value("run", "run_over", false)
+		run_shards = cfg.get_value("run", "shards", 0)
 	if run_seed == 0 or not MetaState.is_act_unlocked(act()):
 		start_run(1)
 
@@ -44,6 +47,7 @@ static func save() -> void:
 	cfg.set_value("run", "best_floor", best_floor)
 	cfg.set_value("run", "revives_used", revives_used)
 	cfg.set_value("run", "run_over", run_over)
+	cfg.set_value("run", "shards", run_shards)
 	cfg.save(save_path)
 
 
@@ -56,8 +60,16 @@ static func start_run(act_number: int) -> bool:
 	best_floor = maxi(best_floor, current_floor)
 	revives_used = 0
 	run_over = false
+	run_shards = 0
 	save()
 	return true
+
+
+## Banked shards are kept for good, dead or alive, and counted toward this run.
+static func bank(amount: int) -> void:
+	run_shards += amount
+	MetaState.earn(amount)
+	save()
 
 
 ## Death ends the run; use_revive() brings it back.
