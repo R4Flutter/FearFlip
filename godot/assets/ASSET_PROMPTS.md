@@ -29,6 +29,8 @@ exist under those names, so replacing one needs no code change at all.
 
 ## Status (7 Oct 2026)
 
+**Latest check: see `MISSING_ASSETS.md`** (what to redo and what is still missing, all prompts in one file).
+
 - **Delivered, not wired into the game yet**, in `godot/assets/new_assets/`: world materials (wake/nightmare wall,
   floor and ceiling, wall trim), decals (cracks, blood, handprint, scratches), safe circle, exit circle, chest, key,
   ceiling lamp, gate arch and sanctuary altar models, key icon, both overlays, the FX sheet and Oswald (zip).
