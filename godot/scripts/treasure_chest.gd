@@ -11,8 +11,9 @@ const WIDTH := 1.05
 const DEPTH := 0.66
 const BASE_HEIGHT := 0.52
 const LID_HEIGHT := 0.24
-## One lock per key (FloorLayout.SIGIL_COUNT).
-const LOCK_X: Array[float] = [-0.2, 0.2]
+## One lock per key, spread across the front: LOCK_SPACING apart, never wider than LOCK_SPAN.
+const LOCK_SPACING := 0.4
+const LOCK_SPAN := 0.72
 const LOCK_Y := 0.3
 ## Key in hand: length (metres). In the lock it hangs blade-down from the keyhole, then turns.
 const KEY_LENGTH := 0.28
@@ -24,11 +25,17 @@ const IRON := Color(0.75, 0.56, 0.24)
 
 var lid: Node3D
 var _locks: Array[StandardMaterial3D] = []
+var _lock_x: Array[float] = []
 var _glow: OmniLight3D
 var _treasure: StandardMaterial3D
 
 
-func build(collision_layer: int) -> void:
+## `locks` keyholes (one per key on the floor; 0 for a chest down a dead end, which opens on reach),
+## and a faint `glow` so a detour chest can be found in the dark.
+func build(collision_layer: int, locks := 2, glow := 0.0) -> void:
+	var span := minf(LOCK_SPACING * (locks - 1), LOCK_SPAN)
+	for i in locks:
+		_lock_x.append(0.0 if locks == 1 else lerpf(-span * 0.5, span * 0.5, float(i) / (locks - 1)))
 	var wood := StandardMaterial3D.new()
 	wood.albedo_color = WOOD
 	wood.roughness = 0.85
@@ -43,7 +50,7 @@ func build(collision_layer: int) -> void:
 	for x in [-1.0, 1.0]:
 		for z in [-1.0, 1.0]:
 			_box(self, Vector3(0.06, BASE_HEIGHT, 0.06), Vector3(x * WIDTH * 0.5, BASE_HEIGHT * 0.5, z * DEPTH * 0.5), iron)
-	for i in LOCK_X.size():
+	for i in _lock_x.size():
 		var plate := StandardMaterial3D.new()
 		plate.albedo_color = IRON.darkened(0.3)
 		plate.metallic = 0.9
@@ -52,10 +59,10 @@ func build(collision_layer: int) -> void:
 		plate.emission = Color(1.0, 0.75, 0.3)
 		plate.emission_energy_multiplier = 0.0
 		_locks.append(plate)
-		_box(self, Vector3(0.14, 0.18, 0.03), Vector3(LOCK_X[i], LOCK_Y, DEPTH * 0.5 + 0.015), plate)
+		_box(self, Vector3(0.14, 0.18, 0.03), Vector3(_lock_x[i], LOCK_Y, DEPTH * 0.5 + 0.015), plate)
 		var hole := StandardMaterial3D.new()
 		hole.albedo_color = Color.BLACK
-		_box(self, Vector3(0.03, 0.07, 0.01), Vector3(LOCK_X[i], LOCK_Y - 0.01, DEPTH * 0.5 + 0.032), hole)
+		_box(self, Vector3(0.03, 0.07, 0.01), Vector3(_lock_x[i], LOCK_Y - 0.01, DEPTH * 0.5 + 0.032), hole)
 	# The treasure: hidden under the lid until it opens.
 	_treasure = StandardMaterial3D.new()
 	_treasure.albedo_color = Color(1.0, 0.8, 0.3)
@@ -73,7 +80,7 @@ func build(collision_layer: int) -> void:
 		_box(lid, Vector3(0.08, LID_HEIGHT + 0.02, DEPTH + 0.03), Vector3(x, LID_HEIGHT * 0.5, DEPTH * 0.5), iron)
 	_glow = OmniLight3D.new()
 	_glow.light_color = Color(1.0, 0.75, 0.35)
-	_glow.light_energy = 0.0
+	_glow.light_energy = glow
 	_glow.omni_range = 5.0
 	_glow.position = Vector3(0, BASE_HEIGHT + 0.3, 0)
 	add_child(_glow)
@@ -93,7 +100,7 @@ func build(collision_layer: int) -> void:
 ## opened when the lid is up.
 func unlock(camera: Camera3D) -> void:
 	var tween := create_tween()
-	for i in LOCK_X.size():
+	for i in _lock_x.size():
 		# Pivot at the blade tip, so in the lock the key turns about its keyhole.
 		var key := Node3D.new()
 		key.visible = false
@@ -101,9 +108,9 @@ func unlock(camera: Camera3D) -> void:
 		var art := Node3D.new()
 		art.add_child(KeyPickup.model(KEY_LENGTH, -KEY_LENGTH * 0.05))
 		key.add_child(art)
-		var side := camera.global_transform.basis.x * (i - (LOCK_X.size() - 1) * 0.5) * 0.22
+		var side := camera.global_transform.basis.x * (i - (_lock_x.size() - 1) * 0.5) * 0.22
 		var start := camera.global_position - camera.global_transform.basis.z * 0.7 - camera.global_transform.basis.y * 0.18 + side
-		var hole := Vector3(LOCK_X[i], LOCK_Y - 0.03, DEPTH * 0.5 + 0.04)
+		var hole := Vector3(_lock_x[i], LOCK_Y - 0.03, DEPTH * 0.5 + 0.04)
 		var front := hole + Vector3(0, 0.05, 0.4)
 		tween.tween_callback(func() -> void:
 			key.global_position = start
@@ -118,10 +125,23 @@ func unlock(camera: Camera3D) -> void:
 		# Into the keyhole, square to the lock, then a quarter turn seen head-on.
 		tween.tween_property(art, "rotation:y", 0.0, 0.08)
 		tween.tween_property(key, "position", hole, 0.12).set_ease(Tween.EASE_IN)
-		tween.tween_property(key, "rotation:z", -PI * 0.5 if LOCK_X[i] <= 0.0 else PI * 0.5, TURN_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_property(key, "rotation:z", -PI * 0.5 if _lock_x[i] <= 0.0 else PI * 0.5, TURN_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		tween.tween_callback(_turned.bind(i))
 		tween.tween_interval(0.08)
-	# Shudder, then the lid bursts open on a flood of gold.
+	_open(tween)
+
+
+## A chest with no locks (down a dead end): the lid bursts open on the spot.
+func open_now() -> void:
+	_open(create_tween())
+
+
+func lock_count() -> int:
+	return _lock_x.size()
+
+
+## Shudder, then the lid bursts open on a flood of gold.
+func _open(tween: Tween) -> void:
 	for n in 6:
 		tween.tween_property(self, "position:x", position.x + (0.03 if n % 2 == 0 else -0.03), 0.04)
 	tween.tween_property(self, "position:x", position.x, 0.04)

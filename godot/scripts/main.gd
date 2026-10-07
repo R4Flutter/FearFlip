@@ -96,6 +96,14 @@ const AMBIENT_COLORS: Array[Color] = [Color(0.025, 0.04, 0.07), Color(0.09, 0.01
 const GLOW_COLORS: Array[Color] = [Color(0.12, 0.32, 0.55), Color(0.65, 0.05, 0.03)]
 const SIGIL_COLORS: Array[Color] = [Color(0.55, 0.9, 1.0), Color(1.0, 0.35, 0.1)]
 const MUSIC_DB := -14.0
+## Deaf Night's card turns the music down to this.
+const SILENT_DB := -80.0
+## Per-act look (plans/06 A5): each act turns WAKE's cold light and the walls to its own hue (-1 keeps
+## the original), Act 5 drains them to ash; NIGHTMARE stays red, so a flip always reads.
+const ACT_HUES: Array[float] = [-1.0, 0.42, 0.76, 0.09, -1.0]
+const ACT_SATURATION: Array[float] = [1.0, 1.0, 1.0, 1.0, 0.15]
+## Light on a chest waiting down a dead end, so it can be found in the dark.
+const DETOUR_CHEST_GLOW := 0.8
 
 const PLAYER_MODEL = preload("res://assets/character/character2withrig.glb")
 const DEVIL_MODEL = preload("res://assets/character/skleton_added_devil.glb")
@@ -158,6 +166,27 @@ var floor_revives := 0
 var chased_time := 0.0
 var shard_label: Label
 var live_pops := 0
+## This floor's cards (plans/06 P3), folded once at build through RunState.mod() (_fold_cards).
+var shard_factor := 1.0
+var devil_enabled := true
+var devil_speed := 1.0
+var devil_delay := 0.0
+var devil_distance := 0
+var follow_flips := false
+var mirror := false
+var fog_factor := 1.0
+var trap_cue := 1.0
+var light_energy := 0.0
+var music_db := MUSIC_DB
+var rare_chest := false
+var omen_token := false
+var card_names := ""
+## Chests down dead ends (Vault, Greed) by cell; each opens as you reach it.
+var bonus_chests := {}
+## This act's look: the per-world arrays with WAKE tinted (_act_tint).
+var fog_colors: Array[Color] = []
+var ambient_colors: Array[Color] = []
+var glow_colors: Array[Color] = []
 ## Revive point: saved on entering a safe circle {cell, time_left, traps}.
 var snapshot := {}
 var circle_materials: Array[StandardMaterial3D] = []
@@ -254,13 +283,15 @@ func _ready() -> void:
 	rule = StageRule.for_floor(RunState.current_floor)
 	seed_value = fixed_seed if fixed_seed != 0 else RunState.floor_seed()
 	print("FearFlip floor %d seed: %d" % [rule.floor_number, seed_value])
-	layout = FloorLayout.generate(seed_value, rooms if rooms > 0 else rule.rooms)
+	_fold_cards()
+	layout = FloorLayout.generate(seed_value, rooms if rooms > 0 else roundi(RunState.mod("rooms", rule.rooms)),
+			roundi(RunState.mod("keys", FloorLayout.SIGIL_COUNT)))
 	flip = FlipSystem.new(seed_value)
-	flip.first_forced_at = rule.first_forced_at
-	flip.next_forced_in = rule.first_forced_at
-	flip.forced_interval_min = rule.forced_interval_min
-	flip.forced_interval_max = rule.forced_interval_max
-	flip.min_forced_interval = rule.min_forced_interval
+	flip.first_forced_at = RunState.mod("flip_interval", rule.first_forced_at)
+	flip.next_forced_in = flip.first_forced_at
+	flip.forced_interval_min = RunState.mod("flip_interval", rule.forced_interval_min)
+	flip.forced_interval_max = RunState.mod("flip_interval", rule.forced_interval_max)
+	flip.min_forced_interval = RunState.mod("flip_interval", rule.min_forced_interval)
 	flip.warning_time = rule.flip_warning
 	flip.flipped.connect(_on_flipped)
 	flip.flip_denied.connect(_on_flip_denied)
@@ -269,9 +300,9 @@ func _ready() -> void:
 	from_spawn = layout.distances(FloorLayout.ANY, layout.spawn)
 	exit_dist = [layout.distances(WAKE, layout.exit), layout.distances(NIGHTMARE, layout.exit)]
 	circles = SafeCircles.new()
-	circles.capacity = rule.safe_circle_protect_s
+	circles.capacity = RunState.mod("circle_time", rule.safe_circle_protect_s)
 	circles.single_use = rule.safe_circle_single_use
-	circles.place(route, rule.safe_circle_count, func(cell: Vector2i) -> bool:
+	circles.place(route, roundi(RunState.mod("circles", rule.safe_circle_count)), func(cell: Vector2i) -> bool:
 		return layout.is_open(WAKE, cell) and layout.is_open(NIGHTMARE, cell) and not layout.sigils.has(cell) and cell != layout.devil_spawn)
 	traps = TrapField.new()
 	var excluded: Array[Vector2i] = [layout.devil_spawn]
@@ -279,11 +310,11 @@ func _ready() -> void:
 	excluded.append_array(circles.cells)
 	var trap_rng := RandomNumberGenerator.new()
 	trap_rng.seed = seed_value
-	traps.place(layout, route, rule.trap_count, excluded, rule.dead_end_traps, trap_rng)
+	traps.place(layout, route, roundi(RunState.mod("traps", rule.trap_count)), excluded, rule.dead_end_traps, trap_rng)
 	if debug_trap_step > 0 and debug_trap_step < route.size() - 1 and not excluded.has(route[debug_trap_step]):
 		traps.add(route[debug_trap_step])
 	tour_m = _tour_tiles() * CELL_SIZE
-	time_left = rule.time_budget(tour_m, feel.walk_speed)
+	time_left = rule.time_budget(tour_m, feel.walk_speed, RunState.mod("clock", 1.0))
 	brain = DevilBrain.new()
 	player_cell = layout.spawn
 	last_player_cell = player_cell
@@ -301,17 +332,52 @@ func _ready() -> void:
 	_build_sigils()
 	_build_circles()
 	_build_traps()
+	_build_detour_chests()
 	_build_devil()
 	_build_hud()
 	_apply_world(WAKE)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_flash_message(_floor_title())
+	if devil_enabled and RunState.mod("devil_awake", 0.0) > 0.0:
+		_wake_devil()  # at its spawn: far away by construction (FloorLayout.MIN_DEVIL_DISTANCE)
+
+## Read this floor's cards once (plans/06 §6): everything below is built from them.
+func _fold_cards() -> void:
+	shard_factor = RunState.mod("shards", 1.0)
+	devil_enabled = RunState.mod("devil", 1.0) > 0.0
+	devil_speed = RunState.mod("devil_speed", 1.0)
+	devil_delay = RunState.mod("devil_delay", rule.devil_spawn_delay)
+	devil_distance = roundi(RunState.mod("devil_distance", rule.devil_spawn_distance))
+	follow_flips = RunState.mod("follow_flips", 0.0) > 0.0
+	mirror = RunState.mod("mirror", 0.0) > 0.0
+	fog_factor = RunState.mod("fog", 1.0)
+	trap_cue = RunState.mod("trap_cue", rule.trap_cue_strength)
+	light_energy = world_light_energy * RunState.mod("lights", 1.0)
+	music_db = MUSIC_DB if RunState.mod("music", 1.0) > 0.0 else SILENT_DB
+	rare_chest = RunState.mod("rare_chest", 0.0) > 0.0
+	omen_token = RunState.mod("omen_token", 0.0) > 0.0
+	var names: Array[String] = []
+	for id in RunState.floor_cards:
+		names.append(Cards.find(id)["name"])
+	card_names = "  ·  ".join(names)
+	fog_colors.assign(FOG_COLORS)
+	ambient_colors.assign(AMBIENT_COLORS)
+	glow_colors.assign(GLOW_COLORS)
+	for colors: Array[Color] in [fog_colors, ambient_colors, glow_colors]:
+		colors[WAKE] = _act_tint(colors[WAKE])
+
+## `color` in this act's hue (WAKE light and walls; Act 1 keeps it as it is).
+func _act_tint(color: Color) -> Color:
+	var i := rule.act - 1
+	if ACT_HUES[i] < 0.0 and ACT_SATURATION[i] == 1.0:
+		return color
+	return Color.from_hsv(color.h if ACT_HUES[i] < 0.0 else ACT_HUES[i], color.s * ACT_SATURATION[i], color.v, color.a)
 
 ## Shown as a floor starts: where you are in the act, and what kind of floor this is.
 func _floor_title() -> String:
 	var title := "%s  ·  FLOOR %d / %d" % [rule.act_name.to_upper(), rule.floor_in_act, StageRule.FLOORS_PER_ACT]
 	if rule.is_sanctuary:
-		return title + "\nSANCTUARY  ·  A QUIETER FLOOR"
+		return title + "\nSANCTUARY  ·  NOTHING HUNTS YOU HERE"
 	if rule.is_gate:
 		return title + "\nTHE GATE  ·  ESCAPE IT TO CLEAR ACT %d" % rule.act
 	return title
@@ -415,7 +481,7 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Flipping Time inverts movement (the 2D FearFlip rule): W goes back, A goes right, and so on.
 func _move_input() -> Vector2:
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back", feel.stick_deadzone)
-	return -input if flip.forced_active else input
+	return -input if flip.forced_active or (mirror and world == NIGHTMARE) else input
 
 func _apply_look(yaw_delta: float, pitch_delta: float) -> void:
 	yaw += yaw_delta
@@ -535,26 +601,26 @@ func _apply_world(new_world: int) -> void:
 	player.collision_mask = LAYER_SHARED | (LAYER_NIGHTMARE if nightmare else LAYER_WAKE)
 	wake_walls.visible = not nightmare
 	nightmare_walls.visible = nightmare
-	env.fog_light_color = FOG_COLORS[world]
-	env.fog_density = FOG_DENSITIES[world]
-	env.ambient_light_color = AMBIENT_COLORS[world]
-	trim_material.emission = GLOW_COLORS[world] * 0.3
-	light_material.emission = GLOW_COLORS[world]
-	accent_material.emission = GLOW_COLORS[world] * 0.2
+	env.fog_light_color = fog_colors[world]
+	env.fog_density = FOG_DENSITIES[world] * fog_factor
+	env.ambient_light_color = ambient_colors[world]
+	trim_material.emission = glow_colors[world] * 0.3
+	light_material.emission = glow_colors[world] if light_energy > 0.0 else Color.BLACK
+	accent_material.emission = glow_colors[world] * 0.2
 	for light in world_lights:
-		light.light_color = GLOW_COLORS[world]
+		light.light_color = glow_colors[world]
 	devil.visible = devil_active
 	for i in sigil_nodes.size():
 		sigil_nodes[i].visible = not sigil_collected[i]
 	var tween := create_tween().set_parallel()
-	tween.tween_property(calm_player, "volume_db", -60.0 if nightmare else MUSIC_DB, 0.6)
-	tween.tween_property(intense_player, "volume_db", MUSIC_DB if nightmare else -60.0, 0.6)
+	tween.tween_property(calm_player, "volume_db", -60.0 if nightmare else music_db, 0.6)
+	tween.tween_property(intense_player, "volume_db", music_db if nightmare else -60.0, 0.6)
 	status_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4) if nightmare else Color(0.65, 0.95, 1.0))
 	_refresh_minimap()
 
 ## Flipping Time warning: ceiling lights stutter.
 func _strobe_lights(on: bool) -> void:
-	var energy := world_light_energy * (0.25 if on and fmod(elapsed, 0.25) < 0.12 else 1.0)
+	var energy := light_energy * (0.25 if on and fmod(elapsed, 0.25) < 0.12 else 1.0)
 	for light in world_lights:
 		light.light_energy = energy
 
@@ -603,7 +669,7 @@ func _collect_sigils() -> void:
 		_earn(MetaState.SIGIL_SHARDS)
 		sigil_player.pitch_scale = 1.0
 		sigil_player.play()
-		if sigils_collected == FloorLayout.SIGIL_COUNT:
+		if sigils_collected == layout.sigils.size():
 			key_hud.all_found()
 			_open_exit()
 		_refresh_minimap()
@@ -652,14 +718,7 @@ func _on_key_turned(index: int) -> void:
 
 ## The lid is up: the chest pays its roll for this floor's seed (plans/06 C5), then the floor is cleared.
 func _on_chest_opened() -> void:
-	var roll := MetaState.chest_roll(seed_value)
-	var find: String = MetaState.CHEST_TEXT[roll["kind"]]
-	if roll["shards"] > 0:
-		_earn(roll["shards"], find)
-	else:
-		_pop("+1  " + find)
-		if fixed_seed == 0:
-			MetaState.keep_find(roll["kind"])
+	_pay_chest({"kind": "rare", "shards": MetaState.RARE_SHARDS} if rare_chest else MetaState.chest_roll(seed_value))
 	flash_rect.color = Color(1.0, 0.85, 0.5, 0.55)
 	var tween := create_tween()
 	tween.tween_property(flash_rect, "color", Color(1.0, 0.85, 0.5, 0.0), 0.6)
@@ -668,7 +727,7 @@ func _on_chest_opened() -> void:
 ## Seconds per cell: DevilBrain's rubber band (far = faster, close = slower), enraged once the exit opens.
 func _devil_step_interval() -> float:
 	var enraged := enrage_left > 0.0
-	var ratio := rule.devil_base_ratio * DevilBrain.WORLD_SPEED[world] * (DEVIL_ENRAGE_MULTIPLIER if enraged else 1.0)
+	var ratio := rule.devil_base_ratio * devil_speed * DevilBrain.WORLD_SPEED[NIGHTMARE if follow_flips else world] * (DEVIL_ENRAGE_MULTIPLIER if enraged else 1.0)
 	return CELL_SIZE / DevilBrain.speed(_devil_distance(), feel.walk_speed, feel.walk_speed * feel.sprint_multiplier, ratio, enraged)
 
 ## Current-world path tiles between the Devil and you (a large number if there is no path).
@@ -700,8 +759,10 @@ func _animate_devil(delta: float) -> void:
 	devil_mesh.position.y = -DEVIL_Y + devil_rig.animate(speed, delta)
 
 func _tick_devil(delta: float) -> void:
+	if not devil_enabled:
+		return
 	if not devil_active:
-		if not devil_spawning and DevilBrain.can_spawn(elapsed, rule.devil_spawn_delay, _progress(), circles.protects(player_cell)):
+		if not devil_spawning and DevilBrain.can_spawn(elapsed, devil_delay, _progress(), circles.protects(player_cell)):
 			_try_spawn_devil()
 		return
 	devil_timer += delta
@@ -746,10 +807,10 @@ func _progress() -> float:
 
 ## Wakes behind you on your own trail, far away and out of sight, after a telegraph. Never ahead.
 func _try_spawn_devil() -> void:
-	var cell := brain.pick_spawn(player_dist, layout.size, rule.devil_spawn_distance, _seen_by_player)
+	var cell := brain.pick_spawn(player_dist, layout.size, devil_distance, _seen_by_player)
 	if cell.x < 0:
 		var fallback := layout.devil_spawn
-		if player_dist[fallback.y * layout.size + fallback.x] < rule.devil_spawn_distance or _seen_by_player(fallback):
+		if player_dist[fallback.y * layout.size + fallback.x] < devil_distance or _seen_by_player(fallback):
 			return
 		cell = fallback
 	devil_spawning = true
@@ -786,6 +847,7 @@ func _start_retreat() -> void:
 
 ## Shards for something you did: counted now, popped on the HUD, banked by _bank().
 func _earn(amount: int, why := "") -> void:
+	amount = roundi(amount * shard_factor)
 	floor_shards += amount
 	_pop(("+%d  %s" % [amount, why]).strip_edges())
 
@@ -811,6 +873,23 @@ func _close_call(what: String) -> void:
 	get_tree().create_timer(CLOSE_CALL_SLOWMO, true, false, true).timeout.connect(Engine.set.bind("time_scale", 1.0))
 	heartbeat_player.pitch_scale = CLOSE_CALL_HEART_PITCH
 	create_tween().tween_property(heartbeat_player, "pitch_scale", 1.0, CLOSE_CALL_HEART_TIME)
+
+## A chest's roll: shards pop and count; a find (omen token, lore note) is kept in the profile.
+func _pay_chest(roll: Dictionary) -> void:
+	var find: String = MetaState.CHEST_TEXT[roll["kind"]]
+	if roll["shards"] > 0:
+		_earn(roll["shards"], find)
+	else:
+		_pop("+1  " + find)
+		if fixed_seed == 0:
+			MetaState.keep_find(roll["kind"])
+
+## A chest down a dead end opens as you reach it and pays its own roll.
+func _open_detour_chest(cell: Vector2i) -> void:
+	var box: TreasureChest = bonus_chests[cell]
+	bonus_chests.erase(cell)
+	box.open_now()
+	_pay_chest(MetaState.chest_roll(hash([seed_value, cell])))
 
 ## This floor's shards go to the profile for good. Quitting mid-floor banks nothing: the floor replays.
 func _bank() -> void:
@@ -840,8 +919,10 @@ func _enter_cell(cell: Vector2i) -> void:
 		circles.on_new_cell()
 		steps_since_retreat += 1
 	brain.record(cell, true)
+	if bonus_chests.has(cell):
+		_open_detour_chest(cell)
 	if cell == layout.exit and not exit_open:
-		_flash_message("THE CHEST IS LOCKED   find %d more keys" % (FloorLayout.SIGIL_COUNT - sigils_collected))
+		_flash_message("THE CHEST IS LOCKED   find %d more keys" % (layout.sigils.size() - sigils_collected))
 	if traps.creak(cell):
 		creak_player.play()
 	match traps.step(cell):
@@ -971,7 +1052,7 @@ func _build_environment() -> void:
 	add_child(moon)
 
 func _build_audio() -> void:
-	calm_player = _audio("CalmLoop", "res://assets/audio/sfx_ambient_calm.mp3", MUSIC_DB)
+	calm_player = _audio("CalmLoop", "res://assets/audio/sfx_ambient_calm.mp3", music_db)
 	intense_player = _audio("IntenseLoop", "res://assets/audio/sfx_ambient_intense.mp3", -60.0)
 	for music in [calm_player, intense_player]:
 		(music.stream as AudioStreamMP3).loop = true
@@ -1078,8 +1159,10 @@ func _build_maze() -> void:
 	fixture_mesh.size = Vector3(0.5, 0.05, 0.5)
 	add_child(_multimesh(fixture_mesh, light_material, light_cells, CEILING_HEIGHT - 0.12))
 	for cell in light_cells:
+		if light_energy <= 0.0:
+			break  # Blackout: the fixtures hang dead
 		var light := OmniLight3D.new()
-		light.light_energy = world_light_energy
+		light.light_energy = light_energy
 		light.omni_range = 4.5
 		light.shadow_enabled = world_light_shadows
 		light.position = cell_to_world(cell) + Vector3(0, CEILING_HEIGHT - 0.12, 0)
@@ -1129,7 +1212,7 @@ func _multimesh(mesh: Mesh, material: Material, cells: Array[Vector2i], height: 
 
 func _wall_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.038, 0.055, 0.08)
+	material.albedo_color = _act_tint(Color(0.038, 0.055, 0.08))
 	material.metallic = 0.18
 	material.roughness = 0.82
 	return material
@@ -1228,7 +1311,7 @@ func _build_goal() -> void:
 	chest = TreasureChest.new()
 	chest.name = "TreasureChest"
 	goal.add_child(chest)
-	chest.build(LAYER_SHARED)
+	chest.build(LAYER_SHARED, layout.sigils.size())
 	for d in FloorLayout.DIRS:
 		if layout.is_open(FloorLayout.ANY, layout.exit + d):
 			chest.rotation.y = atan2(float(d.x), float(d.y))
@@ -1248,6 +1331,23 @@ func _set_exit_look() -> void:
 	goal_material.emission = color * (0.65 if exit_open else 0.3)
 	goal_light.light_color = color
 	goal_light.light_energy = 2.5 if exit_open else 0.6
+
+## Chests down dead ends (Vault, Greed: plans/06 B3), each a real detour off the route, glowing faintly.
+func _build_detour_chests() -> void:
+	var taken: Array[Vector2i] = [layout.devil_spawn]
+	taken.append_array(layout.sigils)
+	taken.append_array(circles.cells)
+	taken.append_array(traps.cells)
+	for cell in layout.detours(roundi(RunState.mod("chests", 0.0)), taken):
+		var box := TreasureChest.new()
+		box.name = "DetourChest"
+		box.position = cell_to_world(cell)
+		add_child(box)
+		box.build(LAYER_SHARED, 0, DETOUR_CHEST_GLOW)
+		for d in FloorLayout.DIRS:
+			if layout.is_open(FloorLayout.ANY, cell + d):
+				box.rotation.y = atan2(float(d.x), float(d.y))
+		bonus_chests[cell] = box
 
 ## Keys (the sigils' rules, the key art): one per sigil cell, glowing in the colour of its world.
 func _build_sigils() -> void:
@@ -1301,7 +1401,7 @@ func _build_traps() -> void:
 		pit.name = "CrackedFloor"
 		pit.process_mode = Node.PROCESS_MODE_PAUSABLE
 		pit.cell_size = CELL_SIZE
-		pit.cue = rule.trap_cue_strength
+		pit.cue = trap_cue
 		pit.player = player
 		pit.position = cell_to_world(cell)
 		add_child(pit)
@@ -1336,13 +1436,14 @@ func _build_hud() -> void:
 	minimap = preload("res://scripts/minimap.gd").new()
 	minimap.name = "Minimap"
 	minimap.layout = layout
-	minimap.fog_colors = FOG_COLORS
-	minimap.glow_colors = GLOW_COLORS
+	minimap.fog_colors = fog_colors
+	minimap.glow_colors = glow_colors
 	minimap.sigil_colors = SIGIL_COLORS
 	minimap.sigil_collected = sigil_collected
 	minimap.circles = circles
 	minimap.traps = traps
 	hud.add_child(minimap)
+	minimap.visible = RunState.mod("minimap", 1.0) > 0.0
 
 	status_label = _hud_label(hud, "Status", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	status_label.offset_left = -360
@@ -1352,7 +1453,7 @@ func _build_hud() -> void:
 	key_hud = KeyHud.new()
 	key_hud.name = "Keys"
 	hud.add_child(key_hud)
-	key_hud.build(FloorLayout.SIGIL_COUNT)
+	key_hud.build(layout.sigils.size())
 
 	shard_label = _hud_label(hud, "Shards", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	shard_label.offset_left = -360
@@ -1416,12 +1517,10 @@ func _update_hud() -> void:
 		flip_line = "CONTROLS INVERTED  %ds" % ceili(maxf(flip.forced_left, 0.0))
 	elif flip.cooldown_left > 0.0:
 		flip_line = "FLIP  %.1fs" % flip.cooldown_left
-	var goal_line := "OPEN THE CHEST" if exit_open else "KEYS  %d / %d" % [sigils_collected, FloorLayout.SIGIL_COUNT]
+	var goal_line := "OPEN THE CHEST" if exit_open else "KEYS  %d / %d" % [sigils_collected, layout.sigils.size()]
 	var where := "ACT %d  ·  FLOOR %d / %d" % [rule.act, rule.floor_in_act, StageRule.FLOORS_PER_ACT]
-	if rule.is_gate:
-		where += "\nTHE GATE"
-	elif rule.is_sanctuary:
-		where += "\nSANCTUARY"
+	if card_names != "":
+		where += "\n" + ("THE GATE  ·  " if rule.is_gate else "") + card_names
 	status_label.text = "%s\n%s   %s\n%s\n%s" % [where, WORLD_NAMES[world], _format_time(maxf(time_left, 0.0)), goal_line, flip_line]
 	status_label.modulate = Color(1.0, 0.35, 0.3, 0.6 + 0.4 * absf(sin(elapsed * 6.0))) if panic else Color.WHITE
 	shard_label.text = "SHARDS  %d" % (MetaState.shards + floor_shards)
@@ -1466,6 +1565,10 @@ func _win_game() -> void:
 	if rule.is_gate:
 		pay += MetaState.act_clear_shards(rule.act)
 	_earn(pay, "GRADE " + grade)
+	if omen_token:
+		_pop("+1  OMEN TOKEN")
+		if fixed_seed == 0:
+			MetaState.keep_find("omen")
 	var earned := "GRADE %s   ·   +%d SHARDS" % [grade, floor_shards]
 	_bank()
 	if not rule.is_gate:

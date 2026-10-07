@@ -9,11 +9,16 @@ func suite_name() -> String:
 	return "main_floor"
 
 
-func _spawn_floor() -> Node3D:
+## A debug floor (fixed seed) built from `cards` on `floor_number`; RunState goes back to Act 1 F1 after.
+func _spawn_floor(cards: Array = [], floor_number := 1) -> Node3D:
+	RunState.floor_cards.assign(cards)
+	RunState.current_floor = floor_number
 	var main: Node3D = load("res://scenes/main.tscn").instantiate()
 	main.fixed_seed = 42
 	(Engine.get_main_loop() as SceneTree).root.add_child(main)
 	track(main)
+	RunState.floor_cards.clear()
+	RunState.current_floor = 1
 	return main
 
 
@@ -230,15 +235,13 @@ func _lunging_floor() -> Node3D:
 
 
 func test_death_screen_shows_unfinished_business() -> void:
-	RunState.current_floor = 8
 	MetaState.acts_unlocked = 1
-	var main := _spawn_floor()
+	var main := _spawn_floor([], 8)
 	main._lose_game("time")
 	var line: String = main.death_screen._business.text
 	assert_true(line.contains("3 FLOORS TO THE ACT 2 SHORTCUT"), line)
 	assert_true(line.contains("SHARDS THIS RUN"), line)
 	assert_eq(main.death_screen._unlock_bar.value, MetaState.unlock_progress())
-	RunState.current_floor = 1
 
 
 func test_shard_pops_stack_under_the_counter() -> void:
@@ -252,3 +255,110 @@ func test_shard_pops_stack_under_the_counter() -> void:
 	for pop: Label in pops:
 		assert_true(pop.position.y >= counter_bottom, "a pop never covers the counter (%.0f < %.0f)" % [pop.position.y, counter_bottom])
 	assert_true(absf(pops[0].position.y - pops[1].position.y) >= (pops[0] as Label).size.y, "two at once stack, not overlap")
+
+
+func test_blackout_kills_the_ceiling_lights() -> void:
+	var plain := _spawn_floor([], 2)
+	var main := _spawn_floor(["blackout"], 2)
+	assert_gt(plain.world_lights.size(), 0)
+	assert_eq(main.world_lights.size(), 0, "no ceiling light anywhere")
+	assert_eq(main.light_material.emission, Color.BLACK, "the fixtures hang dead")
+
+
+func test_fog_circles_and_clock_follow_the_cards() -> void:
+	var plain := _spawn_floor([], 32)
+	var main := _spawn_floor(["thick_fog", "safe_haven", "tight_clock"], 32)
+	assert_true(is_equal_approx(main.env.fog_density, plain.env.fog_density * 1.8), "thick fog")
+	assert_eq(main.circles.cells.size(), plain.circles.cells.size() * 2, "safe haven: twice the circles")
+	assert_true(is_equal_approx(main.circles.capacity, plain.circles.capacity * 0.5), "draining twice as fast")
+	assert_true(main.time_left < plain.time_left, "tight clock")
+
+
+func test_cracked_earth_and_short_fuse() -> void:
+	var plain := _spawn_floor([], 12)
+	var main := _spawn_floor(["cracked_earth", "short_fuse"], 12)
+	assert_gt(main.traps.cells.size(), plain.traps.cells.size(), "more cracked floors")
+	assert_gt(main.trap_nodes[0].cue, plain.trap_nodes[0].cue, "and they glow")
+	assert_true(main.flip.next_forced_in < plain.flip.next_forced_in, "Flipping Time comes sooner")
+	assert_true(main.flip.forced_interval_max < plain.flip.forced_interval_max)
+
+
+func test_the_sanctuary_is_small_and_nothing_hunts_you() -> void:
+	var main := _spawn_floor(["sanctuary"], 5)
+	assert_true(main.layout.size < StageRule.for_floor(5).rooms * 2 + 1, "a smaller floor")
+	main.elapsed = 999.0
+	main.player_cell = main.layout.exit
+	main._tick_devil(0.1)
+	assert_false(main.devil_active or main.devil_spawning, "nothing hunts you here")
+
+
+func test_the_ritual_gate_needs_five_keys() -> void:
+	var main := _spawn_floor(["ritual"], 20)
+	assert_eq(main.layout.sigils.size(), 5)
+	assert_eq(main.key_hud.slots.size(), 5)
+	assert_eq(main.chest.lock_count(), 5, "a lock for every key")
+
+
+func test_first_blood_wakes_it_from_the_start() -> void:
+	var main := _spawn_floor(["first_blood"], 10)
+	assert_true(main.devil_active, "awake from the start")
+	assert_true(main._devil_distance() >= FloorLayout.MIN_DEVIL_DISTANCE, "but far away")
+
+
+func test_hunt_doubles_shards_and_its_chest_is_rare() -> void:
+	var main := _spawn_floor(["hunt", "thick_fog", "safe_haven"], 3)
+	main._earn(4)
+	assert_eq(main.floor_shards, 8, "double shards")
+	main._on_chest_opened()
+	assert_eq(main.floor_shards, 8 + MetaState.RARE_SHARDS * 2, "a rare chest, doubled")
+
+
+func test_vault_hides_chests_down_dead_ends_that_pay() -> void:
+	var main := _spawn_floor(["vault", "thick_fog"], 3)
+	assert_eq(main.layout.sigils.size(), FloorLayout.SIGIL_COUNT + 1, "one more key")
+	assert_eq(main.bonus_chests.size(), 2, "two chests down dead ends")
+	var cell: Vector2i = main.bonus_chests.keys()[0]
+	main._enter_cell(cell)
+	assert_eq(main.bonus_chests.size(), 1, "it opens as you reach it")
+	assert_eq(main.floor_shards, MetaState.chest_roll(hash([main.seed_value, cell]))["shards"])
+
+
+func test_shrine_pays_less_and_gives_an_omen_token() -> void:
+	var main := _spawn_floor(["shrine"], 3)
+	main._earn(4)
+	assert_eq(main.floor_shards, 3, "three quarters")
+	assert_true(main.omen_token)
+
+
+func test_mirror_night_mirrors_controls_in_nightmare_only() -> void:
+	var main := _spawn_floor(["mirror_night"], 22)
+	Input.action_press("move_forward")
+	var wake: Vector2 = main._move_input()
+	main._apply_world(NIGHTMARE)
+	var nightmare: Vector2 = main._move_input()
+	Input.action_release("move_forward")
+	assert_true(wake.y < 0.0, "WAKE plays normally")
+	assert_eq(nightmare, -wake, "NIGHTMARE is mirrored")
+
+
+func test_static_and_deaf_night_take_the_map_and_the_music() -> void:
+	var main := _spawn_floor(["static", "deaf_night"], 22)
+	assert_false(main.minimap.visible, "no map")
+	assert_true(main.calm_player.volume_db <= -60.0, "no music")
+
+
+func test_relentless_keeps_its_nightmare_pace_in_wake() -> void:
+	var main := _spawn_floor(["relentless"], 42)
+	main._wake_devil()
+	main._apply_world(WAKE)
+	var wake: float = main._devil_step_interval()
+	main._apply_world(NIGHTMARE)
+	assert_eq(main._devil_step_interval(), wake)
+
+
+func test_each_act_tints_wake_but_nightmare_stays_red() -> void:
+	var act1 := _spawn_floor([], 2)
+	var act3 := _spawn_floor([], 22)
+	assert_eq(act1.fog_colors[WAKE], act1.FOG_COLORS[WAKE], "Act 1 keeps the original look")
+	assert_ne(act3.fog_colors[WAKE], act1.fog_colors[WAKE], "Act 3 has its own")
+	assert_eq(act3.fog_colors[NIGHTMARE], act1.fog_colors[NIGHTMARE], "NIGHTMARE always reads red")
