@@ -1,0 +1,10 @@
+
+# Art and models stay local (pushed branch carries code only)
+*.glb
+*.gltf
+*.fbx
+*.png
+*.jpg
+*.jpeg
+*.webp
+.godot/

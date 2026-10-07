@@ -49,3 +49,13 @@ app.*.map.json
 /keystore/
 
 .worktrees/
+
+# Godot 3D art/models stay local
+*.glb
+*.gltf
+*.fbx
+godot/**/*.png
+godot/**/*.jpg
+godot/**/*.jpeg
+godot/**/*.webp
+godot/.godot/
