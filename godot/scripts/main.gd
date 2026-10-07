@@ -34,6 +34,17 @@ const LUNGE_TIME := 0.35
 const LUNGE_RANGE := 1.3
 const LUNGE_SPEED := 7.0
 const LUNGE_MISS_STUN := 0.6
+## Close Call / Phase Dodge (plans/06 C2): a near miss pays, time slows for a beat and the heart jumps.
+const CLOSE_CALL_TIME_SCALE := 0.35
+const CLOSE_CALL_SLOWMO := 0.3
+const CLOSE_CALL_HEART_PITCH := 1.5
+const CLOSE_CALL_HEART_TIME := 1.5
+## Your own flip with the Devil this close (path tiles), or mid-lunge, is a Phase Dodge.
+const PHASE_DODGE_TILES := 1
+## Fear Shards on the HUD: a counter under the keys; every "+3" rises into it and fades.
+const SHARD_COLOR := Color(0.78, 0.62, 1.0)
+const SHARD_POP_RISE := 44.0
+const SHARD_POP_TIME := 0.9
 ## The Devil wakes this long after its telegraph (a distant slam).
 const SPAWN_TELEGRAPH := 1.5
 ## Path tiles it backs off to while you stand in a safe circle.
@@ -135,6 +146,15 @@ var lunge_left := 0.0
 var lunge_cooldown := 0.0
 var time_left := 0.0
 var panic := false
+var seed_value := 0
+## Metres of the key tour (spawn -> keys -> chest): the clock and the grade are both built on it.
+var tour_m := 0.0
+## Shards earned on this floor: banked (RunState.bank) at the chest, on death or on a restart.
+var floor_shards := 0
+var floor_revives := 0
+## Seconds with the Devil inside heartbeat range: being hunted costs a grade.
+var chased_time := 0.0
+var shard_label: Label
 ## Revive point: saved on entering a safe circle {cell, time_left, traps}.
 var snapshot := {}
 var circle_materials: Array[StandardMaterial3D] = []
@@ -220,6 +240,7 @@ func _ready() -> void:
 		feel = PlayerFeel.new()
 	# Main keeps processing while paused so Esc can resume; gameplay loops check the pause flag.
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	Engine.time_scale = 1.0  # a reload can land mid Close Call
 	rng.randomize()
 	# A fixed seed is a debug floor: it never touches the save.
 	if fixed_seed == 0:
@@ -228,7 +249,7 @@ func _ready() -> void:
 		if RunState.run_over:
 			RunState.start_run(RunState.act())
 	rule = StageRule.for_floor(RunState.current_floor)
-	var seed_value := fixed_seed if fixed_seed != 0 else RunState.floor_seed()
+	seed_value = fixed_seed if fixed_seed != 0 else RunState.floor_seed()
 	print("FearFlip floor %d seed: %d" % [rule.floor_number, seed_value])
 	layout = FloorLayout.generate(seed_value, rooms if rooms > 0 else rule.rooms)
 	flip = FlipSystem.new(seed_value)
@@ -258,7 +279,8 @@ func _ready() -> void:
 	traps.place(layout, route, rule.trap_count, excluded, rule.dead_end_traps, trap_rng)
 	if debug_trap_step > 0 and debug_trap_step < route.size() - 1 and not excluded.has(route[debug_trap_step]):
 		traps.add(route[debug_trap_step])
-	time_left = rule.time_budget(_tour_tiles() * CELL_SIZE, feel.walk_speed)
+	tour_m = _tour_tiles() * CELL_SIZE
+	time_left = rule.time_budget(tour_m, feel.walk_speed)
 	brain = DevilBrain.new()
 	player_cell = layout.spawn
 	last_player_cell = player_cell
@@ -313,6 +335,8 @@ func _process(delta: float) -> void:
 		_flash_message("The circle is empty. Move.")
 	_refresh_circles()
 	_tick_devil(delta)
+	if devil_active and _devil_distance() <= HEARTBEAT_TILES:
+		chased_time += delta
 	_collect_sigils()
 	if not panic and time_left <= PANIC_TIME:
 		panic = true
@@ -468,6 +492,9 @@ func _spot_open(target_world: int) -> bool:
 	return true
 
 func _on_flipped(new_world: int, forced: bool) -> void:
+	# Your own flip out of its grab (mid-lunge, or with it a step away and able to catch you) is a Phase Dodge.
+	var dodged := not forced and devil_active and (lunge_left > 0.0 or
+			(_devil_distance() <= PHASE_DODGE_TILES and not devil_retreating and not circles.protects(player_cell)))
 	_apply_world(new_world)
 	flip_player.play()
 	warning_label.visible = false
@@ -484,6 +511,8 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 	_move_devil_into_world()
 	if forced:
 		_keep_devil_fair()
+	if dodged:
+		_close_call("PHASE DODGE")
 
 func _on_flip_denied() -> void:
 	deny_player.play()
@@ -568,6 +597,7 @@ func _collect_sigils() -> void:
 		(sigil_nodes[i] as KeyPickup).collect()
 		key_hud.fly_in(sigils_collected, _screen_point(sigil_nodes[i].global_position))
 		sigils_collected += 1
+		_earn(MetaState.SIGIL_SHARDS)
 		sigil_player.pitch_scale = 1.0
 		sigil_player.play()
 		if sigils_collected == FloorLayout.SIGIL_COUNT:
@@ -617,7 +647,16 @@ func _on_key_turned(index: int) -> void:
 	sigil_player.pitch_scale = 1.3 + 0.15 * index
 	sigil_player.play()
 
+## The lid is up: the chest pays its roll for this floor's seed (plans/06 C5), then the floor is cleared.
 func _on_chest_opened() -> void:
+	var roll := MetaState.chest_roll(seed_value)
+	var find: String = MetaState.CHEST_TEXT[roll["kind"]]
+	if roll["shards"] > 0:
+		_earn(roll["shards"], find)
+	else:
+		_pop("+1  " + find)
+		if fixed_seed == 0:
+			MetaState.keep_find(roll["kind"])
 	flash_rect.color = Color(1.0, 0.85, 0.5, 0.55)
 	var tween := create_tween()
 	tween.tween_property(flash_rect, "color", Color(1.0, 0.85, 0.5, 0.0), 0.6)
@@ -689,6 +728,7 @@ func _check_catch(delta: float) -> void:
 				_lose_game("devil")
 			else:
 				lunge_cooldown = LUNGE_MISS_STUN
+				_close_call("CLOSE CALL")
 		return
 	if catch_grace > 0.0 or lunge_cooldown > 0.0 or devil_retreating or circles.protects(player_cell):
 		return
@@ -727,6 +767,8 @@ func _seen_by_player(cell: Vector2i) -> bool:
 
 ## In a safe circle: it backs off (visibly, at its own speed) to the nearest spot far from you.
 func _start_retreat() -> void:
+	if lunge_left > 0.0:
+		_close_call("CLOSE CALL")  # dove into the circle mid-lunge
 	devil_retreating = true
 	steps_since_retreat = 0
 	lunge_left = 0.0
@@ -736,6 +778,39 @@ func _start_retreat() -> void:
 		if player_dist[i] >= CIRCLE_RETREAT_DISTANCE and from_devil[i] >= 0 and (best < 0 or from_devil[i] < from_devil[best]):
 			best = i
 	devil_target = layout.cell_at(best) if best >= 0 else devil_cell
+
+# --- Fear Shards (plans/06 P2) ------------------------------------------------------
+
+## Shards for something you did: counted now, popped on the HUD, banked by _bank().
+func _earn(amount: int, why := "") -> void:
+	floor_shards += amount
+	_pop(("+%d  %s" % [amount, why]).strip_edges())
+
+## A "+3" that rises into the shard counter and fades.
+func _pop(text: String) -> void:
+	var pop := shard_label.duplicate() as Label
+	pop.text = text
+	shard_label.add_sibling(pop)
+	var tween := pop.create_tween().set_parallel()
+	tween.tween_property(pop, "position:y", pop.position.y, SHARD_POP_TIME).from(pop.position.y + SHARD_POP_RISE).set_trans(Tween.TRANS_QUINT).set_ease(Tween.EASE_OUT)
+	tween.tween_property(pop, "modulate:a", 0.0, SHARD_POP_TIME * 0.5).set_delay(SHARD_POP_TIME * 0.5)
+	tween.chain().tween_callback(pop.queue_free)
+
+## A near miss: it pays, time slows for a beat (on a real-time timer, so slow motion can't stretch it)
+## and the heart jumps.
+func _close_call(what: String) -> void:
+	_earn(MetaState.CLOSE_CALL_SHARDS, what)
+	Engine.time_scale = CLOSE_CALL_TIME_SCALE
+	get_tree().create_timer(CLOSE_CALL_SLOWMO, true, false, true).timeout.connect(Engine.set.bind("time_scale", 1.0))
+	heartbeat_player.pitch_scale = CLOSE_CALL_HEART_PITCH
+	create_tween().tween_property(heartbeat_player, "pitch_scale", 1.0, CLOSE_CALL_HEART_TIME)
+
+## This floor's shards go to the profile for good. Quitting mid-floor banks nothing: the floor replays.
+func _bank() -> void:
+	if fixed_seed != 0 or floor_shards == 0:
+		return  # a debug floor never touches the save
+	RunState.bank(floor_shards)
+	floor_shards = 0
 
 # --- Cells, circles, traps ------------------------------------------------------
 
@@ -1272,6 +1347,12 @@ func _build_hud() -> void:
 	hud.add_child(key_hud)
 	key_hud.build(FloorLayout.SIGIL_COUNT)
 
+	shard_label = _hud_label(hud, "Shards", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
+	shard_label.offset_left = -360
+	shard_label.offset_right = -24
+	shard_label.offset_top = KeyHud.MARGIN_TOP + KeyHud.SLOT_HEIGHT + 8
+	shard_label.add_theme_color_override("font_color", SHARD_COLOR)
+
 	state_label = _hud_label(hud, "Message", 30, Control.PRESET_CENTER_TOP, HORIZONTAL_ALIGNMENT_CENTER)
 	state_label.offset_left = -560
 	state_label.offset_right = 560
@@ -1336,6 +1417,7 @@ func _update_hud() -> void:
 		where += "\nSANCTUARY"
 	status_label.text = "%s\n%s   %s\n%s\n%s" % [where, WORLD_NAMES[world], _format_time(maxf(time_left, 0.0)), goal_line, flip_line]
 	status_label.modulate = Color(1.0, 0.35, 0.3, 0.6 + 0.4 * absf(sin(elapsed * 6.0))) if panic else Color.WHITE
+	shard_label.text = "SHARDS  %d" % (MetaState.shards + floor_shards)
 	if warning_label.visible:
 		warning_label.text = "FLIPPING TIME  %d
 CONTROLS WILL INVERT" % maxi(ceili(flip.next_forced_in), 0)
@@ -1372,19 +1454,26 @@ func _win_game() -> void:
 	game_state = "won"
 	win_player.play()
 	_stop_tension_audio()
+	var grade := StageRule.grade(elapsed, tour_m, feel.walk_speed, floor_revives, chased_time)
+	var pay := MetaState.floor_clear_shards(rule.floor_in_act, grade)
+	if rule.is_gate:
+		pay += MetaState.act_clear_shards(rule.act)
+	_earn(pay, "GRADE " + grade)
+	var earned := "GRADE %s   ·   +%d SHARDS" % [grade, floor_shards]
+	_bank()
 	if not rule.is_gate:
 		# Save progress now, so quitting during the overlay still lands on the next floor.
 		if fixed_seed == 0:
 			RunState.advance_floor()
-		_show_message("FLOOR %d / %d CLEARED   %s to spare" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT, _format_time(time_left)])
+		_show_message("FLOOR %d / %d CLEARED   %s to spare\n%s" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT, _format_time(time_left), earned])
 		get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_next_floor)
 		return
 	if fixed_seed == 0:
 		RunState.clear_act()
 	if rule.act == StageRule.ACT_COUNT:
-		_show_message("YOU ESCAPED THE DESCENT")
+		_show_message("YOU ESCAPED THE DESCENT\n" + earned)
 	else:
-		_show_message("ACT %d CLEARED\nACT %d  ·  %s  UNLOCKED" % [rule.act, rule.act + 1, StageRule.ACT_NAMES[rule.act].to_upper()])
+		_show_message("ACT %d CLEARED\nACT %d  ·  %s  UNLOCKED\n%s" % [rule.act, rule.act + 1, StageRule.ACT_NAMES[rule.act].to_upper(), earned])
 	_show_act_cleared()
 	get_tree().create_timer(ACT_CLEAR_TIME).timeout.connect(_to_menu)
 
@@ -1433,10 +1522,12 @@ func _lose_game(cause: String = "devil") -> void:
 	if game_state == "lost":
 		return
 	game_state = "lost"
+	Engine.time_scale = 1.0
 	lose_player.play()
 	_stop_tension_audio()
 	_show_message("")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_bank()  # dying keeps every shard
 	# Death ends the run now (quitting here can't buy a retry of this maze); a revive brings it back.
 	if fixed_seed == 0:
 		RunState.end_run()
@@ -1455,6 +1546,7 @@ func _lose_game(cause: String = "devil") -> void:
 func _revive() -> void:
 	if game_state != "lost" or snapshot.is_empty() or not RunState.use_revive():
 		return
+	floor_revives += 1
 	# Ad hook: a rewarded ad plays here before the revive; premium skips it (plans/ads_managment_prompt.md).
 	death_screen.visible = false
 	var cell: Vector2i = snapshot["cell"]
@@ -1487,6 +1579,7 @@ func _revive() -> void:
 
 ## TRY AGAIN: a new run from this act's first floor, on a new maze (a debug seed just reloads).
 func _restart_game() -> void:
+	_bank()
 	if fixed_seed == 0:
 		RunState.start_run(rule.act)
 	get_tree().reload_current_scene()

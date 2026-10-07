@@ -157,6 +157,7 @@ func test_forced_flip_moves_close_devil_away() -> void:
 	main._on_flipped(NIGHTMARE, true)
 	var dist: PackedInt32Array = main.layout.distances(NIGHTMARE, main.player_cell)
 	assert_true(dist[main.devil_cell.y * main.layout.size + main.devil_cell.x] >= main.DEVIL_RETREAT_DISTANCE)
+	assert_eq(main.floor_shards, 0, "Flipping Time's own flip is no Phase Dodge")
 
 
 func test_flipping_time_inverts_movement() -> void:
@@ -170,3 +171,59 @@ func test_flipping_time_inverts_movement() -> void:
 	Input.action_release("move_left")
 	assert_true(normal.y < 0.0 and normal.x < 0.0, "W forward, A left normally")
 	assert_eq(inverted, -normal, "Flipping Time: W goes back, A goes right")
+
+
+func test_keys_chest_and_floor_clear_pay_shards() -> void:
+	var main := _spawn_floor()
+	for i in main.layout.sigils.size():
+		main._apply_world(main.layout.sigil_worlds[i])
+		main.player_cell = main.layout.sigils[i]
+		main._collect_sigils()
+	var keys := FloorLayout.SIGIL_COUNT * MetaState.SIGIL_SHARDS
+	assert_eq(main.floor_shards, keys, "every key pays")
+	main._on_chest_opened()
+	var chest: int = MetaState.chest_roll(main.seed_value)["shards"]
+	assert_eq(main.floor_shards, keys + chest, "the chest pays its roll for this floor's seed")
+	main._win_game()
+	assert_true(main.floor_shards >= keys + chest + MetaState.floor_clear_shards(main.rule.floor_in_act, "C"), "the clear pays")
+	main._update_hud()
+	assert_true(main.shard_label.text.ends_with(str(MetaState.shards + main.floor_shards)), main.shard_label.text)
+
+
+func test_a_missed_lunge_is_a_close_call() -> void:
+	var main := _lunging_floor()
+	main.player.global_position += Vector3(main.LUNGE_RANGE * 5.0, 0, 0)
+	_run(main, 0.5)
+	assert_eq(main.game_state, "playing", "out of reach when it lands")
+	assert_eq(main.floor_shards, MetaState.CLOSE_CALL_SHARDS, "a near miss pays")
+	assert_true(Engine.time_scale < 1.0, "a beat of slow motion")
+	Engine.time_scale = 1.0
+
+
+func test_diving_into_a_circle_mid_lunge_is_a_close_call() -> void:
+	var main := _lunging_floor()
+	main._enter_cell(main.circles.cells[0])
+	assert_eq(main.lunge_left, 0.0, "the circle breaks the grab")
+	assert_eq(main.floor_shards, MetaState.CLOSE_CALL_SHARDS)
+	Engine.time_scale = 1.0
+
+
+func test_flipping_out_of_a_lunge_is_a_phase_dodge() -> void:
+	var main := _lunging_floor()
+	assert_true(main.flip.request_flip(main._spot_open(WAKE)), "spawn is open in both worlds")
+	assert_eq(main.lunge_left, 0.0, "the flip breaks the grab")
+	assert_eq(main.floor_shards, MetaState.CLOSE_CALL_SHARDS, "and pays a Phase Dodge")
+	Engine.time_scale = 1.0
+
+
+## The Devil awake in NIGHTMARE, on your cell, its lunge under way.
+func _lunging_floor() -> Node3D:
+	var main := _spawn_floor()
+	main._wake_devil()
+	main._apply_world(NIGHTMARE)
+	main.catch_grace = 0.0
+	main.devil_cell = main.player_cell
+	main.devil.position = main._devil_world_position()
+	main._process(0.05)
+	assert_gt(main.lunge_left, 0.0, "a lunge is under way")
+	return main
