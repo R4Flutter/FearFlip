@@ -66,7 +66,7 @@ var _leaving := false
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	_font = _ui_font()
+	_font = ui_font()
 	_icons = load(ART + "gameover_icons.png")
 	_additive = CanvasItemMaterial.new()
 	_additive.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
@@ -444,8 +444,8 @@ func _atlas(texture: Texture2D, region: Rect2) -> AtlasTexture:
 	return atlas
 
 
-## Same face as the dashboard: a dropped-in UI font, else a condensed bold system face.
-func _ui_font() -> Font:
+## Same face as the dashboard: a dropped-in UI font, else a condensed bold system face (CardChoice too).
+static func ui_font() -> Font:
 	if ResourceLoader.exists(MainMenu.UI_FONT):
 		return load(MainMenu.UI_FONT)
 	var system := SystemFont.new()

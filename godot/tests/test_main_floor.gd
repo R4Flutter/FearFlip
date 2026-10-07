@@ -362,3 +362,11 @@ func test_each_act_tints_wake_but_nightmare_stays_red() -> void:
 	assert_eq(act1.fog_colors[WAKE], act1.FOG_COLORS[WAKE], "Act 1 keeps the original look")
 	assert_ne(act3.fog_colors[WAKE], act1.fog_colors[WAKE], "Act 3 has its own")
 	assert_eq(act3.fog_colors[NIGHTMARE], act1.fog_colors[NIGHTMARE], "NIGHTMARE always reads red")
+
+
+func test_a_floor_shows_its_cards_as_it_starts() -> void:
+	var main := _spawn_floor(["vault", "thick_fog"], 3)
+	assert_true(main.card_choice.visible)
+	assert_eq(main.card_choice._ids, ["vault", "thick_fog"])
+	var calm := _spawn_floor([], 1)
+	assert_false(calm.card_choice.visible, "no cards, nothing to show")

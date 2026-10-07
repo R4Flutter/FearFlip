@@ -194,6 +194,7 @@ var circle_lights: Array[OmniLight3D] = []
 var trap_nodes: Array[TrapPit] = []
 var floor_material: StandardMaterial3D
 var death_screen: DeathScreen
+var card_choice: CardChoice
 var heartbeat_player: AudioStreamPlayer
 var alarm_player: AudioStreamPlayer
 var crack_player: AudioStreamPlayer
@@ -338,6 +339,8 @@ func _ready() -> void:
 	_apply_world(WAKE)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_flash_message(_floor_title())
+	if not RunState.floor_cards.is_empty():
+		card_choice.flash("", RunState.floor_cards)
 	if devil_enabled and RunState.mod("devil_awake", 0.0) > 0.0:
 		_wake_devil()  # at its spawn: far away by construction (FloorLayout.MIN_DEVIL_DISTANCE)
 
@@ -1496,6 +1499,9 @@ func _build_hud() -> void:
 	death_screen.retry_pressed.connect(_restart_game)
 	death_screen.revive_pressed.connect(_revive)
 	overlays.add_child(death_screen)
+	card_choice = CardChoice.new()
+	card_choice.name = "CardChoice"
+	overlays.add_child(card_choice)
 
 func _hud_label(hud: CanvasLayer, node_name: String, font_size: int, preset: Control.LayoutPreset, align: HorizontalAlignment) -> Label:
 	var label := Label.new()
@@ -1576,7 +1582,7 @@ func _win_game() -> void:
 		if fixed_seed == 0:
 			RunState.advance_floor()
 		_show_message("FLOOR %d / %d CLEARED   %s to spare\n%s" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT, _format_time(time_left), earned])
-		get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_next_floor)
+		get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_offer_doors)
 		return
 	if fixed_seed == 0:
 		RunState.clear_act()
@@ -1586,6 +1592,23 @@ func _win_game() -> void:
 		_show_message("ACT %d CLEARED\nACT %d  ·  %s  UNLOCKED\n%s" % [rule.act, rule.act + 1, StageRule.ACT_NAMES[rule.act].to_upper(), earned])
 	_show_act_cleared()
 	get_tree().create_timer(ACT_CLEAR_TIME).timeout.connect(_to_menu)
+
+## Between floors you pick the next floor's door (plans/06 A2). The Sanctuary and the Gate have none,
+## and a debug floor just reloads.
+func _offer_doors() -> void:
+	var next := StageRule.for_floor(RunState.current_floor)
+	if fixed_seed != 0 or not Cards.offers_doors(next):
+		_next_floor()
+		return
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_show_message("")
+	card_choice.picked.connect(_take_door, CONNECT_ONE_SHOT)
+	card_choice.offer("CHOOSE YOUR DOOR  ·  FLOOR %d / %d" % [next.floor_in_act, StageRule.FLOORS_PER_ACT],
+			Cards.doors(RunState.floor_seed(), next, RunState.last_door))
+
+func _take_door(id: String) -> void:
+	RunState.choose_door(id)
+	_next_floor()
 
 func _next_floor() -> void:
 	get_tree().reload_current_scene()
