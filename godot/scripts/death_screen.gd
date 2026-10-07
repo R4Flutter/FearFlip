@@ -30,6 +30,10 @@ const FOCUS_TIME := 0.18
 const LEAVE_TIME := 0.25
 const GOLD := Color(1.0, 0.78, 0.3)
 const SPENT := Color(0.4, 0.4, 0.42)
+## Unfinished business (plans/06 E5) sits under the menu link: what this run banked, the unlock bar,
+## and how far the next shortcut is.
+const BUSINESS_TOP := 640.0
+const UNLOCK_BAR_SIZE := Vector2(320, 6)
 
 var _stage: Control
 var _dim: ColorRect
@@ -48,6 +52,9 @@ var _revive: Button
 var _revive_sub: Label
 var _heart: TextureRect
 var _menu: Button
+var _business_box: VBoxContainer
+var _business: Label
+var _unlock_bar: ProgressBar
 var _glass: AudioStreamPlayer
 var _heartbeat: AudioStreamPlayer
 var _additive: CanvasItemMaterial
@@ -95,6 +102,7 @@ func _ready() -> void:
 	_revive.pressed.connect(_leave.bind(true))
 	_menu = _text_link("MAIN MENU   [ESC]")
 	_menu.pressed.connect(_to_menu)
+	_build_business()
 	_flash = _rect(Color(1, 0.1, 0.05, 0.0))
 	_glass = _sound(GLASS_SFX, -4.0)
 	_heartbeat = _sound(HEART_SFX, -8.0)
@@ -115,10 +123,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func show_death(title: String, rule: String, detail: String, revive_text: String, can_revive: bool,
-		retry_text := "NEW RUN  ·  [R]") -> void:
+		retry_text := "NEW RUN  ·  [R]", business := "") -> void:
 	_cause.text = title
 	_rule.text = rule
 	_detail.text = detail
+	_business.text = business
+	_unlock_bar.value = MetaState.unlock_progress()
 	_retry_sub.text = retry_text
 	_revive_sub.text = revive_text
 	_revive.disabled = not can_revive
@@ -167,8 +177,9 @@ func _impact() -> void:
 		delay += 0.1
 	if not _revive.disabled:
 		tween.tween_callback(_heartbeat.play).set_delay(delay)
-	_menu.modulate.a = 0.0
-	tween.tween_property(_menu, "modulate:a", 1.0, 0.4).set_delay(delay)
+	for node: Control in [_menu, _business_box]:
+		node.modulate.a = 0.0
+		tween.tween_property(node, "modulate:a", 1.0, 0.4).set_delay(delay)
 
 
 ## Ambient loops, built once: REVIVE beats like a heart, the retry arrow turns, OVER flickers,
@@ -352,6 +363,33 @@ func _text_link(text: String) -> Button:
 	button.mouse_entered.connect(button.grab_focus)
 	_stage.add_child(button)
 	return button
+
+
+func _build_business() -> void:
+	_business_box = VBoxContainer.new()
+	_business_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_business_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_business_box.add_theme_constant_override("separation", 8)
+	_business_box.position = Vector2(240, BUSINESS_TOP)
+	_business_box.size = Vector2(800, 40)
+	_stage.add_child(_business_box)
+	_business = _label(_business_box, 15, MainMenu.BONE)
+	_business.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_unlock_bar = ProgressBar.new()
+	_unlock_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_unlock_bar.show_percentage = false
+	_unlock_bar.max_value = 1.0
+	_unlock_bar.step = 0.0
+	_unlock_bar.custom_minimum_size = UNLOCK_BAR_SIZE
+	_unlock_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0, 0, 0, 0.6)
+	track.set_corner_radius_all(3)
+	var fill := track.duplicate() as StyleBoxFlat
+	fill.bg_color = GOLD
+	_unlock_bar.add_theme_stylebox_override("background", track)
+	_unlock_bar.add_theme_stylebox_override("fill", fill)
+	_business_box.add_child(_unlock_bar)
 
 
 func _rect(color: Color) -> ColorRect:

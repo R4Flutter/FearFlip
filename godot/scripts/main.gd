@@ -41,9 +41,11 @@ const CLOSE_CALL_HEART_PITCH := 1.5
 const CLOSE_CALL_HEART_TIME := 1.5
 ## Your own flip with the Devil this close (path tiles), or mid-lunge, is a Phase Dodge.
 const PHASE_DODGE_TILES := 1
-## Fear Shards on the HUD: a counter under the keys; every "+3" rises into it and fades.
+## Fear Shards on the HUD: a counter under the keys; every "+3" pops in a line below it (stacking when
+## several land at once), drifts up and fades.
 const SHARD_COLOR := Color(0.78, 0.62, 1.0)
-const SHARD_POP_RISE := 44.0
+const SHARD_POP_GAP := 32.0
+const SHARD_POP_RISE := 10.0
 const SHARD_POP_TIME := 0.9
 ## The Devil wakes this long after its telegraph (a distant slam).
 const SPAWN_TELEGRAPH := 1.5
@@ -155,6 +157,7 @@ var floor_revives := 0
 ## Seconds with the Devil inside heartbeat range: being hunted costs a grade.
 var chased_time := 0.0
 var shard_label: Label
+var live_pops := 0
 ## Revive point: saved on entering a safe circle {cell, time_left, traps}.
 var snapshot := {}
 var circle_materials: Array[StandardMaterial3D] = []
@@ -786,15 +789,19 @@ func _earn(amount: int, why := "") -> void:
 	floor_shards += amount
 	_pop(("+%d  %s" % [amount, why]).strip_edges())
 
-## A "+3" that rises into the shard counter and fades.
+## A "+3" under the shard counter that drifts up and fades; pops landing together stack downwards.
 func _pop(text: String) -> void:
 	var pop := shard_label.duplicate() as Label
 	pop.text = text
 	shard_label.add_sibling(pop)
+	live_pops += 1
+	pop.position.y += SHARD_POP_GAP * live_pops + SHARD_POP_RISE
 	var tween := pop.create_tween().set_parallel()
-	tween.tween_property(pop, "position:y", pop.position.y, SHARD_POP_TIME).from(pop.position.y + SHARD_POP_RISE).set_trans(Tween.TRANS_QUINT).set_ease(Tween.EASE_OUT)
+	tween.tween_property(pop, "position:y", pop.position.y - SHARD_POP_RISE, SHARD_POP_TIME).set_trans(Tween.TRANS_QUINT).set_ease(Tween.EASE_OUT)
 	tween.tween_property(pop, "modulate:a", 0.0, SHARD_POP_TIME * 0.5).set_delay(SHARD_POP_TIME * 0.5)
-	tween.chain().tween_callback(pop.queue_free)
+	tween.chain().tween_callback(func() -> void:
+		live_pops -= 1
+		pop.queue_free())
 
 ## A near miss: it pays, time slows for a beat (on a real-time timer, so slow motion can't stretch it)
 ## and the heart jumps.
@@ -1539,8 +1546,21 @@ func _lose_game(cause: String = "devil") -> void:
 		RunState.best_floor, StageRule.LAST_FLOOR, comeback]
 	var can_revive := not snapshot.is_empty() and RunState.revives_left() > 0
 	var revive_text := "%d LEFT  ·  [V]" % RunState.revives_left() if not snapshot.is_empty() else "REACH A SAFE CIRCLE FIRST"
+	var progress := MetaState.unlock_progress()
+	var business := "+%d SHARDS THIS RUN   ·   %s   ·   %s" % [RunState.run_shards + floor_shards,
+			"UNLOCK READY" if progress >= 1.0 else "NEXT UNLOCK %d%%" % floori(progress * 100.0), _shortcut_line()]
 	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive,
-			"NEW RUN  ·  ACT %d  ·  [R]" % rule.act)
+			"NEW RUN  ·  ACT %d  ·  [R]" % rule.act, business)
+
+## How far the next act's shortcut is (just the Gate once that act is open; the escape in the last act).
+func _shortcut_line() -> String:
+	var left := StageRule.floors_to_gate(rule.floor_number)
+	var floors := "%d FLOOR%s" % [left, "" if left == 1 else "S"]
+	if rule.act == StageRule.ACT_COUNT:
+		return floors + " TO THE ESCAPE"
+	if MetaState.is_act_unlocked(rule.act + 1):
+		return floors + " TO THE GATE"
+	return "%s TO THE ACT %d SHORTCUT" % [floors, rule.act + 1]
 
 ## Back to the last safe circle you used, with its clock and floor cracks. Max 3 per act.
 func _revive() -> void:

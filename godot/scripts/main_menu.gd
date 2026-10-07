@@ -693,21 +693,26 @@ func _build_right() -> void:
 	_top_bar.position = Vector2(0, 14)
 	_top_bar.size = Vector2(RIGHT_W, 46)
 	_right.add_child(_top_bar)
-	_pill(Icon.COIN)
-	_pill(Icon.GEM)
+	_pill(Icon.GEM, MetaState.shards)
 	_icon_button(Icon.CROWN, "PREMIUM")
 	_icon_button(Icon.MAIL, "INBOX")
 	_icon_button(Icon.GEAR, "SETTINGS")
 
-	_quest(QUEST_TOP, "DAILY CHALLENGE", 5, Icon.TARGET)
-	_quest(QUEST_TOP + QUEST_SIZE.y + 10, "NEXT REWARD", 10, Icon.STAR)
+	# Unfinished business (plans/06 E5): the next unlock, and how far the next act's shortcut is.
+	_quest(QUEST_TOP, "NEXT UNLOCK", "UNLOCK READY" if MetaState.unlock_progress() >= 1.0 else "FEAR SHARDS",
+			MetaState.shards, MetaState.FIRST_UNLOCK_COST, Icon.STAR)
+	var act := MetaState.acts_unlocked
+	var reached := clampi(RunState.best_floor, StageRule.act_start(act), StageRule.act_start(act) + StageRule.GATE_FLOOR - 1)
+	var left := StageRule.floors_to_gate(reached)
+	_quest(QUEST_TOP + QUEST_SIZE.y + 10, "ACT %d SHORTCUT" % (act + 1) if act < StageRule.ACT_COUNT else "THE ESCAPE",
+			"%d FLOOR%s TO GO" % [left, "" if left == 1 else "S"], StageRule.FLOORS_PER_ACT - left, StageRule.FLOORS_PER_ACT, Icon.TARGET)
 	_build_play()
 	for i in CARDS.size():
 		_card(i)
 
 
-## No economy yet: the counters read 0 and "+" says so.
-func _pill(icon: Icon) -> void:
+## The one currency, earned only by playing: no "+", shards are never sold.
+func _pill(icon: Icon, amount: int) -> void:
 	var pill := PanelContainer.new()
 	var style := _panel_style(PANEL_BORDER, 1)
 	style.content_margin_left = 8
@@ -718,10 +723,9 @@ func _pill(icon: Icon) -> void:
 	row.add_theme_constant_override("separation", 6)
 	pill.add_child(row)
 	_image(row, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED).custom_minimum_size = Vector2(30, 30)
-	var amount := _label(row, "0", 18, BONE)
-	amount.custom_minimum_size.x = 44
-	amount.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_text_button(row, "+", 22).pressed.connect(_soon.bind("SHOP"))
+	var count := _label(row, str(amount), 18, BONE)
+	count.custom_minimum_size.x = 44
+	count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 
 func _icon_button(icon: Icon, what: String) -> void:
@@ -739,8 +743,8 @@ func _icon_button(icon: Icon, what: String) -> void:
 	button.add_theme_stylebox_override("focus", _panel_style(BLOOD, 2, Color.TRANSPARENT))
 
 
-## A goal card. Progress is the best floor reached; there are no rewards to claim yet.
-func _quest(y: float, title: String, goal: int, icon: Icon) -> void:
+## A goal card: title, hint, and a bar of `done` out of `goal`.
+func _quest(y: float, title: String, hint: String, done: int, goal: int, icon: Icon) -> void:
 	var panel := Control.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.position = Vector2(RIGHT_W - QUEST_SIZE.x, y)
@@ -750,8 +754,8 @@ func _quest(y: float, title: String, goal: int, icon: Icon) -> void:
 	_image(panel, _frame, TextureRect.STRETCH_SCALE, true)
 	_place(_image(panel, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2(22, 15), Vector2(52, 52))
 	_label(panel, title, 17, BONE).position = Vector2(86, 11)
-	_label(panel, "REACH FLOOR %d" % goal, 11, DIM).position = Vector2(87, 34)
-	var done := mini(RunState.best_floor, goal)
+	_label(panel, hint, 11, DIM).position = Vector2(87, 34)
+	done = mini(done, goal)
 	var bar := ProgressBar.new()
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.show_percentage = false

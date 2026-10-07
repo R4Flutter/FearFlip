@@ -24,7 +24,9 @@ func _spawn_menu(floor_number: int, acts_unlocked := 1, run_over := false) -> Ma
 func teardown() -> void:
 	RunState.current_floor = 1
 	RunState.run_over = false
+	RunState.best_floor = 1
 	MetaState.acts_unlocked = 1
+	MetaState.shards = MetaState.STARTER_SHARDS
 
 
 func test_fresh_run_offers_play_only() -> void:
@@ -53,3 +55,21 @@ func test_cleared_act_plays_the_next_one() -> void:
 	var sub: Label = menu._menu.get_node("Play/Content/Sub")
 	assert_true(sub.text.begins_with("ACT 2"), sub.text)
 	assert_true(menu._menu.has_node("NewRun"), "two acts open: the picker is offered")
+
+
+func test_one_shard_pill_and_the_unfinished_business_cards() -> void:
+	MetaState.shards = 35
+	RunState.best_floor = 7
+	var menu := _spawn_menu(7)
+	var pills := menu._top_bar.get_children().filter(func(node: Node) -> bool: return node is PanelContainer)
+	assert_eq(pills.size(), 1, "one currency: Fear Shards")
+	assert_true(_texts(menu._top_bar).has("35"), "the pill shows the banked shards")
+	var cards := _texts(menu._right)
+	assert_true(cards.has("NEXT UNLOCK"), str(cards))
+	assert_true(cards.has("35/%d" % MetaState.FIRST_UNLOCK_COST), str(cards))
+	assert_true(cards.has("ACT 2 SHORTCUT"), str(cards))
+	assert_true(cards.has("4 FLOORS TO GO"), "floor 7 reached: 7, 8, 9 and the Gate are left")
+
+
+func _texts(root: Node) -> Array:
+	return root.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)

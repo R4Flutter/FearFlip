@@ -227,3 +227,28 @@ func _lunging_floor() -> Node3D:
 	main._process(0.05)
 	assert_gt(main.lunge_left, 0.0, "a lunge is under way")
 	return main
+
+
+func test_death_screen_shows_unfinished_business() -> void:
+	RunState.current_floor = 8
+	MetaState.acts_unlocked = 1
+	var main := _spawn_floor()
+	main._lose_game("time")
+	var line: String = main.death_screen._business.text
+	assert_true(line.contains("3 FLOORS TO THE ACT 2 SHORTCUT"), line)
+	assert_true(line.contains("SHARDS THIS RUN"), line)
+	assert_eq(main.death_screen._unlock_bar.value, MetaState.unlock_progress())
+	RunState.current_floor = 1
+
+
+func test_shard_pops_stack_under_the_counter() -> void:
+	var main := _spawn_floor()
+	main._earn(3)
+	main._earn(4, "CLOSE CALL")
+	var pops: Array = main.shard_label.get_parent().get_children().filter(func(node: Node) -> bool:
+		return node is Label and (node as Label).text.begins_with("+"))
+	assert_eq(pops.size(), 2)
+	var counter_bottom: float = main.shard_label.position.y + main.shard_label.size.y
+	for pop: Label in pops:
+		assert_true(pop.position.y >= counter_bottom, "a pop never covers the counter (%.0f < %.0f)" % [pop.position.y, counter_bottom])
+	assert_true(absf(pops[0].position.y - pops[1].position.y) >= (pops[0] as Label).size.y, "two at once stack, not overlap")
