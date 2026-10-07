@@ -120,3 +120,19 @@ func test_detours_are_dead_ends_off_the_route() -> void:
 			return
 		checked += 1
 	assert_eq(checked, 100)
+
+
+func test_detours_never_send_you_back_over_a_crack() -> void:
+	var checked := 0
+	for seed_value in 100:
+		var layout := FloorLayout.generate(seed_value, ROOMS + 2)
+		var chest: Vector2i = layout.detours(999, [])[0]
+		var blocked: Array[Vector2i] = []
+		for d in FloorLayout.DIRS:
+			if layout.is_open(FloorLayout.ANY, chest + d):
+				blocked.append(chest + d)
+		if layout.detours(999, [], blocked).has(chest):
+			assert_true(false, "seed %d: the chest at %s sits past a crack" % [seed_value, chest])
+			return
+		checked += 1
+	assert_eq(checked, 100)

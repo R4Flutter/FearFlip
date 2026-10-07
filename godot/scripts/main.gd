@@ -161,6 +161,8 @@ var seed_value := 0
 var tour_m := 0.0
 ## Shards earned on this floor: banked (RunState.bank) at the chest, on death or on a restart.
 var floor_shards := 0
+## Chest finds (omen tokens, lore notes) on this floor: banked with its shards, never before.
+var floor_finds: Array[String] = []
 var floor_revives := 0
 ## Seconds with the Devil inside heartbeat range: being hunted costs a grade.
 var chased_time := 0.0
@@ -877,15 +879,14 @@ func _close_call(what: String) -> void:
 	heartbeat_player.pitch_scale = CLOSE_CALL_HEART_PITCH
 	create_tween().tween_property(heartbeat_player, "pitch_scale", 1.0, CLOSE_CALL_HEART_TIME)
 
-## A chest's roll: shards pop and count; a find (omen token, lore note) is kept in the profile.
+## A chest's roll: shards pop and count; a find (omen token, lore note) waits to be banked with them.
 func _pay_chest(roll: Dictionary) -> void:
 	var find: String = MetaState.CHEST_TEXT[roll["kind"]]
 	if roll["shards"] > 0:
 		_earn(roll["shards"], find)
 	else:
 		_pop("+1  " + find)
-		if fixed_seed == 0:
-			MetaState.keep_find(roll["kind"])
+		floor_finds.append(roll["kind"])
 
 ## A chest down a dead end opens as you reach it and pays its own roll.
 func _open_detour_chest(cell: Vector2i) -> void:
@@ -894,12 +895,15 @@ func _open_detour_chest(cell: Vector2i) -> void:
 	box.open_now()
 	_pay_chest(MetaState.chest_roll(hash([seed_value, cell])))
 
-## This floor's shards go to the profile for good. Quitting mid-floor banks nothing: the floor replays.
+## This floor's shards and finds go to the profile for good. Quitting mid-floor banks nothing: the floor replays.
 func _bank() -> void:
-	if fixed_seed != 0 or floor_shards == 0:
+	if fixed_seed != 0 or (floor_shards == 0 and floor_finds.is_empty()):
 		return  # a debug floor never touches the save
 	RunState.bank(floor_shards)
+	for find in floor_finds:
+		MetaState.keep_find(find)
 	floor_shards = 0
+	floor_finds.clear()
 
 # --- Cells, circles, traps ------------------------------------------------------
 
@@ -1341,7 +1345,7 @@ func _build_detour_chests() -> void:
 	taken.append_array(layout.sigils)
 	taken.append_array(circles.cells)
 	taken.append_array(traps.cells)
-	for cell in layout.detours(roundi(RunState.mod("chests", 0.0)), taken):
+	for cell in layout.detours(roundi(RunState.mod("chests", 0.0)), taken, traps.cells):
 		var box := TreasureChest.new()
 		box.name = "DetourChest"
 		box.position = cell_to_world(cell)
@@ -1573,8 +1577,7 @@ func _win_game() -> void:
 	_earn(pay, "GRADE " + grade)
 	if omen_token:
 		_pop("+1  OMEN TOKEN")
-		if fixed_seed == 0:
-			MetaState.keep_find("omen")
+		floor_finds.append("omen")
 	var earned := "GRADE %s   ·   +%d SHARDS" % [grade, floor_shards]
 	_bank()
 	if not rule.is_gate:

@@ -82,8 +82,10 @@ func distances(world: int, from: Vector2i) -> PackedInt32Array:
 
 
 ## Up to `count` dead-end rooms off the spawn -> exit route for chests (open in both worlds, never in
-## `excluded`, never side by side), each as close to DETOUR_TILES off the route as the maze allows.
-func detours(count: int, excluded: Array[Vector2i]) -> Array[Vector2i]:
+## `excluded`, never side by side), each as close to DETOUR_TILES off the route as the maze allows. A dead
+## end whose corridor back to the route crosses a `blocked` cell (a cracked floor) is never picked: going
+## in cracks it, and the only way out would break it.
+func detours(count: int, excluded: Array[Vector2i], blocked: Array[Vector2i] = []) -> Array[Vector2i]:
 	var path := route(spawn, exit)
 	var off := _distances_from(ANY, path)
 	var ends: Array[Vector2i] = []
@@ -95,7 +97,7 @@ func detours(count: int, excluded: Array[Vector2i]) -> Array[Vector2i]:
 			var ways := 0
 			for d in DIRS:
 				ways += 1 if is_open(ANY, cell + d) else 0
-			if ways == 1:
+			if ways == 1 and not _crosses(cell, off, blocked):
 				ends.append(cell)
 	ends.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return absi(off[_idx(a)] - DETOUR_TILES) < absi(off[_idx(b)] - DETOUR_TILES))
@@ -104,6 +106,23 @@ func detours(count: int, excluded: Array[Vector2i]) -> Array[Vector2i]:
 		if picks.size() < count and picks.all(func(p: Vector2i) -> bool: return absi(p.x - cell.x) + absi(p.y - cell.y) > 2):
 			picks.append(cell)
 	return picks
+
+
+## True when the corridor from `cell` back down to the route (`off` = tiles off it) crosses a `blocked` cell.
+func _crosses(cell: Vector2i, off: PackedInt32Array, blocked: Array[Vector2i]) -> bool:
+	var at := cell
+	while not blocked.has(at):
+		if off[_idx(at)] <= 0:
+			return false
+		var back := at
+		for d in DIRS:
+			if is_open(ANY, at + d) and off[_idx(at + d)] == off[_idx(at)] - 1:
+				back = at + d
+				break
+		if back == at:
+			return false
+		at = back
+	return true
 
 
 ## Path tiles from the nearest of `sources` over cells open in `world` (-1 = unreachable).

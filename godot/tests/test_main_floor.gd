@@ -370,3 +370,9 @@ func test_a_floor_shows_its_cards_as_it_starts() -> void:
 	assert_eq(main.card_choice._ids, ["vault", "thick_fog"])
 	var calm := _spawn_floor([], 1)
 	assert_false(calm.card_choice.visible, "no cards, nothing to show")
+
+
+func test_a_chest_find_waits_to_be_banked_with_the_floor() -> void:
+	var main := _spawn_floor()
+	main._pay_chest({"kind": "omen", "shards": 0})
+	assert_eq(main.floor_finds, ["omen"], "kept with the floor's shards: a quit before the floor ends replays it")
