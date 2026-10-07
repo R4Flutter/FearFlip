@@ -12,6 +12,7 @@ func suite_name() -> String:
 ## A debug floor (fixed seed) built from `cards` on `floor_number`; RunState goes back to Act 1 F1 after.
 func _spawn_floor(cards: Array = [], floor_number := 1) -> Node3D:
 	RunState.floor_cards.assign(cards)
+	RunState.run_cards.clear()
 	RunState.current_floor = floor_number
 	var main: Node3D = load("res://scenes/main.tscn").instantiate()
 	main.fixed_seed = 42
@@ -64,6 +65,14 @@ func test_keys_collect_and_show_in_either_world() -> void:
 	main.player_cell = main.layout.sigils[nightmare_sigil]
 	main._collect_sigils()
 	assert_eq(main.sigils_collected, 1, "a NIGHTMARE-coloured key is collectible in WAKE")
+
+
+## The first wall multimesh of a world's wall set.
+func _wall_mesh(walls: Node3D) -> MultiMeshInstance3D:
+	for child in walls.get_children():
+		if child is MultiMeshInstance3D:
+			return child
+	return null
 
 
 func _run(main: Node3D, seconds: float) -> void:
@@ -323,11 +332,57 @@ func test_vault_hides_chests_down_dead_ends_that_pay() -> void:
 	assert_eq(main.floor_shards, MetaState.chest_roll(hash([main.seed_value, cell]))["shards"])
 
 
-func test_shrine_pays_less_and_gives_an_omen_token() -> void:
+func test_shrine_pays_less() -> void:
 	var main := _spawn_floor(["shrine"], 3)
 	main._earn(4)
-	assert_eq(main.floor_shards, 3, "three quarters")
-	assert_true(main.omen_token)
+	assert_eq(main.floor_shards, 3, "three quarters (its omen pick comes after: RunState)")
+
+
+func test_omens_reach_the_systems_they_change() -> void:
+	var plain := _spawn_floor([], 12)
+	var main := _spawn_floor(["quick_veil", "twin_flip", "cold_blood", "borrowed_time", "night_owl", "feather_step",
+			"keen_eye", "cartographer", "locksmith"], 12)
+	assert_true(main.flip.cooldown < plain.flip.cooldown, "Quick Veil")
+	assert_eq(main.flip.charges_left, 2, "Twin Flip")
+	assert_eq(main.heartbeat_tiles, plain.heartbeat_tiles + 3, "Cold Blood")
+	assert_true(is_equal_approx(main.time_left, plain.time_left + 20.0), "Borrowed Time: more clock")
+	assert_true(main.devil_delay < plain.devil_delay, "and it wakes sooner")
+	main._apply_world(NIGHTMARE)
+	plain._apply_world(NIGHTMARE)
+	assert_true(is_equal_approx(main.env.fog_density, plain.env.fog_density * 0.7), "Night Owl")
+	assert_eq(main.traps.holds, 1, "Feather Step")
+	assert_eq(main.traps.creak_range, 2, "Keen Eye")
+	assert_gt(main.trap_nodes[0].cue, plain.trap_nodes[0].cue, "Keen Eye: brighter cracks")
+	assert_eq(main.minimap.crack_reveal, 6, "Cartographer")
+	assert_eq(main.bonus_chests.size(), plain.bonus_chests.size() + 1, "Locksmith")
+
+
+func test_ghost_sight_shows_the_other_worlds_walls_as_glass() -> void:
+	var main := _spawn_floor(["ghost_sight"], 2)
+	assert_true(main.nightmare_walls.visible, "NIGHTMARE's walls show in WAKE")
+	assert_eq(_wall_mesh(main.nightmare_walls).material_override, main.ghost_material)
+	assert_ne(_wall_mesh(main.wake_walls).material_override, main.ghost_material)
+	main._apply_world(NIGHTMARE)
+	assert_eq(_wall_mesh(main.wake_walls).material_override, main.ghost_material, "and the other way round")
+	assert_ne(_wall_mesh(main.nightmare_walls).material_override, main.ghost_material)
+	assert_eq(main.player.collision_mask, main.LAYER_SHARED | main.LAYER_NIGHTMARE, "you still only bump into your own world")
+
+
+func test_last_breath_turns_one_catch_a_floor_into_a_trip_back() -> void:
+	var main := _spawn_floor(["last_breath"], 2)
+	main._wake_devil()
+	for attempt in 2:
+		main.catch_grace = 0.0
+		main.devil_retreating = false
+		main.devil_cell = main.player_cell
+		main.devil.position = main._devil_world_position()
+		main._process(0.05)
+		_run(main, 0.5)
+		if attempt == 0:
+			assert_eq(main.game_state, "playing", "the first catch sends you back")
+			assert_eq(main.player_cell, main.layout.spawn, "to your last circle (the start, before any)")
+			assert_eq(main.floor_revives, 0, "free: it costs no revive and no grade")
+	assert_eq(main.game_state, "lost", "once a floor")
 
 
 func test_mirror_night_mirrors_controls_in_nightmare_only() -> void:

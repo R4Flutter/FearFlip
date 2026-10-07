@@ -148,6 +148,119 @@ func test_the_door_taken_is_remembered_for_the_next_choice() -> void:
 	assert_eq(RunState.last_door, "shrine", "the next doors know a Shrine came last")
 
 
+func test_a_later_act_owes_its_start_kit_and_curses_open_after_act_1() -> void:
+	assert_eq(RunState.picks, [], "a first run just plays")
+	MetaState.unlock_act(3)
+	RunState.start_run(3)
+	assert_eq(RunState.picks, ["curse", "omen", "omen"], "a curse offer, then one omen per act skipped")
+	var curses := RunState.pick_options()
+	assert_eq(curses[0], "no_curse")
+	RunState.take(curses[1])
+	assert_eq(RunState.run_cards, [curses[1]])
+	assert_false(RunState.floor_cards.has(Cards.find(curses[1])["rule"]), "its twin rule card is never dealt too")
+	var omens := RunState.pick_options()
+	assert_eq(omens.size(), Cards.OMEN_CHOICES)
+	RunState.take(omens[0])
+	assert_false(RunState.pick_options().has(omens[0]), "an omen you hold is never offered again")
+	RunState.take("")
+	assert_eq(RunState.picks, [])
+	assert_eq(RunState.run_cards.size(), 2, "passing takes nothing")
+	assert_false(RunState.has_progress(), "still on the floor the run started on")
+
+
+func test_declining_the_curse_keeps_the_run_clean() -> void:
+	MetaState.unlock_act(2)
+	RunState.start_run(1)
+	RunState.take("no_curse")
+	assert_eq(RunState.run_cards, [])
+
+
+func test_omens_fold_into_every_floor_of_the_run() -> void:
+	RunState.run_cards.assign(["quick_veil", "blood_pact"])
+	RunState.advance_floor()
+	assert_true(is_equal_approx(RunState.mod("flip_cooldown", 6.0), 4.2))
+	assert_eq(RunState.mod("devil_speed", 1.0), 1.1)
+	RunState.advance_floor()
+	assert_eq(RunState.mod("shards", 1.0), Cards.fold(RunState.floor_cards, "shards", 1.0) * 1.5, "still there a floor later")
+
+
+func test_a_shrine_or_the_sanctuary_owes_an_omen_before_the_door() -> void:
+	RunState.advance_floor()
+	assert_eq(RunState.picks, ["door"], "every floor after the first opens with a door")
+	RunState.take("shrine")
+	assert_eq(RunState.door, "shrine")
+	RunState.advance_floor()
+	assert_eq(RunState.picks, ["omen", "door"], "the Shrine pays its omen first")
+	RunState.take("")
+	RunState.take("normal")
+	RunState.advance_floor()
+	RunState.take("normal")
+	RunState.advance_floor()
+	assert_eq(RunState.picks, [], "no door into the Sanctuary")
+	assert_eq(RunState.floor_cards, ["sanctuary"])
+	RunState.advance_floor()
+	assert_eq(RunState.picks, ["omen", "door"], "it sends you off with an omen")
+
+
+func test_a_quit_at_a_picker_offers_the_same_choice_on_relaunch() -> void:
+	MetaState.unlock_act(2)
+	RunState.start_run(2)
+	RunState.take("no_curse")
+	RunState.take(RunState.pick_options()[0])
+	RunState.advance_floor()
+	RunState.take("shrine")
+	RunState.advance_floor()
+	var picks := RunState.picks.duplicate()
+	var omens := RunState.pick_options()
+	var held := RunState.run_cards.duplicate()
+	RunState.take("")
+	var doors := RunState.pick_options()
+	RunState.picks.assign(picks)
+	RunState.save()
+	_relaunch()
+	assert_eq(RunState.picks, picks)
+	assert_eq(RunState.run_cards, held, "the omens survive too")
+	assert_eq(RunState.pick_options(), omens, "the same omens")
+	RunState.take("")
+	assert_eq(RunState.pick_options(), doors, "the same doors (still no Shrine twice running)")
+	assert_true(RunState.has_progress())
+
+
+func test_a_gate_owes_return_or_descend() -> void:
+	RunState.current_floor = StageRule.GATE_FLOOR
+	RunState.clear_gate()
+	assert_true(MetaState.is_act_unlocked(2), "the next act opens at once")
+	assert_eq(RunState.picks, ["gate"])
+	assert_eq(RunState.pick_options(), ["return", "descend"])
+	assert_true(RunState.has_progress(), "a quit here comes back to the choice")
+	RunState.take("return")
+	assert_true(RunState.run_over)
+
+
+func test_descending_keeps_the_omens_and_the_revives_used() -> void:
+	RunState.run_cards.assign(["night_owl"])
+	RunState.use_revive()
+	RunState.current_floor = StageRule.GATE_FLOOR
+	RunState.clear_gate()
+	RunState.take("descend")
+	assert_eq(RunState.current_floor, StageRule.act_start(2))
+	assert_false(RunState.run_over)
+	assert_eq(RunState.run_cards, ["night_owl", "descend"])
+	assert_eq(RunState.revives_left(), RunState.REVIVES_PER_ACT - 1, "revives don't refill")
+	assert_eq(RunState.picks, ["omen"], "the Gate's omen pick")
+	assert_eq(Cards.fold(RunState.run_cards, "shards", 1.0), 1.5)
+	assert_true(RunState.has_progress(), "an act's first floor, but deep into this run")
+
+
+func test_the_last_gate_ends_the_run() -> void:
+	MetaState.unlock_act(StageRule.ACT_COUNT)
+	RunState.start_run(StageRule.ACT_COUNT)
+	RunState.current_floor = StageRule.LAST_FLOOR
+	RunState.clear_gate()
+	assert_true(RunState.run_over)
+	assert_eq(RunState.picks, [])
+
+
 ## Forget everything in memory and read it back, as a new process would.
 func _relaunch() -> void:
 	RunState._loaded = false
@@ -156,5 +269,10 @@ func _relaunch() -> void:
 	RunState.run_seed = 0
 	RunState.floor_cards.clear()
 	RunState.door = ""
+	RunState.last_door = ""
+	RunState._cleared_cards.clear()
+	RunState.run_cards.clear()
+	RunState.picks.clear()
+	RunState.start_floor = 1
 	MetaState.acts_unlocked = 1
 	RunState.load_save()

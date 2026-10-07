@@ -22,7 +22,8 @@ var _time := 0.0
 var _base_y := 0.0
 
 
-func build(color: Color, phase: float) -> void:
+## `glow` scales its light (the Locksmith omen: brighter, seen from farther).
+func build(color: Color, phase: float, glow := 1.0) -> void:
 	_time = phase
 	_base_y = position.y
 	_halo = Sprite3D.new()
@@ -37,8 +38,8 @@ func build(color: Color, phase: float) -> void:
 	add_child(_key)
 	_light = OmniLight3D.new()
 	_light.light_color = color
-	_light.light_energy = 1.3
-	_light.omni_range = 3.0
+	_light.light_energy = 1.3 * glow
+	_light.omni_range = 3.0 * sqrt(glow)
 	add_child(_light)
 	add_child(_sparkles(color, false))
 

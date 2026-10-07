@@ -77,6 +77,22 @@ func test_trap_two_step_and_creak() -> void:
 	assert_eq(traps.step(Vector2i(1, 1)), -1)
 
 
+func test_feather_step_holds_one_crack_and_keen_eye_creaks_farther() -> void:
+	var traps := TrapField.new()
+	traps.cells.assign([Vector2i(5, 5), Vector2i(9, 9)])
+	traps.states.assign([TrapField.State.HIDDEN, TrapField.State.HIDDEN])
+	traps._primed.assign([true, true])
+	traps.holds = 1
+	traps.step(Vector2i(5, 5))
+	assert_eq(traps.step(Vector2i(5, 5)), TrapField.State.CRACKED, "the first one that should give way holds")
+	assert_eq(traps.holds, 0)
+	assert_eq(traps.step(Vector2i(5, 5)), TrapField.State.COLLAPSED, "once")
+	traps.creak_range = 2
+	assert_true(traps.creak(Vector2i(9, 7)), "heard from 2 tiles")
+	traps.creak(Vector2i(9, 4))
+	assert_false(traps.creak(Vector2i(9, 6)), "3 tiles is still too far")
+
+
 ## The 3D pit: plates sit flush with the floor, fall down the shaft on collapse, and a revive puts them back.
 func test_trap_pit_falls_and_revive_restores() -> void:
 	var pit := TrapPit.new()

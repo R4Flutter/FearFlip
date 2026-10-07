@@ -63,6 +63,14 @@ const PAUSE_TEXT := "PAUSED  (Esc to resume, R twice to restart the act)"
 ## Optional art (plans/06 P1 prompts in assets/images/menu/PROMPTS.md); without it the words stand alone.
 const ACT_CLEARED_ART := "res://assets/images/menu/act_cleared_burst.png"
 const GOLD := Color(1.0, 0.78, 0.3)
+const OMEN_COLOR := Color(0.75, 0.6, 1.0, 0.9)
+## One line of the 22 px status label (measured), for laying out what sits under it.
+const STATUS_LINE := 34.0
+const PICK_TITLES := {
+	"curse": "TEMPT A CURSE?  ·  MORE SHARDS ON EVERY FLOOR OF THIS RUN",
+	"omen": "CHOOSE AN OMEN  ·  YOURS FOR THE REST OF THE RUN",
+	"gate": "RETURN WITH YOUR SHARDS, OR DESCEND?",
+}
 ## Trap fall: a jolt, a beat of "oh no", then down the shaft (seconds / metres).
 const FALL_BEAT := 0.2
 const FALL_TIME := 1.4
@@ -92,6 +100,8 @@ const LAYER_NIGHTMARE := 4
 ## Per-world look, indexed by World.
 const FOG_COLORS: Array[Color] = [Color(0.04, 0.07, 0.13), Color(0.2, 0.01, 0.02)]
 const FOG_DENSITIES: Array[float] = [0.035, 0.07]
+## How solid the other world's walls look with the Ghost Sight omen.
+const GHOST_ALPHA := 0.14
 const AMBIENT_COLORS: Array[Color] = [Color(0.025, 0.04, 0.07), Color(0.09, 0.01, 0.015)]
 const GLOW_COLORS: Array[Color] = [Color(0.12, 0.32, 0.55), Color(0.65, 0.05, 0.03)]
 const SIGIL_COLORS: Array[Color] = [Color(0.55, 0.9, 1.0), Color(1.0, 0.35, 0.1)]
@@ -181,8 +191,15 @@ var trap_cue := 1.0
 var light_energy := 0.0
 var music_db := MUSIC_DB
 var rare_chest := false
-var omen_token := false
 var card_names := ""
+## The run's omens (plans/06 P4), folded with the floor's cards.
+var heartbeat_tiles := HEARTBEAT_TILES
+var night_fog := 1.0
+var ghost_sight := false
+var ghost_material: StandardMaterial3D
+## Catches the Last Breath omen still turns into a trip back to your last circle this floor.
+var last_breath := 0
+var omens_label: Label
 ## Chests down dead ends (Vault, Greed) by cell; each opens as you reach it.
 var bonus_chests := {}
 ## This act's look: the per-world arrays with WAKE tinted (_act_tint).
@@ -283,6 +300,9 @@ func _ready() -> void:
 		# A run that already ended (died, then quit) never resumes: its act starts over on a new maze.
 		if RunState.run_over:
 			RunState.start_run(RunState.act())
+		if not RunState.picks.is_empty():
+			_choose_before_floor()
+			return
 	rule = StageRule.for_floor(RunState.current_floor)
 	seed_value = fixed_seed if fixed_seed != 0 else RunState.floor_seed()
 	print("FearFlip floor %d seed: %d" % [rule.floor_number, seed_value])
@@ -296,6 +316,9 @@ func _ready() -> void:
 	flip.forced_interval_max = RunState.mod("flip_interval", rule.forced_interval_max)
 	flip.min_forced_interval = RunState.mod("flip_interval", rule.min_forced_interval)
 	flip.warning_time = rule.flip_warning
+	flip.cooldown = RunState.mod("flip_cooldown", flip.cooldown)
+	flip.charges = roundi(RunState.mod("flip_charges", 1.0))
+	flip.charges_left = flip.charges
 	flip.flipped.connect(_on_flipped)
 	flip.flip_denied.connect(_on_flip_denied)
 	flip.flipping_time_warning.connect(_on_flipping_time_warning)
@@ -314,10 +337,12 @@ func _ready() -> void:
 	var trap_rng := RandomNumberGenerator.new()
 	trap_rng.seed = seed_value
 	traps.place(layout, route, roundi(RunState.mod("traps", rule.trap_count)), excluded, rule.dead_end_traps, trap_rng)
+	traps.holds = roundi(RunState.mod("feather", 0.0))
+	traps.creak_range = roundi(RunState.mod("creak_range", 1.0))
 	if debug_trap_step > 0 and debug_trap_step < route.size() - 1 and not excluded.has(route[debug_trap_step]):
 		traps.add(route[debug_trap_step])
 	tour_m = _tour_tiles() * CELL_SIZE
-	time_left = rule.time_budget(tour_m, feel.walk_speed, RunState.mod("clock", 1.0))
+	time_left = rule.time_budget(tour_m, feel.walk_speed, RunState.mod("clock", 1.0)) + RunState.mod("time_bonus", 0.0)
 	brain = DevilBrain.new()
 	player_cell = layout.spawn
 	last_player_cell = player_cell
@@ -351,7 +376,7 @@ func _fold_cards() -> void:
 	shard_factor = RunState.mod("shards", 1.0)
 	devil_enabled = RunState.mod("devil", 1.0) > 0.0
 	devil_speed = RunState.mod("devil_speed", 1.0)
-	devil_delay = RunState.mod("devil_delay", rule.devil_spawn_delay)
+	devil_delay = maxf(RunState.mod("devil_delay", rule.devil_spawn_delay) - RunState.mod("devil_early", 0.0), 0.0)
 	devil_distance = roundi(RunState.mod("devil_distance", rule.devil_spawn_distance))
 	follow_flips = RunState.mod("follow_flips", 0.0) > 0.0
 	mirror = RunState.mod("mirror", 0.0) > 0.0
@@ -360,7 +385,10 @@ func _fold_cards() -> void:
 	light_energy = world_light_energy * RunState.mod("lights", 1.0)
 	music_db = MUSIC_DB if RunState.mod("music", 1.0) > 0.0 else SILENT_DB
 	rare_chest = RunState.mod("rare_chest", 0.0) > 0.0
-	omen_token = RunState.mod("omen_token", 0.0) > 0.0
+	heartbeat_tiles = roundi(RunState.mod("heartbeat", HEARTBEAT_TILES))
+	night_fog = RunState.mod("nightmare_fog", 1.0)
+	ghost_sight = RunState.mod("ghost_sight", 0.0) > 0.0
+	last_breath = roundi(RunState.mod("last_breath", 0.0))
 	var names: Array[String] = []
 	for id in RunState.floor_cards:
 		names.append(Cards.find(id)["name"])
@@ -388,8 +416,8 @@ func _floor_title() -> String:
 	return title
 
 func _process(delta: float) -> void:
-	if get_tree().paused:
-		return
+	if player == null or get_tree().paused:
+		return  # no floor yet (the pick screen), or paused
 	_update_flashlight(delta)
 	_animate_devil(delta)
 	var tilt := deg_to_rad(INVERT_TILT_DEGREES) if flip.forced_active and game_state == "playing" else 0.0
@@ -456,7 +484,7 @@ func _physics_process(delta: float) -> void:
 		player_mesh.position.y = PLAYER_MESH_Y + player_rig.animate(h_speed, delta)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("restart") and game_state != "dying" and game_state != "won":
+	if event.is_action_pressed("restart") and not game_state in ["dying", "won", "choosing"]:
 		if game_state == "playing" and not restart_armed:
 			restart_armed = true
 			_flash_message("PRESS R AGAIN: RESTART ACT %d ON A NEW MAZE" % rule.act)
@@ -604,10 +632,14 @@ func _apply_world(new_world: int) -> void:
 	world = new_world
 	var nightmare := world == NIGHTMARE
 	player.collision_mask = LAYER_SHARED | (LAYER_NIGHTMARE if nightmare else LAYER_WAKE)
-	wake_walls.visible = not nightmare
-	nightmare_walls.visible = nightmare
+	wake_walls.visible = ghost_sight or not nightmare
+	nightmare_walls.visible = ghost_sight or nightmare
+	if ghost_sight:
+		ghost_material.albedo_color = Color(glow_colors[1 - world], GHOST_ALPHA)
+		_ghost(wake_walls, nightmare)
+		_ghost(nightmare_walls, not nightmare)
 	env.fog_light_color = fog_colors[world]
-	env.fog_density = FOG_DENSITIES[world] * fog_factor
+	env.fog_density = FOG_DENSITIES[world] * fog_factor * (night_fog if nightmare else 1.0)
 	env.ambient_light_color = ambient_colors[world]
 	trim_material.emission = glow_colors[world] * 0.3
 	light_material.emission = glow_colors[world] if light_energy > 0.0 else Color.BLACK
@@ -622,6 +654,17 @@ func _apply_world(new_world: int) -> void:
 	tween.tween_property(intense_player, "volume_db", music_db if nightmare else -60.0, 0.6)
 	status_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4) if nightmare else Color(0.65, 0.95, 1.0))
 	_refresh_minimap()
+
+## Ghost Sight: the other world's walls stand in yours as faint glass you walk through (no shadow).
+func _ghost(walls: Node3D, on: bool) -> void:
+	for child in walls.get_children():
+		var mesh := child as MultiMeshInstance3D
+		if mesh == null:
+			continue
+		if not mesh.has_meta("solid"):
+			mesh.set_meta("solid", mesh.material_override)
+		mesh.material_override = ghost_material if on else mesh.get_meta("solid")
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if on else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 ## Flipping Time warning: ceiling lights stutter.
 func _strobe_lights(on: bool) -> void:
@@ -793,7 +836,11 @@ func _check_catch(delta: float) -> void:
 		lunge_left -= delta
 		if lunge_left <= 0.0:
 			var gap := Vector2(devil.position.x - player.global_position.x, devil.position.z - player.global_position.z)
-			if gap.length() < LUNGE_RANGE:
+			if gap.length() < LUNGE_RANGE and last_breath > 0:
+				last_breath -= 1
+				_return_to_circle()
+				_flash_message("LAST BREATH  ·  back to your last safe circle")
+			elif gap.length() < LUNGE_RANGE:
 				_lose_game("devil")
 			else:
 				lunge_cooldown = LUNGE_MISS_STUN
@@ -932,12 +979,13 @@ func _enter_cell(cell: Vector2i) -> void:
 		_flash_message("THE CHEST IS LOCKED   find %d more keys" % (layout.sigils.size() - sigils_collected))
 	if traps.creak(cell):
 		creak_player.play()
+	var holds := traps.holds
 	match traps.step(cell):
 		TrapField.State.CRACKED:
 			crack_player.play()
 			trap_nodes[traps.index_at(cell)].crack()
 			create_tween().tween_method(_shake, 0.035, 0.0, 0.3)
-			_flash_message("The floor cracked. It won't hold you twice.")
+			_flash_message("FEATHER STEP  ·  it held, once" if traps.holds < holds else "The floor cracked. It won't hold you twice.")
 		TrapField.State.COLLAPSED:
 			_collapse(traps.index_at(cell))
 	if game_state == "playing" and circles.protects(cell):
@@ -1161,6 +1209,10 @@ func _build_maze() -> void:
 	_build_wall_set("SharedWalls", shared, LAYER_SHARED)
 	wake_walls = _build_wall_set("WakeWalls", wake_only, LAYER_WAKE)
 	nightmare_walls = _build_wall_set("NightmareWalls", nightmare_only, LAYER_NIGHTMARE)
+	if ghost_sight:
+		ghost_material = StandardMaterial3D.new()
+		ghost_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
 	var fixture_mesh := BoxMesh.new()
 	fixture_mesh.size = Vector3(0.5, 0.05, 0.5)
@@ -1363,7 +1415,7 @@ func _build_sigils() -> void:
 		key.name = "Key%d" % i
 		key.position = cell_to_world(layout.sigils[i]) + Vector3(0, KEY_HEIGHT, 0)
 		add_child(key)
-		key.build(SIGIL_COLORS[layout.sigil_worlds[i]], i * 1.3)
+		key.build(SIGIL_COLORS[layout.sigil_worlds[i]], i * 1.3, RunState.mod("key_glow", 1.0))
 		sigil_nodes.append(key)
 		sigil_collected.append(false)
 
@@ -1451,21 +1503,27 @@ func _build_hud() -> void:
 	minimap.traps = traps
 	hud.add_child(minimap)
 	minimap.visible = RunState.mod("minimap", 1.0) > 0.0
+	minimap.crack_reveal = roundi(RunState.mod("crack_reveal", 0.0))
 
 	status_label = _hud_label(hud, "Status", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	status_label.offset_left = -360
 	status_label.offset_right = -24
 	status_label.offset_top = 20
+	status_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN  # a long card line grows left, never off-screen
 
+	# A floor with cards has one more status line: the keys and the shard counter sit below it.
+	var below := STATUS_LINE if card_names != "" else 0.0
 	key_hud = KeyHud.new()
 	key_hud.name = "Keys"
 	hud.add_child(key_hud)
 	key_hud.build(layout.sigils.size())
+	key_hud.offset_top += below
+	key_hud.offset_bottom += below
 
 	shard_label = _hud_label(hud, "Shards", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	shard_label.offset_left = -360
 	shard_label.offset_right = -24
-	shard_label.offset_top = KeyHud.MARGIN_TOP + KeyHud.SLOT_HEIGHT + 8
+	shard_label.offset_top = KeyHud.MARGIN_TOP + KeyHud.SLOT_HEIGHT + 8 + below
 	shard_label.add_theme_color_override("font_color", SHARD_COLOR)
 
 	state_label = _hud_label(hud, "Message", 30, Control.PRESET_CENTER_TOP, HORIZONTAL_ALIGNMENT_CENTER)
@@ -1487,6 +1545,16 @@ func _build_hud() -> void:
 	hint.text = "WASD  MOVE     SHIFT  SPRINT     SPACE / E  FLIP     F  FLASHLIGHT     ESC  PAUSE     R R  RESTART ACT"
 	hint.add_theme_color_override("font_color", Color(0.55, 0.7, 0.82, 0.8))
 
+	# The run's build: its omens, curse and descents (plans/06 P4).
+	omens_label = _hud_label(hud, "Omens", 16, Control.PRESET_BOTTOM_WIDE, HORIZONTAL_ALIGNMENT_LEFT)
+	omens_label.offset_left = 24
+	omens_label.offset_top = -60
+	omens_label.add_theme_color_override("font_color", OMEN_COLOR)
+	var run_names: Array[String] = []
+	for id in RunState.run_cards:
+		run_names.append(("CURSED: " if Cards.kind(id) == "curse" else "") + Cards.find(id)["name"])
+	omens_label.text = "  ·  ".join(run_names)
+
 	flash_rect = ColorRect.new()
 	flash_rect.name = "FlipFlash"
 	flash_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1505,6 +1573,7 @@ func _build_hud() -> void:
 	overlays.add_child(death_screen)
 	card_choice = CardChoice.new()
 	card_choice.name = "CardChoice"
+	card_choice.picked.connect(_take_pick)
 	overlays.add_child(card_choice)
 
 func _hud_label(hud: CanvasLayer, node_name: String, font_size: int, preset: Control.LayoutPreset, align: HorizontalAlignment) -> Label:
@@ -1522,10 +1591,10 @@ func _format_time(seconds: float) -> String:
 	return "%d:%02d" % [total / 60, total % 60]
 
 func _update_hud() -> void:
-	var flip_line := "FLIP READY  [SPACE]"
+	var flip_line := "FLIP READY  x%d  [SPACE]" % flip.charges_left if flip.charges > 1 else "FLIP READY  [SPACE]"
 	if flip.forced_active:
 		flip_line = "CONTROLS INVERTED  %ds" % ceili(maxf(flip.forced_left, 0.0))
-	elif flip.cooldown_left > 0.0:
+	elif flip.charges_left == 0:
 		flip_line = "FLIP  %.1fs" % flip.cooldown_left
 	var goal_line := "OPEN THE CHEST" if exit_open else "KEYS  %d / %d" % [sigils_collected, layout.sigils.size()]
 	var where := "ACT %d  ·  FLOOR %d / %d" % [rule.act, rule.floor_in_act, StageRule.FLOORS_PER_ACT]
@@ -1539,11 +1608,11 @@ func _update_hud() -> void:
 CONTROLS WILL INVERT" % maxi(ceili(flip.next_forced_in), 0)
 		warning_label.modulate.a = 0.55 + 0.45 * sin(elapsed * 18.0)
 
-## Heartbeat inside HEARTBEAT_TILES (louder as it closes), its breath inside DEVIL_NEAR_DISTANCE.
+## Heartbeat inside heartbeat_tiles (louder as it closes), its breath inside DEVIL_NEAR_DISTANCE.
 func _update_devil_audio() -> void:
 	var d := _devil_distance() if devil_active else 999
-	if d <= HEARTBEAT_TILES:
-		heartbeat_player.volume_db = lerpf(-4.0, -22.0, float(d) / HEARTBEAT_TILES)
+	if d <= heartbeat_tiles:
+		heartbeat_player.volume_db = lerpf(-4.0, -22.0, float(d) / heartbeat_tiles)
 		if not heartbeat_player.playing:
 			heartbeat_player.play()
 	elif heartbeat_player.playing:
@@ -1575,43 +1644,76 @@ func _win_game() -> void:
 	if rule.is_gate:
 		pay += MetaState.act_clear_shards(rule.act)
 	_earn(pay, "GRADE " + grade)
-	if omen_token:
-		_pop("+1  OMEN TOKEN")
-		floor_finds.append("omen")
 	var earned := "GRADE %s   ·   +%d SHARDS" % [grade, floor_shards]
 	_bank()
+	# Save progress now (with the picks it owes), so quitting during the overlay still lands past this floor.
 	if not rule.is_gate:
-		# Save progress now, so quitting during the overlay still lands on the next floor.
 		if fixed_seed == 0:
 			RunState.advance_floor()
 		_show_message("FLOOR %d / %d CLEARED   %s to spare\n%s" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT, _format_time(time_left), earned])
-		get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_offer_doors)
+		get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_offer_picks)
 		return
 	if fixed_seed == 0:
-		RunState.clear_act()
+		RunState.clear_gate()
 	if rule.act == StageRule.ACT_COUNT:
 		_show_message("YOU ESCAPED THE DESCENT\n" + earned)
 	else:
 		_show_message("ACT %d CLEARED\nACT %d  ·  %s  UNLOCKED\n%s" % [rule.act, rule.act + 1, StageRule.ACT_NAMES[rule.act].to_upper(), earned])
 	_show_act_cleared()
-	get_tree().create_timer(ACT_CLEAR_TIME).timeout.connect(_to_menu)
+	get_tree().create_timer(ACT_CLEAR_TIME).timeout.connect(_offer_picks)
 
-## Between floors you pick the next floor's door (plans/06 A2). The Sanctuary and the Gate have none,
-## and a debug floor just reloads.
-func _offer_doors() -> void:
-	var next := StageRule.for_floor(RunState.current_floor)
-	if fixed_seed != 0 or not Cards.offers_doors(next):
-		_next_floor()
+## What the run owes before the next floor, one card picker at a time (plans/06 P4): an omen after a
+## Shrine or the Sanctuary, the next floor's door (A2), RETURN or DESCEND after a Gate, a run's curse and
+## start kit. Then on to the next floor, or the menu once the run is over. A debug floor just reloads.
+func _offer_picks() -> void:
+	if fixed_seed != 0:
+		if rule.is_gate:
+			_to_menu()
+		else:
+			_next_floor()
+		return
+	if RunState.picks.is_empty():
+		if RunState.run_over:
+			_to_menu()
+		else:
+			_next_floor()
+		return
+	var ids := RunState.pick_options()
+	if ids.is_empty():
+		RunState.take("")  # every omen in the pool is already yours
+		_offer_picks()
 		return
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_show_message("")
-	card_choice.picked.connect(_take_door, CONNECT_ONE_SHOT)
-	card_choice.offer("CHOOSE YOUR DOOR  ·  FLOOR %d / %d" % [next.floor_in_act, StageRule.FLOORS_PER_ACT],
-			Cards.doors(RunState.floor_seed(), next, RunState.last_door))
+	card_choice.offer(_pick_title(), ids)
 
-func _take_door(id: String) -> void:
-	RunState.choose_door(id)
-	_next_floor()
+func _take_pick(id: String) -> void:
+	RunState.take(id)
+	_offer_picks()
+
+func _pick_title() -> String:
+	if RunState.picks[0] == "door":
+		var next := StageRule.for_floor(RunState.current_floor)
+		return "CHOOSE YOUR DOOR  ·  FLOOR %d / %d" % [next.floor_in_act, StageRule.FLOORS_PER_ACT]
+	return PICK_TITLES.get(RunState.picks[0], "")
+
+## Picks owed before this floor plays (a run's curse and start kit, or one a quit left open): offered on a
+## dark screen; the floor then loads with them.
+func _choose_before_floor() -> void:
+	game_state = "choosing"
+	var overlays := CanvasLayer.new()
+	overlays.name = "Overlays"
+	overlays.layer = 10
+	add_child(overlays)
+	var dark := ColorRect.new()
+	dark.color = Color.BLACK
+	dark.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlays.add_child(dark)
+	card_choice = CardChoice.new()
+	card_choice.name = "CardChoice"
+	card_choice.picked.connect(_take_pick)
+	overlays.add_child(card_choice)
+	_offer_picks()
 
 func _next_floor() -> void:
 	get_tree().reload_current_scene()
@@ -1698,7 +1800,14 @@ func _revive() -> void:
 	floor_revives += 1
 	# Ad hook: a rewarded ad plays here before the revive; premium skips it (plans/ads_managment_prompt.md).
 	death_screen.visible = false
-	var cell: Vector2i = snapshot["cell"]
+	_return_to_circle()
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_flash_message("REVIVED   %d left this act" % RunState.revives_left())
+
+## Back to the last safe circle you used (the spawn if none yet) with its clock and floor cracks; it backs off.
+func _return_to_circle() -> void:
+	var at: Dictionary = snapshot if not snapshot.is_empty() else {"cell": layout.spawn, "time_left": time_left, "traps": traps.states.duplicate()}
+	var cell: Vector2i = at["cell"]
 	player.global_position = cell_to_world(cell) + Vector3(0, PLAYER_HEIGHT, 0)
 	player.velocity = Vector3.ZERO
 	camera_pivot.position.y = 0.45
@@ -1713,18 +1822,18 @@ func _revive() -> void:
 	player_cell = cell
 	last_player_cell = cell
 	player_dist = layout.distances(world, cell)
-	time_left = maxf(snapshot["time_left"], REVIVE_MIN_TIME)
+	time_left = maxf(at["time_left"], REVIVE_MIN_TIME)
 	panic = false
-	traps.states.assign(snapshot["traps"])
+	traps.states.assign(at["traps"])
 	_refresh_traps()
-	circles.charge[circles.index_at(cell)] = circles.capacity
+	var circle := circles.index_at(cell)
+	if circle >= 0:
+		circles.charge[circle] = circles.capacity
 	catch_grace = REVIVE_GRACE
 	lunge_left = 0.0
 	if devil_active:
 		_start_retreat()
 	game_state = "playing"
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	_flash_message("REVIVED   %d left this act" % RunState.revives_left())
 
 ## TRY AGAIN: a new run from this act's first floor, on a new maze (a debug seed just reloads).
 func _restart_game() -> void:

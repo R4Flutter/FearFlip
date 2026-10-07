@@ -26,6 +26,21 @@ func test_manual_flip_then_cooldown() -> void:
 	assert_eq(flip.world, WAKE)
 
 
+func test_twin_flip_holds_two_charges_that_refill_one_at_a_time() -> void:
+	var flip := FlipSystem.new()
+	flip.charges = 2
+	flip.charges_left = 2
+	assert_true(flip.request_flip(true))
+	assert_true(flip.request_flip(true), "a second flip right away")
+	assert_false(flip.request_flip(true), "both spent")
+	_run(flip, flip.cooldown + 0.1)
+	assert_eq(flip.charges_left, 1, "one charge back per cooldown")
+	_run(flip, flip.cooldown + 0.1)
+	assert_eq(flip.charges_left, 2)
+	_run(flip, flip.cooldown * 2.0)
+	assert_eq(flip.charges_left, 2, "never more than it holds")
+
+
 func test_blocked_flip_is_denied() -> void:
 	var flip := FlipSystem.new()
 	var denied: Array[int] = []

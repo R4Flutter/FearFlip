@@ -114,6 +114,71 @@ func test_two_floors_in_a_row_never_play_the_same() -> void:
 	assert_eq(checked, 200 * StageRule.LAST_FLOOR)
 
 
+func test_the_omen_pool_starts_small_and_grows_with_tokens() -> void:
+	var starters := Cards.omen_pool(0)
+	assert_eq(starters.size(), Cards.STARTER_OMENS)
+	var all := Cards.omen_pool(99)
+	assert_eq(all.size(), 13, "13 omens work before the Devil can hear and see (P7)")
+	for id in all:
+		assert_eq(Cards.kind(id), "omen")
+		assert_false(Cards.find(id).has("needs"), "%s waits for its system" % id)
+	assert_eq(Cards.omen_pool(1).size(), Cards.STARTER_OMENS + 1, "one more per token")
+	assert_eq(all.slice(0, Cards.STARTER_OMENS), starters, "tokens add to the starters, never swap them")
+
+
+func test_omen_draws_never_repeat_or_offer_one_you_hold() -> void:
+	var pool := Cards.omen_pool(99)
+	for seed_value in SEEDS:
+		var held: Array = pool.slice(0, seed_value % 11)
+		var offer := Cards.omens(seed_value, pool, held)
+		var problem := ""
+		if offer.size() != mini(Cards.OMEN_CHOICES, pool.size() - held.size()):
+			problem = "offers %d" % offer.size()
+		for id in offer:
+			if held.has(id) or offer.count(id) > 1:
+				problem = "%s repeats" % id
+		if problem != "":
+			assert_true(false, "seed %d holding %s: %s (%s)" % [seed_value, held, problem, offer])
+			return
+	assert_eq(Cards.omens(5, pool, pool), [], "nothing left to offer")
+	assert_eq(Cards.omens(5, pool, []), Cards.omens(5, pool, []), "same seed, same offer")
+
+
+func test_a_curse_offer_always_lets_you_decline() -> void:
+	for seed_value in 100:
+		var offer := Cards.curses(seed_value)
+		assert_eq(offer[0], "no_curse")
+		assert_eq(offer.size(), 4)
+		for id in offer:
+			assert_eq(Cards.kind(id), "curse")
+			assert_eq(offer.count(id), 1)
+	for curse: Dictionary in Cards.CURSES.slice(1):
+		var bonus := Cards.fold([curse["id"]], "shards", 1.0)
+		assert_true(bonus >= 1.25 and bonus <= 1.5, "%s pays 25-50%% more" % curse["id"])
+		assert_eq(Cards.kind(curse["rule"]), "rule", "%s doubles a real rule card" % curse["id"])
+
+
+## The run's cards (every omen, a curse, four descents) on top of every card set a floor can be dealt,
+## on the door floors plus every Sanctuary and Gate.
+func test_omens_curses_and_descents_stay_inside_the_limits() -> void:
+	var run: Array = Cards.omen_pool(99)
+	run.append_array(["descend", "descend", "descend", "descend"])
+	var floors: Array[int] = DOOR_FLOORS.duplicate()
+	for act in StageRule.ACT_COUNT:
+		floors.append_array([act * StageRule.FLOORS_PER_ACT + StageRule.SANCTUARY_FLOOR, act * StageRule.FLOORS_PER_ACT + StageRule.GATE_FLOOR])
+	for number in floors:
+		var rule := StageRule.for_floor(number)
+		var stacks := _stacks(rule)
+		for i in stacks.size():
+			var cards: Array = stacks[i] + run + [Cards.CURSES[i % Cards.CURSES.size()]["id"]]
+			var problem := _fairness_problem(cards, rule)
+			if problem != "":
+				assert_true(false, "floor %d %s: %s" % [number, cards, problem])
+				return
+	assert_eq(Cards.fold(run, "flip_charges", 1.0), 2.0)
+	assert_true(is_equal_approx(Cards.fold(["quick_veil"], "flip_cooldown", 6.0), 4.2), "Quick Veil: 30% faster")
+
+
 ## Every card set `rule`'s floor can be dealt: its fixed card, or each door with each rule card (pairs for Hunt).
 func _stacks(rule: StageRule) -> Array:
 	if not Cards.offers_doors(rule):
@@ -170,4 +235,8 @@ func _fairness_problem(cards: Array, rule: StageRule) -> String:
 		return "circles drain too fast"
 	if Cards.fold(cards, "rooms", rule.rooms) < Cards.MIN_ROOMS:
 		return "floor too small"
+	if Cards.fold(cards, "flip_cooldown", 6.0) < Cards.MIN_FLIP_COOLDOWN or Cards.fold(cards, "flip_charges", 1.0) > 2.0:
+		return "flips too cheap"
+	if Cards.fold(cards, "shards", 1.0) > 3.0:
+		return "shards run away"
 	return ""

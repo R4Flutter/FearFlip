@@ -25,7 +25,12 @@ var forced_duration_max := 20.0
 ## Each Flipping Time lasts this much longer than the last, up to forced_duration_max.
 var duration_ramp := 2.0
 
+## Flips you can hold (the Twin Flip omen: 2); the cooldown refills them one at a time.
+var charges := 1
+
 var world: int = WAKE
+var charges_left := 1
+## Until the next charge refills.
 var cooldown_left := 0.0
 var next_forced_in := 0.0
 var forced_active := false
@@ -41,7 +46,7 @@ func _init(rng_seed: int = 0) -> void:
 
 
 func can_flip() -> bool:
-	return not forced_active and not warning_active and cooldown_left <= 0.0
+	return not forced_active and not warning_active and charges_left > 0
 
 
 ## Manual flip. `target_open` = the player's spot is open in the other world.
@@ -49,14 +54,20 @@ func request_flip(target_open: bool) -> bool:
 	if not can_flip() or not target_open:
 		flip_denied.emit()
 		return false
-	cooldown_left = cooldown
+	if charges_left == charges:
+		cooldown_left = cooldown
+	charges_left -= 1
 	_set_world(1 - world, false)
 	return true
 
 
 ## A forced flip never puts the player inside a wall: it waits until their spot is open.
 func advance(delta: float, wake_open: bool, nightmare_open: bool) -> void:
-	cooldown_left = maxf(cooldown_left - delta, 0.0)
+	if charges_left < charges:
+		cooldown_left = maxf(cooldown_left - delta, 0.0)
+		if cooldown_left <= 0.0:
+			charges_left += 1
+			cooldown_left = cooldown if charges_left < charges else 0.0
 	if forced_active:
 		forced_left -= delta
 		if forced_left <= 0.0 and wake_open:

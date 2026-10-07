@@ -37,6 +37,8 @@ var exit_open := false
 var devil_awake := false
 var circles: SafeCircles
 var traps: TrapField
+## Hidden cracks this many cells from you show faintly (the Cartographer omen; 0 = only cracks you found).
+var crack_reveal := 0
 var _time := 0.0
 ## Corridor and wall widths in pixels for the current layout (set each draw).
 var _room := 0.0
@@ -86,11 +88,14 @@ func _draw() -> void:
 			draw_arc(_to_map(Vector2(circles.cells[i]), cell), maxf(cell * 0.45, 5.0), 0.0, TAU, 20, Color(0.1, 0.35, 0.9, 0.25 + 0.75 * fill), 2.0, true)
 	if traps != null:
 		for i in traps.cells.size():
-			if traps.states[i] != TrapField.State.HIDDEN:
-				var at := _to_map(Vector2(traps.cells[i]), cell)
-				var r := maxf(cell * 0.35, 4.0)
-				draw_line(at - Vector2(r, r), at + Vector2(r, r), Color(1.0, 0.55, 0.15), 2.0)
-				draw_line(at + Vector2(-r, r), at + Vector2(r, -r), Color(1.0, 0.55, 0.15), 2.0)
+			var hidden := traps.states[i] == TrapField.State.HIDDEN
+			if hidden and not shows_hidden_crack(traps.cells[i]):
+				continue
+			var at := _to_map(Vector2(traps.cells[i]), cell)
+			var r := maxf(cell * 0.35, 4.0)
+			var color := Color(1.0, 0.55, 0.15, 0.45 if hidden else 1.0)
+			draw_line(at - Vector2(r, r), at + Vector2(r, r), color, 2.0)
+			draw_line(at + Vector2(-r, r), at + Vector2(r, -r), color, 2.0)
 	if devil_awake:
 		_draw_devil(_to_map(devil_pos, cell), cell)
 	_draw_player(_to_map(player_pos, cell), cell)
@@ -118,6 +123,10 @@ func _span(i: int) -> float:
 func _lerp_axis(u: float) -> float:
 	var i := clampi(floori(u), 0, layout.size - 1)
 	return _axis(i) + (u - i) * _span(i)
+
+
+func shows_hidden_crack(trap_cell: Vector2i) -> bool:
+	return crack_reveal > 0 and absf(trap_cell.x - player_pos.x) + absf(trap_cell.y - player_pos.y) <= crack_reveal
 
 
 func _draw_player(at: Vector2, cell: float) -> void:

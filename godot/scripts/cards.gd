@@ -2,16 +2,21 @@ class_name Cards
 extends RefCounted
 ## Floor variety (plans/06 P3). Every modifier is a card {id, name, text, mods}: the rule cards a floor
 ## is dealt (a deck per act), the door you pick into it, each act's Gate twist and the Sanctuary.
-## RunState.mod() folds a floor's cards into one value per mod, and LIMITS keep any stack fair. Omens,
-## curses and ranks (P4, P8) join later as more cards of the same shape.
+## RunState.mod() folds a floor's cards and the run's (omens, curse, descents: P4) into one value per
+## mod, and LIMITS keep any stack fair. Ranks (P8) join later as more cards of the same shape.
 
 ## Mods that count (neutral 0) add up across cards; every other mod is a factor (neutral 1).
-const ADDED: Array[String] = ["keys", "chests", "mirror", "follow_flips", "devil_awake", "omen_token", "rare_chest"]
+const ADDED: Array[String] = ["keys", "chests", "mirror", "follow_flips", "devil_awake", "rare_chest", "omen_pick",
+		"flip_charges", "heartbeat", "time_bonus", "devil_early", "creak_range", "feather", "crack_reveal", "ghost_sight", "last_breath"]
 const MAX_KEYS := 5
 const MAX_TRAPS := 16
 const MIN_FLIP_INTERVAL := 12.0
+const MIN_FLIP_COOLDOWN := 3.0
 const MIN_CIRCLE_TIME := 2.0
 const MIN_ROOMS := 6
+## Omens a new profile can be offered; each omen token found adds the next one in OMENS order.
+const STARTER_OMENS := 6
+const OMEN_CHOICES := 3
 ## Folded values are held inside these (in each system's own units), whatever the stack.
 const LIMITS := {
 	"devil_speed": Vector2(0.8, 1.3),
@@ -26,6 +31,8 @@ const LIMITS := {
 	"circles": Vector2(1.0, 6.0),
 	"rooms": Vector2(MIN_ROOMS, 99.0),
 	"shards": Vector2(0.5, 3.0),
+	"flip_cooldown": Vector2(MIN_FLIP_COOLDOWN, 99.0),
+	"flip_charges": Vector2(1.0, 2.0),
 }
 ## Hunt doors are Act 2's new thing, and never lead into an act's first two floors.
 const HUNT_FROM_ACT := 2
@@ -49,7 +56,7 @@ const RULES: Array[Dictionary] = [
 ## Doors into the next floor (A2). "safe" doors never raise the danger.
 const DOORS: Array[Dictionary] = [
 	{"id": "normal", "name": "NORMAL", "text": "The floor's own rule card. Nothing more.", "mods": {}, "safe": true},
-	{"id": "shrine", "name": "SHRINE", "text": "A quiet floor with no rule card. An omen token, fewer shards.", "mods": {"shards": 0.75, "omen_token": 1}, "safe": true},
+	{"id": "shrine", "name": "SHRINE", "text": "A quiet floor with no rule card. Clear it and pick an omen; fewer shards.", "mods": {"shards": 0.75, "omen_pick": 1}, "safe": true},
 	{"id": "vault", "name": "VAULT", "text": "One more key and two chests down dead ends. It wakes sooner.", "mods": {"keys": 1, "chests": 2, "devil_delay": 0.6}},
 	{"id": "hunt", "name": "HUNT", "text": "Two rule cards, double shards and a rare chest.", "mods": {"shards": 2.0, "rare_chest": 1}},
 	{"id": "mystery", "name": "MYSTERY", "text": "One of the other doors; you find out inside. A quarter more shards.", "mods": {"shards": 1.25}},
@@ -63,14 +70,48 @@ const GATES: Array[Dictionary] = [
 	{"id": "the_breaker", "name": "THE BREAKER", "text": "Awake from the start, and WAKE won't slow it. Run.", "mods": {"devil_awake": 1, "follow_flips": 1}},
 ]
 ## The Sanctuary (F5, A4): the act's breather.
-const SANCTUARY := {"id": "sanctuary", "name": "SANCTUARY", "text": "A small, quiet floor. Nothing hunts you here. Take an omen token.", "mods": {"devil": 0.0, "rooms": 0.6, "omen_token": 1}}
+const SANCTUARY := {"id": "sanctuary", "name": "SANCTUARY", "text": "A small, quiet floor. Nothing hunts you here. Leave with an omen.", "mods": {"devil": 0.0, "rooms": 0.6, "omen_pick": 1}}
+## Omens (B1): pick 1 of 3 at Shrines, Sanctuaries, Gates you descend from and a later act's start; kept
+## all run. In unlock order: the first STARTER_OMENS, then one per omen token. "needs" waits for that system.
+const OMENS: Array[Dictionary] = [
+	{"id": "quick_veil", "name": "QUICK VEIL", "text": "Your flip recharges 30% faster.", "mods": {"flip_cooldown": 0.7}},
+	{"id": "cold_blood", "name": "COLD BLOOD", "text": "Your heartbeat warns you 3 cells earlier.", "mods": {"heartbeat": 3}},
+	{"id": "circle_keeper", "name": "CIRCLE KEEPER", "text": "Safe circles drain half as fast.", "mods": {"circle_time": 2.0}},
+	{"id": "borrowed_time", "name": "BORROWED TIME", "text": "20 more seconds on every clock. It wakes 5 seconds sooner.", "mods": {"time_bonus": 20, "devil_early": 5}},
+	{"id": "keen_eye", "name": "KEEN EYE", "text": "Cracks glow brighter and creak a cell farther away.", "mods": {"trap_cue": 1.5, "creak_range": 1}},
+	{"id": "night_owl", "name": "NIGHT OWL", "text": "NIGHTMARE's fog thins by a third.", "mods": {"nightmare_fog": 0.7}},
+	{"id": "twin_flip", "name": "TWIN FLIP", "text": "Two flip charges.", "mods": {"flip_charges": 1}},
+	{"id": "feather_step", "name": "FEATHER STEP", "text": "Once a floor, a cracked floor holds when it should give way.", "mods": {"feather": 1}},
+	{"id": "cartographer", "name": "CARTOGRAPHER", "text": "The map marks hidden cracks within 6 cells.", "mods": {"crack_reveal": 6}},
+	{"id": "locksmith", "name": "LOCKSMITH", "text": "Keys glow brighter, and one more chest waits down a dead end.", "mods": {"key_glow": 2.0, "chests": 1}},
+	{"id": "blood_pact", "name": "BLOOD PACT", "text": "Half again the shards. It runs 10% faster.", "mods": {"shards": 1.5, "devil_speed": 1.1}},
+	{"id": "ghost_sight", "name": "GHOST SIGHT", "text": "You see the other world's walls, faintly.", "mods": {"ghost_sight": 1}},
+	{"id": "last_breath", "name": "LAST BREATH", "text": "Once a floor, a catch sends you back to your last safe circle.", "mods": {"last_breath": 1}},
+	{"id": "lantern_heart", "name": "LANTERN HEART", "text": "Your flashlight never gives you away.", "mods": {}, "needs": "devil senses (P7)"},
+	{"id": "echo_step", "name": "ECHO STEP", "text": "Every flip leaves an echo it chases instead of you.", "mods": {}, "needs": "devil senses (P7)"},
+	{"id": "soft_soles", "name": "SOFT SOLES", "text": "It can't hear you sprint.", "mods": {}, "needs": "devil senses (P7)"},
+]
+## Curses (B2): offered at a run's start once Act 1 is cleared; one lies on every floor of the run. "rule" is
+## the rule card it doubles, which the run's floors then never deal.
+const CURSES: Array[Dictionary] = [
+	{"id": "no_curse", "name": "NO CURSE", "text": "Play it straight.", "mods": {}},
+	{"id": "curse_blackout", "rule": "blackout", "name": "BLACKOUT", "text": "No ceiling light on any floor of this run. +40% shards.", "mods": {"lights": 0.0, "shards": 1.4}},
+	{"id": "curse_hungry_dark", "rule": "hungry_dark", "name": "HUNGRY DARK", "text": "It runs 15% faster all run. +50% shards.", "mods": {"devil_speed": 1.15, "shards": 1.5}},
+	{"id": "curse_short_fuse", "rule": "short_fuse", "name": "SHORT FUSE", "text": "Flipping Time twice as often all run. +40% shards.", "mods": {"flip_interval": 0.5, "shards": 1.4}},
+	{"id": "curse_deaf_night", "rule": "deaf_night", "name": "DEAF NIGHT", "text": "No music all run, only your heartbeat. +25% shards.", "mods": {"music": 0.0, "shards": 1.25}},
+]
+## After a Gate (not the last): bank and leave, or push your luck into the next act (plans/06 §2).
+const GATE_CHOICES: Array[Dictionary] = [
+	{"id": "return", "name": "RETURN", "text": "Bank your shards and climb back out. The next act stays open.", "mods": {}},
+	{"id": "descend", "name": "DESCEND", "text": "Keep your omens and go deeper: half again the shards. Revives don't refill.", "mods": {"shards": 1.5}},
+]
 
 
 static func find(id: String) -> Dictionary:
 	return _lookup(id)[0]
 
 
-## "rule", "door", "gate" or "sanctuary" ("" for an unknown id).
+## "rule", "door", "gate", "sanctuary", "omen", "curse" or "choice" ("" for an unknown id).
 static func kind(id: String) -> String:
 	return _lookup(id)[1]
 
@@ -139,8 +180,38 @@ static func doors(seed_value: int, rule: StageRule, last_door: String) -> Array[
 	return picks
 
 
+## The omens a profile with `tokens` omen tokens can be offered (P5's Altar adds more ways in).
+static func omen_pool(tokens: int) -> Array[String]:
+	var ids: Array[String] = []
+	for omen: Dictionary in OMENS:
+		if not omen.has("needs") and ids.size() < STARTER_OMENS + tokens:
+			ids.append(omen["id"])
+	return ids
+
+
+## Up to OMEN_CHOICES different omens from `pool`, none already `held`, shuffled by `seed_value`.
+static func omens(seed_value: int, pool: Array[String], held: Array) -> Array[String]:
+	var options: Array[String] = []
+	for id in pool:
+		if not held.has(id):
+			options.append(id)
+	_shuffle(options, hash([seed_value, "omens"]))
+	return options.slice(0, OMEN_CHOICES)
+
+
+## NO CURSE first, then three of the curses, shuffled by `seed_value`.
+static func curses(seed_value: int) -> Array[String]:
+	var ids: Array[String] = []
+	for curse: Dictionary in CURSES.slice(1):
+		ids.append(curse["id"])
+	_shuffle(ids, hash([seed_value, "curses"]))
+	ids = ids.slice(0, 3)
+	ids.push_front(CURSES[0]["id"])
+	return ids
+
+
 ## `base` folded through every card in `ids` that has `key` (factors multiply, ADDED mods add), then
-## held inside LIMITS. RunState.mod() is this over the floor's cards.
+## held inside LIMITS. RunState.mod() is this over the floor's cards and the run's.
 static func fold(ids: Array, key: String, base: float) -> float:
 	var value := base
 	for id in ids:
@@ -159,7 +230,8 @@ static var _by_id := {}
 
 static func _lookup(id: String) -> Array:
 	if _by_id.is_empty():
-		for entry: Array in [[RULES, "rule"], [DOORS, "door"], [GATES, "gate"], [[SANCTUARY], "sanctuary"]]:
+		for entry: Array in [[RULES, "rule"], [DOORS, "door"], [GATES, "gate"], [[SANCTUARY], "sanctuary"],
+				[OMENS, "omen"], [CURSES, "curse"], [GATE_CHOICES, "choice"]]:
 			for card: Dictionary in entry[0]:
 				_by_id[card["id"]] = [card, entry[1]]
 	return _by_id.get(id, [{}, ""])

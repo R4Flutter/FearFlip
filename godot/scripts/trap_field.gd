@@ -21,7 +21,10 @@ const SCORE_NOISE := 20.0
 
 var cells: Array[Vector2i] = []
 var states: Array[int] = []
-## A creak plays once when you come within 1 tile; it re-arms when you're more than 2 away.
+## Cracked floors that hold instead of collapsing, once each (the Feather Step omen).
+var holds := 0
+## A creak plays once when you come within this many tiles (the Keen Eye omen: 2); it re-arms past it.
+var creak_range := 1
 var _primed: Array[bool] = []
 
 
@@ -85,11 +88,15 @@ func index_at(cell: Vector2i) -> int:
 	return cells.find(cell)
 
 
-## You stepped onto `cell`. Returns the trap's new state, or -1 if there is no trap there.
+## You stepped onto `cell`. Returns the trap's new state, or -1 if there is no trap there. A crack that
+## should give way stays CRACKED while `holds` are left (and uses one).
 func step(cell: Vector2i) -> int:
 	var i := index_at(cell)
 	if i < 0:
 		return -1
+	if states[i] == State.CRACKED and holds > 0:
+		holds -= 1
+		return states[i]
 	states[i] = mini(states[i] + 1, State.COLLAPSED)
 	return states[i]
 
@@ -99,10 +106,10 @@ func creak(cell: Vector2i) -> bool:
 	var play := false
 	for i in cells.size():
 		var d := _manhattan(cell, cells[i])
-		if d == 1 and _primed[i] and states[i] != State.COLLAPSED:
+		if d >= 1 and d <= creak_range and _primed[i] and states[i] != State.COLLAPSED:
 			_primed[i] = false
 			play = true
-		elif d > 2:
+		elif d > creak_range + 1:
 			_primed[i] = true
 	return play
 

@@ -1,7 +1,7 @@
 class_name CardChoice
 extends Control
-## The one card picker (plans/06 §6): the doors after a floor now, omens and curses later. It also
-## flashes a floor's cards for a moment as the floor starts. Click a card or press 1-3.
+## The one card picker (plans/06 §6): doors, omens, curses and the Gate's RETURN / DESCEND. It also
+## flashes a floor's cards for a moment as the floor starts. Click a card or press its number.
 ## A card's art loads from ART/<id>.png once it exists (prompts in ART/PROMPTS.md); until then each
 ## card is a panel edged in its kind's colour, with its name and rule.
 
@@ -15,8 +15,10 @@ const SHOW_TIME := 2.0
 const FADE_TIME := 0.4
 const HOVER_SCALE := 1.05
 const FOCUS_TIME := 0.15
-const KIND_COLORS := {"rule": MainMenu.EMBER, "door": MainMenu.GOLD, "gate": MainMenu.BLOOD, "sanctuary": Color(0.35, 0.6, 1.0)}
-const KIND_TAGS := {"rule": "RULE", "door": "DOOR", "gate": "THE GATE", "sanctuary": "SANCTUARY"}
+const KIND_COLORS := {"rule": MainMenu.EMBER, "door": MainMenu.GOLD, "gate": MainMenu.BLOOD, "sanctuary": Color(0.35, 0.6, 1.0),
+		"omen": Color(0.66, 0.45, 1.0), "curse": Color(0.75, 0.1, 0.4), "choice": MainMenu.BONE}
+const KIND_TAGS := {"rule": "RULE", "door": "DOOR", "gate": "THE GATE", "sanctuary": "SANCTUARY", "omen": "OMEN",
+		"curse": "CURSE", "choice": "THE WAY ON"}
 
 var _title: Label
 var _row: HBoxContainer
