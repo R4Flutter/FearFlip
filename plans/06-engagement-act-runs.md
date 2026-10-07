@@ -25,6 +25,18 @@
 > the Sanctuary or the Gate; Hunt opens from Act 2 floor 3. Card mods fold through `RunState.mod()` (counts add,
 > factors multiply) and are clamped by `Cards.LIMITS` and `StageRule.MIN_TIME_SLACK`. The per-act look is a hue
 > shift of WAKE and the walls (NIGHTMARE stays red). Vault/Greed chests sit down dead ends (B3) and open on reach.
+>
+> **P4 (Omens + curses) done** on `feature/godot-3d-omens`. Differences from §3/§6: 13 omens work; Lantern Heart,
+> Echo Step and Soft Soles wait for P7's Devil senses and are never offered. 6 start unlocked and each omen token
+> (a chest find) adds the next one in `Cards.OMENS` order, until P5's Altar. The map already shows every key, so
+> Cartographer marks hidden cracks within 6 cells; Locksmith = brighter keys + one more dead-end chest; Circle
+> Keeper doubles circle time; Last Breath works once a floor (back to the spawn if no circle yet) and costs no revive
+> or grade. Shrine and Sanctuary now give an omen pick instead of a token. A Gate's pick comes after DESCEND; each
+> descent pays x1.5 shards, stacking, inside the x3 cap. Curses (from the second act unlocked) are offered as NO CURSE
+> + 3 of the 4, and a run's curse keeps its twin rule card off its floors. Every choice (curse, start kit, omen, door,
+> RETURN/DESCEND) is an owed pick saved in `RunState.picks`; a quit at a picker offers the same cards again on
+> relaunch (`main.gd::_choose_before_floor`). **P3 fixes** in this phase: quitting at the door picker used to skip
+> the choice; a floor's card line pushed FLIP READY into the key slots; a long Hunt/Mystery card line ran off-screen.
 
 ## Context
 
