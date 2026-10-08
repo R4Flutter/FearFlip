@@ -7,7 +7,8 @@ extends RefCounted
 
 ## Mods that count (neutral 0) add up across cards; every other mod is a factor (neutral 1).
 const ADDED: Array[String] = ["keys", "chests", "mirror", "follow_flips", "devil_awake", "rare_chest", "omen_pick",
-		"flip_charges", "heartbeat", "time_bonus", "devil_early", "creak_range", "feather", "crack_reveal", "ghost_sight", "last_breath", "flash_stun"]
+		"flip_charges", "heartbeat", "time_bonus", "devil_early", "creak_range", "feather", "crack_reveal", "ghost_sight", "last_breath", "flash_stun",
+		"extra_circles", "beam_hidden", "flip_echo", "quiet_sprint"]
 const MAX_KEYS := 5
 const MAX_TRAPS := 16
 const MIN_FLIP_INTERVAL := 12.0
@@ -107,6 +108,8 @@ const TORCHES: Array[Dictionary] = [
 	{"id": "uv_light", "name": "UV LIGHT", "text": "A dim violet beam. Your map marks hidden cracks within 3 cells.", "mods": {"beam_energy": 0.7, "crack_reveal": 3}},
 	{"id": "camera_flash", "name": "CAMERA FLASH", "text": "Once a floor, F fires a flash: if it's close and in sight, it freezes for 3 seconds.", "mods": {"flash_stun": 1}},
 ]
+## Hidden mercy (plans/06 G3, MetaState.mercy_on): one more safe circle, a slower Devil, fewer Director hints.
+const MERCY := {"id": "mercy", "name": "MERCY", "text": "", "mods": {"extra_circles": 1, "devil_speed": 0.95, "hint_stretch": 1.0 / 0.7}}
 ## After a Gate (not the last): bank and leave, or push your luck into the next act (plans/06 §2).
 const GATE_CHOICES: Array[Dictionary] = [
 	{"id": "return", "name": "RETURN", "text": "Bank your shards and climb back out. The next act stays open.", "mods": {}},
@@ -245,7 +248,7 @@ static var _by_id := {}
 static func _lookup(id: String) -> Array:
 	if _by_id.is_empty():
 		for entry: Array in [[RULES, "rule"], [DOORS, "door"], [GATES, "gate"], [[SANCTUARY], "sanctuary"],
-				[OMENS, "omen"], [CURSES, "curse"], [GATE_CHOICES, "choice"], [TORCHES, "torch"]]:
+				[OMENS, "omen"], [CURSES, "curse"], [GATE_CHOICES, "choice"], [TORCHES, "torch"], [[MERCY], "mercy"]]:
 			for card: Dictionary in entry[0]:
 				_by_id[card["id"]] = [card, entry[1]]
 	return _by_id.get(id, [{}, ""])

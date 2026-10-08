@@ -348,10 +348,13 @@ static func take(id: String) -> void:
 	save()
 
 
-## One mod for this floor: `base` folded through its cards, the run's and the gear worn (MetaState.gear),
-## held inside the fairness limits (Cards.fold).
+## One mod for this floor: `base` folded through its cards, the run's, the gear worn (MetaState.gear) and hidden
+## mercy (a campaign floor that keeps killing you), held inside the fairness limits (Cards.fold).
 static func mod(key: String, base: float) -> float:
-	return Cards.fold(floor_cards + run_cards + MetaState.gear(), key, base)
+	var ids: Array[String] = floor_cards + run_cards + MetaState.gear()
+	if not is_daily() and MetaState.mercy_on(current_floor):
+		ids.append(Cards.MERCY["id"])
+	return Cards.fold(ids, key, base)
 
 
 static func _deal() -> void:

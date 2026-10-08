@@ -19,6 +19,9 @@ const CHEST_ODDS := [["shards", 0.6], ["omen", 0.2], ["note", 0.15], ["rare", 0.
 const CHEST_SHARDS := Vector2i(4, 12)
 const RARE_SHARDS := 30
 const CHEST_TEXT := {"shards": "CHEST", "omen": "OMEN TOKEN", "note": "LORE NOTE", "rare": "RARE CHEST"}
+## Hidden mercy (plans/06 G3): from this many deaths on one campaign floor, that floor is kinder (Cards.MERCY) until
+## it's cleared. Never shown.
+const MERCY_DEATHS := 3
 ## A bestiary entry's first sighting (D1).
 const BESTIARY_SHARDS := 5
 ## The first unlock costs about one losing first run (the P2 gate); a new profile starts 20% of the way.
@@ -39,6 +42,8 @@ static var equipped := {}
 static var stats := {}
 ## Act mastery (D6), act -> [cleared without a revive, S-grade average, cleared under a curse]: the best of every clear.
 static var stars := {}
+## Deaths per campaign floor since it was last cleared (mercy).
+static var deaths_at := {}
 static var _loaded := false
 
 
@@ -57,6 +62,7 @@ static func load_profile() -> void:
 	equipped = cfg.get_value("meta", "equipped", {})
 	stats = cfg.get_value("meta", "stats", {})
 	stars = cfg.get_value("meta", "stars", {})
+	deaths_at = cfg.get_value("meta", "deaths_at", {})
 	Daily.load_state(cfg)
 
 
@@ -70,6 +76,7 @@ static func save() -> void:
 	cfg.set_value("meta", "equipped", equipped)
 	cfg.set_value("meta", "stats", stats)
 	cfg.set_value("meta", "stars", stars)
+	cfg.set_value("meta", "deaths_at", deaths_at)
 	Daily.save_state(cfg)
 	cfg.save(profile_path)
 
@@ -102,6 +109,20 @@ static func record(counts: Dictionary) -> Array[String]:
 	news.append_array(Daily.check_quests())
 	save()
 	return news
+
+
+static func note_death(floor_number: int) -> void:
+	deaths_at[floor_number] = int(deaths_at.get(floor_number, 0)) + 1
+	save()
+
+
+static func note_clear(floor_number: int) -> void:
+	if deaths_at.erase(floor_number):
+		save()
+
+
+static func mercy_on(floor_number: int) -> bool:
+	return int(deaths_at.get(floor_number, 0)) >= MERCY_DEATHS
 
 
 static func stars_of(act: int) -> Array:
