@@ -54,6 +54,18 @@
 > (`Lore.voice`, 93 lines) replaces the death screen's comeback line. Menu: CHARACTER, PROGRESSION, SETTINGS, SHOP,
 > PREMIUM and the mode cards are gone. INBOX opens the Archive, the mode cards became the act-stars strip, and DAILY
 > waits for P6. The gate is a test: 15 runs of dying on floor 3 never leave the next unlock more than 2 runs away.
+>
+> **P6 (Daily + quests + streak + share) done** on `feature/godot-3d-daily` (`scripts/daily.gd`). Differences from §3/§6:
+> the Daily borrows Act 2 (campaign floors 11-14 and 19, no Sanctuary or Gate) and its rule deck: one card a floor, two
+> on the fifth, and one omen from the full working pool, so everyone plays the same run. Daily #1 is 8 Oct 2026. The
+> ranked try is spent as it starts (a quit keeps the floors played), it has one life (no revives), and finishing it
+> pays 25 on top of the floors. Practice banks nothing (no shards, counters or quests): the same maze replayed would
+> be a farm. The share line only goes to the clipboard (COPY RESULT on the death screen [C], the result page and the
+> Daily screen); in-game screens show tiles, floors and time, because the UI font has no emoji. Quests: 24 in the pool,
+> 3 a day, never two on one counter, counted from when they're dealt and paid when a floor is banked. The streak counts
+> ranked Daily plays; its milestones (3, 7, 14, 30 days) give existing Altar cosmetics (bone light, gold flash,
+> spectral light, void flash; their price in shards if owned) instead of new ones. Menu: a DAILY row, the Daily status
+> card under the shortcut (E5) and the Daily screen. HOW TO PLAY moved to a top-bar icon so seven rows still fit.
 
 ## Context
 

@@ -2095,8 +2095,8 @@ func _finish_daily() -> void:
 		_show_ending(_daily_name() + "  ·  PRACTICE", "Practice cleared. Today's ranked result stands, and tomorrow brings a new maze.")
 		return
 	var cleared := Daily.result.filter(func(square: String) -> bool: return square != "died").size()
-	_show_ending(_daily_name() + "  ·  CLEARED", "All %d floors in %s. Copy your result and paste it anywhere: Discord, X, a group chat. Tomorrow brings a new maze." % [
-			cleared, _format_time(Daily.result_time)], Daily.share_text(RunState.daily_date, Daily.result, Daily.result_time))
+	_show_ending(_daily_name() + "  ·  CLEARED", "%d / %d floors in %s. Copy your result and paste it anywhere: Discord, X, a group chat. Tomorrow brings a new maze." % [
+			cleared, Daily.FLOORS, _format_time(Daily.result_time)], Daily.share_text(RunState.daily_date, Daily.result, Daily.result_time))
 
 func _show_ending(title: String, text: String, share := "") -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -2278,6 +2278,9 @@ func _lose_game(cause: String = "devil") -> void:
 	var detail := "%d m from the exit   ·   Act %d, floor %d / %d   ·   best floor %d / %d\n%s" % [
 		roundi(steps * CELL_SIZE), rule.act, rule.floor_in_act, StageRule.FLOORS_PER_ACT,
 		RunState.best_floor, StageRule.LAST_FLOOR, comeback]
+	if RunState.is_daily():
+		detail = "%d m from the exit   ·   Daily #%d, floor %d / %d\n%s" % [roundi(steps * CELL_SIZE),
+				Daily.number(RunState.daily_date), RunState.daily_floor, Daily.FLOORS, comeback]
 	var can_revive := not snapshot.is_empty() and RunState.revives_left() > 0
 	var revive_text := "%d LEFT  ·  [V]" % RunState.revives_left() if not snapshot.is_empty() else "REACH A SAFE CIRCLE FIRST"
 	var progress := MetaState.unlock_progress()

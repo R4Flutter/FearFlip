@@ -669,6 +669,9 @@ func test_dying_in_the_daily_offers_its_result_and_practice() -> void:
 	assert_true(main.death_screen._revive.disabled, "one life in the Daily")
 	assert_true(main.death_screen._share.visible, "the ranked result, ready to copy")
 	assert_eq(main.death_screen._share_text, Daily.share_text(Daily.today(), Daily.result, Daily.result_time))
+	var detail: String = main.death_screen._detail.text
+	assert_true(detail.contains("Daily #%d, floor 2 / %d" % [Daily.number(Daily.today()), Daily.FLOORS]), detail)
+	assert_false(detail.contains("Act "), "a Daily isn't an act")
 	Daily.result.clear()
 	Daily.result_time = 0.0
 

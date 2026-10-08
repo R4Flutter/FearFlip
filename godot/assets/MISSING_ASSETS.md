@@ -51,7 +51,7 @@ as **PNG, 1024x1024, top-down, on pure white**:
 ### 2c. Meta hub art and the flashlight cards (plans/06 P5)
 
 Prompts: `images/menu/PROMPTS.md` → "Meta hub" (`hub_entry`, `hub_altar`, `hub_mirror`, `hub_bestiary`,
-`hub_archive`, 8 `beast_<id>` portraits, `ending_bg`) and `images/cards/PROMPTS.md` → "Flashlights from P5"
+`hub_archive`, `hub_daily` (P6), 8 `beast_<id>` portraits, `ending_bg`) and `images/cards/PROMPTS.md` → "Flashlights from P5"
 (`old_torch`, `lantern`, `uv_light`, `camera_flash`).
 
 ### 2b. Act picker cards, padlock and act-cleared burst (7 files)
