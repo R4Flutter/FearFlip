@@ -49,6 +49,12 @@ static var mode := "campaign"
 ## In a Daily: its floor (1..Daily.FLOORS) and the date it belongs to.
 static var daily_floor := 0
 static var daily_date := ""
+## The playtest log (plans/06 P0, read for the §7 KPIs): one JSON line per event. Only the game writes it: a -s script
+## (the test runner) or the editor's own test runner leaves it off unless a test turns it on with its own path.
+static var events_path := "user://events.jsonl"
+static var log_events := Engine.get_main_loop() != null and Engine.get_main_loop().get_script() == null \
+		and not Engine.is_editor_hint()
+static var _session := 0
 static var _loaded := false
 
 
@@ -58,6 +64,9 @@ static func load_save() -> void:
 		return
 	_loaded = true
 	MetaState.load_profile()
+	if _session == 0:
+		_session = int(Time.get_unix_time_from_system())
+		log_event("session", {"acts": MetaState.acts_unlocked, "shards": MetaState.shards})
 	var cfg := ConfigFile.new()
 	if cfg.load(save_path) == OK and cfg.get_value("run", "version", 1) == SAVE_VERSION:
 		current_floor = clampi(cfg.get_value("run", "floor", 1), 1, StageRule.LAST_FLOOR)
@@ -131,6 +140,7 @@ static func start_run(act_number: int) -> bool:
 		picks.append("omen")
 	_deal()
 	save()
+	log_event("run", {"act": act_number, "mode": mode})
 	return true
 
 
@@ -155,6 +165,7 @@ static func start_daily(practice: bool) -> void:
 	picks.clear()
 	_new_act()
 	_deal()
+	log_event("run", {"act": 0, "mode": mode})
 
 
 ## Back from the Daily: the campaign as its save left it (a fresh run if it never had one).
@@ -167,6 +178,21 @@ static func leave_daily() -> void:
 
 static func is_daily() -> bool:
 	return mode != "campaign"
+
+
+## One line of the playtest log: `data` plus the event's kind ("e"), unix time ("t") and session ("s").
+static func log_event(kind: String, data := {}) -> void:
+	if not log_events:
+		return
+	var file := FileAccess.open(events_path, FileAccess.READ_WRITE)
+	if file == null:
+		file = FileAccess.open(events_path, FileAccess.WRITE)
+	if file == null:
+		return
+	file.seek_end()
+	var line := data.duplicate()
+	line.merge({"e": kind, "t": int(Time.get_unix_time_from_system()), "s": _session})
+	file.store_line(JSON.stringify(line))
 
 
 ## A Daily floor is over, cleared or died on: its square on the share line. Only the ranked try keeps it.
@@ -187,6 +213,7 @@ static func end_run() -> void:
 	run_over = true
 	picks.clear()
 	save()
+	log_event("run_end", {"floor": current_floor, "act": act(), "mode": mode, "shards": run_shards})
 
 
 ## The Gate is beaten: the next act opens for good and this run is over (RETURN).
@@ -332,6 +359,7 @@ static func pick_options() -> Array[String]:
 static func take(id: String) -> void:
 	if picks.is_empty():
 		return
+	log_event("pick", {"kind": picks[0], "id": id, "offered": pick_options(), "floor": current_floor})
 	var kind: String = picks.pop_front()
 	match kind:
 		"door":

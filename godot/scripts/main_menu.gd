@@ -1206,7 +1206,7 @@ func _play_daily(practice: bool) -> void:
 
 
 func _copy_daily() -> void:
-	DisplayServer.clipboard_set(Daily.share_text(Daily.played, Daily.result, Daily.result_time))
+	Daily.copy(Daily.share_text(Daily.played, Daily.result, Daily.result_time))
 	(_screen.find_child("CopyResult", true, false) as Button).text = "COPIED"
 
 

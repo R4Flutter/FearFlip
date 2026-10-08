@@ -147,6 +147,12 @@ static func share_text(date: String, marks: Array, seconds: float) -> String:
 	return "FearFlip Daily #%d %s %d/%d · %d:%02d" % [number(date), squares, cleared, FLOORS, floori(seconds / 60.0), floori(seconds) % 60]
 
 
+## Copies a share line, logged for the share-rate KPI (plans/06 §7).
+static func copy(text: String) -> void:
+	DisplayServer.clipboard_set(text)
+	RunState.log_event("share", {"text": text})
+
+
 static func ranked_open(date: String) -> bool:
 	return played != date
 

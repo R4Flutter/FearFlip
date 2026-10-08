@@ -191,6 +191,7 @@ static func buy(id: String) -> bool:
 	shards -= Unlocks.item(id)["cost"]
 	unlocked.append(id)
 	save()
+	RunState.log_event("unlock", {"id": id, "shards": shards})
 	return true
 
 

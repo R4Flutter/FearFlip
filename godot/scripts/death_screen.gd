@@ -156,7 +156,7 @@ func show_death(title: String, rule: String, detail: String, revive_text: String
 # --- Motion -----------------------------------------------------------------------------------
 
 func _copy_result() -> void:
-	DisplayServer.clipboard_set(_share_text)
+	Daily.copy(_share_text)
 	_share.text = "COPIED"
 
 

@@ -2160,6 +2160,8 @@ func _win_game() -> void:
 	var ending := _gate_ending() if rule.is_gate and fixed_seed == 0 else ""
 	if fixed_seed == 0:
 		RunState.note_floor(grade, sprinted)
+		RunState.log_event("floor", {"floor": rule.floor_number, "act": rule.act, "mode": RunState.mode, "grade": grade,
+				"time": snappedf(elapsed, 0.1), "cards": RunState.floor_cards})
 	_bank()
 	if last_daily:
 		if fixed_seed == 0:
@@ -2261,7 +2263,7 @@ func _show_ending(title: String, text: String, share := "") -> void:
 		copy.add_theme_font_size_override("font_size", 20)
 		copy.add_theme_color_override("font_color", GOLD)
 		copy.pressed.connect(func() -> void:
-			DisplayServer.clipboard_set(share)
+			Daily.copy(share)
 			copy.text = "COPIED")
 		column.add_child(copy)
 	column.add_child(carry_on)
@@ -2378,6 +2380,9 @@ func _lose_game(cause: String = "devil") -> void:
 		RunState.note_daily("died", elapsed)
 	elif fixed_seed == 0:
 		MetaState.note_death(rule.floor_number)  # hidden mercy (plans/06 G3)
+	if fixed_seed == 0:
+		RunState.log_event("death", {"floor": rule.floor_number, "act": rule.act, "mode": RunState.mode, "cause": cause,
+				"time": snappedf(elapsed, 0.1), "progress": snappedf(clampf(_progress(), 0.0, 1.0), 0.01)})
 	var news := _bank()  # dying keeps every shard
 	# Death ends the run now (quitting here can't buy a retry of this maze); a revive brings it back.
 	if fixed_seed == 0:
