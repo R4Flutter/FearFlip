@@ -1,125 +1,58 @@
-# FearFlip 3D: missing and redo assets (checked 7 Oct 2026)
+# FearFlip 3D: missing and redo assets (checked 8 Oct 2026)
 
-Every file in `godot/assets/new_assets/` was checked for size, background, transparency, tiling and (for models)
-triangle count. Everything you still need to make is in this file, so you don't have to dig through the older
-prompt files. Save new files in `godot/assets/new_assets/` with the exact names below; Claude moves them into
-place and wires them.
+Everything delivered so far is in the game (list below). Save new files in `godot/assets/new_assets/` with the exact
+names below and tell Claude; Claude sizes them, moves them into place and wires them. `new_assets/` is your inbox and
+archive of originals: it has a `.gdignore`, so Godot no longer imports it and it never ships.
 
-## What's good already (no action)
+## In the game now (8 Oct 2026)
 
-card_frame, pick_backdrop, omen_sigils, hud_plate, minimap_frame (transparent centre, as asked), banner (on white,
-as asked), keycap (square + wide in one image is fine), key_icon, wake_wall / wake_floor / wake_ceiling (seamless),
-wall_trim, safe_circle, exit_circle, crack_hairline, crack_glow, decal_scratches, nightmare_overlay,
-flip_warning_overlay, fx_sheet, Oswald.zip (has SemiBold). The thin grey grid lines in omen_sigils and fx_sheet are
-fine: Claude crops each cell slightly.
+- **Cards:** 25 card arts (`images/cards/<id>.png`; the four curses reuse their twin rule's art), `card_frame`,
+  `pick_backdrop`, `omen_sigils` (re-cut on its real grid lines; omen cards, the Altar and the HUD's omen line).
+- **World:** wake and NIGHTMARE wall, floor and ceiling (the square `(2)` redos), `wall_trim`, with normal maps derived
+  from them (`textures/world/`), mapped one tile per cell in both worlds.
+- **Decals** (`textures/decals/`): `safe_circle`, `exit_circle`, `crack_hairline` (weak tile), `crack_glow` (cracked
+  tile), `decal_scratches` and `decal_blood` (NIGHTMARE dressing; the blood's grey backdrop was cleaned to white).
+- **Models** (`models/`): `chest` (lid split off so it still swings open), `key`, `ceiling_lamp`, `gate_arch` (stands
+  behind the exit chest on every Gate), `sanctuary_altar` (down a dead end on every Sanctuary). The delivered files were
+  ~1.9M triangles each: Claude cut them to 3k-12k triangles and 1K textures in Blender (4.4 MB for all five), so **no
+  re-export is needed**.
+- **HUD** (`images/hud/`): `key_icon`, `hud_plate`, `minimap_frame`, `banner`, `keycap` + `keycap_wide` (split from
+  the one image), `nightmare_overlay` (pulses with the heartbeat), `flip_warning_overlay`; `textures/fx/fx_sheet`
+  (key sparkles, trap dust); Oswald SemiBold as `fonts/ui.ttf` (menus, death screen, HUD).
+
+**Not used:** the two "Businessman" thumbnails and `KATSU_*.jpg` (not FearFlip art); `Demonic Gothic Gate…` and
+`Gothic Altar…` (the white-background concept images behind the two models); `Gothic Horned Skull Card Frame.png`
+and `Flashlight Through the Haunted Stone Maze.png` (copies of `card_frame` and `thick_fog`); `decal_handprint.jpeg`
+(a photo of a real hand); the 16:9 `nightware_wall` / `nightmare_floor` / `nightmare_ceiling` (replaced by the redos).
 
 ---
 
-## 1. Redo: problems in delivered files
+## 1. Redo (optional)
 
-### 1a. 3D models are ~200x too heavy (most important)
+`decal_handprint.png` is painted on a NIGHTMARE wall, so it can't be laid over the walls as a decal. Save it again
+as **PNG, 1024x1024, top-down, on pure white**:
 
-Each model is about **1.9 million triangles** with 4K textures, and each file is ~60 MB. The game budget is a few
-thousand triangles per prop and ~20 MB for the **whole** web build. The key already in the game
-(`assets/assets/key.glb`) has the same problem, and the floor shows several keys at once. Don't regenerate them:
-re-export the same models from Meshy / Tripo with these settings.
-
-- **Meshy:** open the model, *Remesh*, choose **Triangle**, set the target count below, keep *Quad* off, then
-  *Download → GLB* with texture resolution **1024 (1K)**.
-- **Tripo:** *Smart Low Poly* (or *Retopology*) with the target count below, then export GLB with 1K textures.
-
-| File (same name again) | Target triangles | Real size |
-|---|---|---|
-| `chest.glb` | 8,000 | 0.9 m wide, 0.6 m deep, 0.6 m tall |
-| `key_new.glb` | 3,000 | 0.3 m long |
-| `ceiling_lamp.glb` | 1,500 | 0.35 m tall |
-| `gate_arch.glb` | 12,000 | fits a 2.4 m wide x 2.8 m tall opening |
-| `sanctuary_altar.glb` | 8,000 | about 1.2 m wide, 1 m tall |
-
-Each finished GLB should be roughly 1.5–4 MB.
-
-### 1b. NIGHTMARE textures: not square and not seamless
-
-`nightware_wall.png`, `nightmare_floor.png` and `nightmare_ceiling.png` are 1408x768 (16:9), so they would stretch on
-square wall cells, and the top/bottom edges don't wrap (visible seam). Regenerate all three **square, 1024x1024,
-with the tool's tiling switch on** (Midjourney `--tile`, Leonardo "Tiling", SD tiling). Flat even lighting, straight
-on, no shadows, no perspective, no vignette. Please also fix the spelling: save the wall as `nightmare_wall.png`.
-
-**nightmare_wall.png**
-> Seamless tileable texture, square, straight-on orthographic view: the same rough stone block wall corrupted into
-> hell, blackened charred stone blocks split by glowing molten red seams, thin dark red veins and roots creeping
-> across the surface, dried blood streaks, flat even lighting, no shadows, no perspective, no vignette, no text.
-
-**nightmare_floor.png**
-> Seamless tileable texture, square, top-down orthographic view: large square stone floor tiles, scorched black and
-> cracked, faint ember-red glow deep inside the cracks, dark dried blood pooled in the grout lines, small ash flecks,
-> flat even lighting, no shadows, no perspective, no vignette, no text.
-
-**nightmare_ceiling.png**
-> Seamless tileable texture, square, straight-on orthographic view looking up: a dark stone ceiling overgrown with
-> thick blackened red organic veins and roots, slow drips of dark blood, soot stains, very dark overall, flat even
-> lighting, no shadows, no perspective, no vignette, no text.
-
-### 1c. Two decals
-
-- `decal_handprint.jpeg` is a photo of a real hand and arm with black bars top and bottom; it can't be used as a
-  floor/wall print.
-- `decal_blood.jpeg` is on light grey, not pure white, so a grey square would show around it.
-
-Save both as **PNG, 1024x1024, top-down, on pure white** (Godot multiplies them, so white disappears).
-
-**decal_handprint.png**
 > A single bloody handprint smeared on a surface, the print only (no hand, no arm, no person), top-down flat view,
 > dark red and almost black dried blood with drag streaks from the fingers, centred, isolated on a pure white
 > background, no shadow, no text.
-
-**decal_blood.png**
-> A dark red blood splatter with a few drips and small droplets, top-down flat view, dried dark crimson edges,
-> centred, isolated on a pure white background, no shadow, no text.
 
 ---
 
 ## 2. Still missing (never delivered)
 
-### 2a. Card art (26 files)
+### 2a. One card
 
-Shown in the art band at the top of every picker card. **PNG, 880x520**, no transparency needed. Keep the subject in
-the centre (the top and bottom may crop).
-
-**Style line (start every prompt with it):** dark fantasy horror mobile game art, semi-realistic painterly anime style,
-first-person stone maze at night, crimson red + deep violet + ember orange (cold blue where it says WAKE), volumetric
-fog, glowing rim light, no text/UI/watermark/letters/numbers.
+**PNG, 880x520**, same style line as the other cards (`images/cards/PROMPTS.md`):
 
 | File | Card | Subject |
 |---|---|---|
-| `thick_fog.png` | rule | a narrow stone maze corridor swallowed by fog, a flashlight beam dying a few metres in |
-| `safe_haven.png` | rule | four glowing blue floor rings at a dark junction, their light guttering low |
-| `blackout.png` | rule (also the Blackout curse) | dead ceiling lamps over a black corridor, one flashlight cone the only light |
-| `hungry_dark.png` | rule (also the curse) | a horned devil silhouette sprinting down a corridor, eyes and mouth burning like embers |
-| `short_fuse.png` | rule (also the curse) | a burning fuse snaking across the maze floor toward a cracked hourglass |
-| `cracked_earth.png` | rule | floor tiles split by glowing orange cracks, one collapsing into a pit |
-| `greed.png` | rule | an iron-banded chest glowing at the end of a dead-end alcove, a shadow looming at the turn |
-| `deaf_night.png` | rule (also the curse) | a silent corridor, a single red heartbeat line floating in the dark |
-| `mirror_night.png` | rule | the maze reflected upside down in a cracked mirror, cold blue above, blood red below |
 | `static.png` | rule | a torn paper map dissolving into TV static and ash |
-| `tight_clock.png` | rule | a stopwatch with blood-red hands, sand pouring out fast, maze walls leaning in |
-| `relentless.png` | rule | the devil striding through a rift between a cold blue world and a red one, never slowing |
-| `normal.png` | door | a plain stone doorway into a dim maze corridor |
-| `shrine.png` | door | a candlelit shrine niche in the maze wall, a violet omen sigil floating over offerings |
-| `vault.png` | door | a heavy iron vault door half open, gold light and chests inside, keys hanging from hooks |
-| `hunt.png` | door | a blood-red door gouged by claws, a horned shadow behind its peephole |
-| `mystery.png` | door | a door wrapped in black fog, violet smoke leaking from the keyhole |
-| `first_blood.png` | Gate | the devil already awake at the far end of a long corridor, the player tiny in the foreground |
-| `ritual.png` | Gate | five glowing keys floating in a ring of red candles, an hourglass burning above |
-| `mind_break.png` | Gate | a maze shaped like a cracked skull, flickering between cold blue and red |
-| `precision_hell.png` | Gate | a corridor of cracked glowing tiles over an abyss, a clock face burning in the ceiling |
-| `the_breaker.png` | Gate | the devil tearing through the wall between the blue and red worlds, a final chase |
-| `sanctuary.png` | Sanctuary | a small quiet candlelit chamber in soft blue light, an omen resting on an altar |
-| `no_curse.png` | curse | a single unlit black candle on a clean stone ledge, one thin wisp of smoke, calm faint blue light |
-| `return.png` | Gate choice | a worn stone stairway climbing up out of the maze toward a pale grey dawn, a lantern left on the steps |
-| `descend.png` | Gate choice | a spiral stairway plunging down into red glowing depths, embers rising, maze walls continuing far below |
 
-The 16 omen cards need no art of their own: they use `omen_sigils.png`.
+### 2c. Meta hub art and the flashlight cards (plans/06 P5)
+
+Prompts: `images/menu/PROMPTS.md` → "Meta hub" (`hub_entry`, `hub_altar`, `hub_mirror`, `hub_bestiary`,
+`hub_archive`, 8 `beast_<id>` portraits, `ending_bg`) and `images/cards/PROMPTS.md` → "Flashlights from P5"
+(`old_torch`, `lantern`, `uv_light`, `camera_flash`).
 
 ### 2b. Act picker cards, padlock and act-cleared burst (7 files)
 
@@ -210,8 +143,6 @@ export each again as GLB with these clips, in place, 30 fps: **idle, walk, run**
 
 ## Order to do it in
 
-1. 1a: re-export the 5 models (and the old key) low-poly. Nothing 3D can go in the game until this is done.
-2. 1b: the 3 NIGHTMARE textures.
-3. 2a: card art (start with the doors and the 3 new cards: they show after every floor).
-4. 2b: act cards, padlock, burst.
-5. 1c: decals; then section 3 when you have time.
+1. 2b: act cards, padlock, burst (the act picker is still flat gradients).
+2. 2c: the hub frame and backgrounds, then the bestiary portraits and the flashlight cards.
+3. 2a `static.png`, 1 (handprint), then section 3 when you have time.

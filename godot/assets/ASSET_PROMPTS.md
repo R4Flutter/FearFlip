@@ -27,16 +27,15 @@ exist under those names, so replacing one needs no code change at all.
 - **Normal/roughness maps:** take them from the generator if it offers PBR. Otherwise send only the albedo and Claude
   will derive the rest. Plan B for any tileable material: free CC0 libraries (ambientCG, Poly Haven) often beat AI here.
 
-## Status (7 Oct 2026)
+## Status (8 Oct 2026)
 
-**Latest check: see `MISSING_ASSETS.md`** (what to redo and what is still missing, all prompts in one file).
+**Latest check: see `MISSING_ASSETS.md`** (what is in the game, what is still missing, all prompts in one file).
 
-- **Delivered, not wired into the game yet**, in `godot/assets/new_assets/`: world materials (wake/nightmare wall,
-  floor and ceiling, wall trim), decals (cracks, blood, handprint, scratches), safe circle, exit circle, chest, key,
-  ceiling lamp, gate arch and sanctuary altar models, key icon, both overlays, the FX sheet and Oswald (zip).
-- **Still to generate:** card frame, pick backdrop, omen sigils and card art (`images/cards/PROMPTS.md`); act cards,
-  padlock and act-cleared burst (`images/menu/PROMPTS.md`, Act-Runs); the HUD plate, minimap frame, banner and
-  keycaps (§4 below); audio (§6, optional).
+- **In the game:** everything delivered so far: world materials, decals, the five models (cut to budget in Blender),
+  HUD and overlay art, the FX sheet, card art, card frame, pick backdrop, omen sigils and Oswald. Every slot loads
+  only when its file exists (art is git-ignored), so a fresh checkout shows the code-built stand-ins.
+- **Still to generate:** `static.png`; the act cards, padlock and act-cleared burst; the P5 hub art and the flashlight
+  cards; optionally a handprint decal on white, new audio and animated characters.
 
 ## Priority (what removes the most ugliness first)
 
