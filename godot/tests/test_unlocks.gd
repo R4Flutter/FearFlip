@@ -193,6 +193,15 @@ func test_a_challenge_item_is_given_or_paid_out_if_you_own_it() -> void:
 	assert_eq(MetaState.shards, shards + Unlocks.item(item)["cost"], "already yours: its price instead")
 
 
+func test_a_first_bestiary_sighting_pays_once() -> void:
+	var shards := MetaState.shards
+	var news := MetaState.record({"devil_wakes": 1})
+	assert_true(news.has("BESTIARY  ·  THE DEVIL"), str(news))
+	assert_eq(MetaState.shards, shards + MetaState.BESTIARY_SHARDS)
+	assert_eq(MetaState.record({"devil_wakes": 1}), [], "seen already")
+	assert_eq(MetaState.shards, shards + MetaState.BESTIARY_SHARDS)
+
+
 func test_act_stars_need_no_revive_an_s_average_and_a_curse() -> void:
 	RunState.start_run(1)
 	for i in 9:

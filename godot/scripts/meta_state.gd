@@ -19,6 +19,8 @@ const CHEST_ODDS := [["shards", 0.6], ["omen", 0.2], ["note", 0.15], ["rare", 0.
 const CHEST_SHARDS := Vector2i(4, 12)
 const RARE_SHARDS := 30
 const CHEST_TEXT := {"shards": "CHEST", "omen": "OMEN TOKEN", "note": "LORE NOTE", "rare": "RARE CHEST"}
+## A bestiary entry's first sighting (D1).
+const BESTIARY_SHARDS := 5
 ## The first unlock costs about one losing first run (the P2 gate); a new profile starts 20% of the way.
 const FIRST_UNLOCK_COST := 70
 const STARTER_SHARDS := 14
@@ -79,7 +81,8 @@ static func stat(key: String) -> int:
 	return stats.get(key, 0)
 
 
-## Banks counters (stat -> amount) and pays every challenge they complete. Returns what to announce.
+## Banks counters (stat -> amount) and pays what they complete: every challenge, and each bestiary entry seen for
+## the first time. Returns what to announce.
 static func record(counts: Dictionary) -> Array[String]:
 	var news: Array[String] = []
 	for key: String in counts:
@@ -89,6 +92,10 @@ static func record(counts: Dictionary) -> Array[String]:
 			if challenge["stat"] == key and before < challenge["goal"] and stats[key] >= challenge["goal"]:
 				_pay(challenge)
 				news.append("CHALLENGE  ·  " + challenge["name"])
+		for beast: Dictionary in Lore.BESTIARY:
+			if beast["seen"] == key and before == 0 and stats[key] > 0:
+				shards += BESTIARY_SHARDS
+				news.append("BESTIARY  ·  " + beast["name"])
 	save()
 	return news
 
