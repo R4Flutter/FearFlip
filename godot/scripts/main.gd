@@ -158,6 +158,23 @@ const HANDPRINT_DECALS := 4
 ## The Sanctuary's altar: its collision box and soft blue light.
 const ALTAR_SIZE := Vector3(1.2, 1.0, 0.85)
 const ALTAR_LIGHT := Color(0.35, 0.6, 1.0)
+## Landmarks (plans/07). Lamps: energy, range; they keep their colour in both worlds and stay lit in a Blackout.
+const LANDMARK_LIGHT := Vector2(1.1, 5.0)
+## Halo around a landmark bulb, metres across: the far cue (walls are one mesh each, and the Compatibility
+## renderer lights a mesh with 8 lights at most, so a lamp's colour barely reaches them).
+## It hangs no higher than its own radius below the ceiling, so its top edge never cuts into it.
+const LANDMARK_HALO := 0.9
+## The flickering lamp drops out twice every this many seconds.
+const LANDMARK_FLICKER_BEAT := 2.6
+## Glyphs painted on the wall: colour, metres tall, centre height.
+const LANDMARK_GLYPH_COLOR := Color(0.75, 0.12, 0.08)
+const LANDMARK_GLYPH_SIZE := 0.9
+const LANDMARK_GLYPH_Y := 1.5
+## Statue and debris stand this far from the cell centre toward a corner, out of the walking line.
+const LANDMARK_CORNER := 0.82
+const LANDMARK_STATUE_HEIGHT := 2.0
+const LANDMARK_DEBRIS_HEIGHT := 0.8
+const LANDMARK_CANDLE := Color(1.0, 0.58, 0.25)
 ## HUD art: the status plate's 9-slice corners, and how strong the NIGHTMARE overlay shows (far, near).
 const PLATE_CORNER := 48
 const NIGHTMARE_OVERLAY_ALPHA := Vector2(0.35, 0.9)
@@ -197,6 +214,12 @@ var flip: FlipSystem
 var brain: DevilBrain
 var circles: SafeCircles
 var traps: TrapField
+## Things to remember at the maze's decisions (plans/07).
+var landmarks: Landmarks
+## The flickering landmark lamp and its bulb (null when the floor has none).
+var flicker_light: OmniLight3D
+var flicker_bulb: StandardMaterial3D
+var flicker_halo: MeshInstance3D
 ## Floor route spawn -> exit (flips allowed) and path distance from spawn; for placement and progress.
 var route: Array[Vector2i] = []
 var from_spawn := PackedInt32Array()
@@ -427,6 +450,11 @@ func _ready() -> void:
 	traps.creak_range = roundi(RunState.mod("creak_range", 1.0))
 	if debug_trap_step > 0 and debug_trap_step < route.size() - 1 and not excluded.has(route[debug_trap_step]):
 		traps.add(route[debug_trap_step])
+	# Chests and the Altar sit down dead ends, which are never landmark cells.
+	var landmark_free: Array[Vector2i] = [layout.spawn, layout.exit]
+	landmark_free.append_array(excluded)
+	landmark_free.append_array(traps.cells)
+	landmarks = Landmarks.new(layout, seed_value, landmark_free)
 	tour_m = _tour_tiles() * CELL_SIZE
 	time_left = rule.time_budget(tour_m, feel.walk_speed, RunState.mod("clock", 1.0)) + RunState.mod("time_bonus", 0.0)
 	brain = DevilBrain.new()
@@ -451,6 +479,7 @@ func _ready() -> void:
 	_build_detour_chests()
 	_build_altar()
 	_build_dressing()
+	_build_landmarks()
 	_build_devil()
 	_build_hud()
 	_apply_world(WAKE)
@@ -528,6 +557,7 @@ func _process(delta: float) -> void:
 	if player == null or get_tree().paused:
 		return  # no floor yet (the pick screen), or paused
 	_update_flashlight(delta)
+	_flicker_landmark()
 	_animate_devil(delta)
 	if devil_cam != null:
 		_replay(delta)
@@ -1444,7 +1474,8 @@ func _build_maze() -> void:
 			elif nightmare_wall:
 				nightmare_only.append(cell)
 			else:
-				if (x + y) % world_light_spacing == 0:
+				var mark := landmarks.at(cell)
+				if (x + y) % world_light_spacing == 0 and (mark < 0 or not landmarks.lit(mark)):
 					light_cells.append(cell)
 				if (x + y) % 2 == 0:
 					accent_cells.append(cell)
@@ -1488,9 +1519,7 @@ func _build_maze() -> void:
 
 ## The delivered ceiling lamp on every light cell (one draw call), with a bulb glowing in the world's colour in each cage.
 func _build_lamps(scene: PackedScene, cells: Array[Vector2i]) -> void:
-	var model := scene.instantiate()
-	var lamp_mesh := (model.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh
-	model.free()
+	var lamp_mesh := _first_mesh(scene)
 	var lamps := _multimesh(lamp_mesh, null, cells, CEILING_HEIGHT - 0.09 - lamp_mesh.get_aabb().end.y)
 	lamps.name = "Lamps"
 	add_child(lamps)
@@ -1498,6 +1527,12 @@ func _build_lamps(scene: PackedScene, cells: Array[Vector2i]) -> void:
 	bulb.radius = LAMP_BULB_RADIUS
 	bulb.height = LAMP_BULB_RADIUS * 2.0
 	add_child(_multimesh(bulb, light_material, cells, CEILING_HEIGHT - LAMP_BULB_DROP))
+
+func _first_mesh(scene: PackedScene) -> Mesh:
+	var model := scene.instantiate()
+	var mesh := (model.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh
+	model.free()
+	return mesh
 
 ## `material` wears `surface`'s delivered textures for world `look`, tinted for it (Art.dress); without them it keeps
 ## its plain colour.
@@ -1778,6 +1813,187 @@ func _build_dressing() -> void:
 		scratch.position = cell_to_world(cell) + Vector3(d.x, 0, d.y) * (CELL_SIZE * 0.5 - 0.015) + Vector3(0, rng.randf_range(0.9, 1.6), 0)
 		dressing.add_child(scratch)
 
+## Landmarks (plans/07), the same in both worlds: a coloured or flickering lamp (seen from afar), a glyph painted on a
+## wall, a statue with a candle, a debris pile. Delivered art replaces each stand-in (assets/ASSET_PROMPTS.md §3b).
+func _build_landmarks() -> void:
+	var root := Node3D.new()
+	root.name = "Landmarks"
+	add_child(root)
+	var lamp_scene := Art.model("ceiling_lamp")
+	var lamp_mesh := _first_mesh(lamp_scene) if lamp_scene != null else null
+	for i in landmarks.cells.size():
+		var at := cell_to_world(landmarks.cells[i])
+		var side := landmarks.sides[i]
+		var corner := side + Vector2i(side.y, side.x) if side != Vector2i.ZERO else Vector2i(1, 1)
+		var spot := at + Vector3(corner.x, 0, corner.y) * LANDMARK_CORNER
+		var facing := atan2(-float(corner.x), -float(corner.y))
+		match landmarks.kinds[i]:
+			Landmarks.Kind.LAMP, Landmarks.Kind.FLICKER:
+				var glow := _glow_material(landmarks.color(i))
+				var fixture := MeshInstance3D.new()
+				if lamp_mesh != null:
+					fixture.mesh = lamp_mesh
+					fixture.position = at + Vector3(0, CEILING_HEIGHT - 0.09 - lamp_mesh.get_aabb().end.y, 0)
+				else:
+					var box := BoxMesh.new()
+					box.size = Vector3(0.5, 0.05, 0.5)
+					fixture.mesh = box
+					fixture.material_override = glow
+					fixture.position = at + Vector3(0, CEILING_HEIGHT - 0.12, 0)
+				root.add_child(fixture)
+				var bulb := MeshInstance3D.new()
+				var sphere := SphereMesh.new()
+				sphere.radius = LAMP_BULB_RADIUS * 1.6
+				sphere.height = sphere.radius * 2.0
+				bulb.mesh = sphere
+				bulb.material_override = glow
+				bulb.position = at + Vector3(0, CEILING_HEIGHT - LAMP_BULB_DROP, 0)
+				root.add_child(bulb)
+				var halo := MeshInstance3D.new()
+				var quad := QuadMesh.new()
+				quad.size = Vector2.ONE * LANDMARK_HALO
+				halo.mesh = quad
+				halo.material_override = _halo_material(landmarks.color(i))
+				halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				halo.position = at + Vector3(0, minf(bulb.position.y, CEILING_HEIGHT - LANDMARK_HALO * 0.5), 0)
+				root.add_child(halo)
+				var light := _landmark_light(root, bulb.position, landmarks.color(i), LANDMARK_LIGHT.x, LANDMARK_LIGHT.y)
+				if landmarks.kinds[i] == Landmarks.Kind.FLICKER:
+					flicker_light = light
+					flicker_bulb = glow
+					flicker_halo = halo
+			Landmarks.Kind.GLYPH:
+				var number := landmarks.variants[i] + 1
+				var paint: Node3D = Art.decal(Art.DECALS + "glyph_%d.png" % number, LANDMARK_GLYPH_SIZE, Color.WHITE, false)
+				if paint != null:
+					paint.rotation = Vector3(PI * 0.5, atan2(-float(side.x), -float(side.y)), 0)
+				else:
+					var label := Label3D.new()
+					label.text = Landmarks.GLYPHS[landmarks.variants[i]]
+					label.font = DeathScreen.ui_font()
+					label.font_size = 160
+					label.pixel_size = LANDMARK_GLYPH_SIZE / 160.0
+					label.modulate = LANDMARK_GLYPH_COLOR
+					label.outline_size = 0
+					label.rotation.y = atan2(-float(side.x), -float(side.y))
+					paint = label
+				paint.position = at + Vector3(side.x, 0, side.y) * (CELL_SIZE * 0.5 - 0.02) + Vector3(0, LANDMARK_GLYPH_Y, 0)
+				root.add_child(paint)
+			Landmarks.Kind.STATUE:
+				var statue := _landmark_prop(root, "landmark_statue", LANDMARK_STATUE_HEIGHT, spot, facing)
+				if statue.get_child_count() == 1:  # stand-in: a hooded figure on a plinth
+					var stone := StandardMaterial3D.new()
+					stone.albedo_color = Color(0.3, 0.3, 0.32)
+					stone.roughness = 1.0
+					_stand_in(statue, BoxMesh.new(), Vector3(0.55, 0.35, 0.55), Vector3(0, 0.175, 0), stone)
+					_stand_in(statue, CapsuleMesh.new(), Vector3(0.42, 1.3, 0.42), Vector3(0, 1.0, 0), stone)
+					_stand_in(statue, SphereMesh.new(), Vector3(0.3, 0.34, 0.3), Vector3(0, 1.78, 0.02), stone)
+				var flame := MeshInstance3D.new()
+				var drop := SphereMesh.new()
+				drop.radius = 0.03
+				drop.height = 0.08
+				flame.mesh = drop
+				flame.material_override = _glow_material(LANDMARK_CANDLE)
+				flame.position = spot + Vector3(-corner.x, 0, -corner.y) * 0.35 + Vector3(0, 0.12, 0)
+				root.add_child(flame)
+				_landmark_light(root, flame.position + Vector3(0, 0.2, 0), LANDMARK_CANDLE, 0.9, 3.2)
+			Landmarks.Kind.DEBRIS:
+				var pile := _landmark_prop(root, "landmark_debris", LANDMARK_DEBRIS_HEIGHT, spot, facing)
+				if pile.get_child_count() == 1:  # stand-in: broken crates and a plank
+					var wood := StandardMaterial3D.new()
+					wood.albedo_color = Color(0.36, 0.25, 0.16)
+					wood.roughness = 0.95
+					var crate := _stand_in(pile, BoxMesh.new(), Vector3(0.7, 0.45, 0.55), Vector3(0, 0.225, 0), wood)
+					crate.rotation.y = 0.3
+					var top := _stand_in(pile, BoxMesh.new(), Vector3(0.45, 0.35, 0.4), Vector3(0.05, 0.62, 0.05), wood)
+					top.rotation.y = -0.5
+					var plank := _stand_in(pile, BoxMesh.new(), Vector3(1.1, 0.06, 0.2), Vector3(-0.2, 0.4, -0.25), wood)
+					plank.rotation = Vector3(0, 0.9, 0.6)
+
+## An unshaded material glowing `color` (landmark bulbs, the candle flame).
+func _glow_material(color: Color) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = color
+	return material
+
+## A soft camera-facing glow (additive, radial falloff drawn in code) in `color`.
+func _halo_material(color: Color) -> StandardMaterial3D:
+	var falloff := GradientTexture2D.new()
+	falloff.fill = GradientTexture2D.FILL_RADIAL
+	falloff.fill_from = Vector2(0.5, 0.5)
+	falloff.fill_to = Vector2(0.5, 0.0)
+	falloff.gradient = Gradient.new()
+	falloff.gradient.set_color(0, Color.WHITE)
+	falloff.gradient.set_color(1, Color(1, 1, 1, 0))
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.albedo_texture = falloff
+	material.albedo_color = Color(color, 0.7)
+	return material
+
+func _landmark_light(parent: Node3D, at: Vector3, color: Color, energy: float, reach: float) -> OmniLight3D:
+	var light := OmniLight3D.new()
+	light.light_color = color
+	light.light_energy = energy
+	light.omni_range = reach
+	light.position = at
+	parent.add_child(light)
+	return light
+
+## A solid prop in a cell corner, facing the cell centre: the delivered `model_name` fitted to `height`, or an empty
+## pivot (only its collision child) for the caller to fill with a stand-in.
+func _landmark_prop(parent: Node3D, model_name: String, height: float, at: Vector3, facing: float) -> Node3D:
+	var pivot := Node3D.new()
+	pivot.position = at
+	pivot.rotation.y = facing
+	parent.add_child(pivot)
+	var body := StaticBody3D.new()
+	body.collision_layer = LAYER_SHARED
+	body.collision_mask = 0
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(0.6, height, 0.6)
+	shape.shape = box
+	shape.position.y = height * 0.5
+	body.add_child(shape)
+	pivot.add_child(body)
+	var scene := Art.model(model_name)
+	if scene != null:
+		var model := scene.instantiate() as Node3D
+		pivot.add_child(model)
+		ModelFit.fit_height(model, height, 0.0)
+	return pivot
+
+func _stand_in(parent: Node3D, mesh: PrimitiveMesh, size: Vector3, at: Vector3, material: Material) -> MeshInstance3D:
+	if mesh is BoxMesh:
+		(mesh as BoxMesh).size = size
+	elif mesh is CapsuleMesh:
+		(mesh as CapsuleMesh).radius = size.x * 0.5
+		(mesh as CapsuleMesh).height = size.y
+	elif mesh is SphereMesh:
+		(mesh as SphereMesh).radius = size.x * 0.5
+		(mesh as SphereMesh).height = size.y
+	var part := MeshInstance3D.new()
+	part.mesh = mesh
+	part.material_override = material
+	part.position = at
+	parent.add_child(part)
+	return part
+
+## The flickering landmark lamp drops out twice per LANDMARK_FLICKER_BEAT, so it reads from down a corridor.
+func _flicker_landmark() -> void:
+	if flicker_light == null:
+		return
+	var beat := fmod(Time.get_ticks_msec() * 0.001, LANDMARK_FLICKER_BEAT)
+	var on := 0.08 if beat < 0.09 or (beat > 0.22 and beat < 0.3) else 1.0
+	flicker_light.light_energy = LANDMARK_LIGHT.x * on
+	flicker_bulb.albedo_color = flicker_light.light_color.darkened(1.0 - on)
+	flicker_halo.visible = on > 0.5
+
 ## Keys (the sigils' rules, the key art): one per sigil cell, glowing in the colour of its world.
 func _build_sigils() -> void:
 	for i in layout.sigils.size():
@@ -1887,6 +2103,7 @@ func _build_hud() -> void:
 	minimap.sigil_collected = sigil_collected
 	minimap.circles = circles
 	minimap.traps = traps
+	minimap.landmarks = landmarks
 	hud.add_child(minimap)
 	minimap.visible = RunState.mod("minimap", 1.0) > 0.0
 	minimap.crack_reveal = roundi(RunState.mod("crack_reveal", 0.0))

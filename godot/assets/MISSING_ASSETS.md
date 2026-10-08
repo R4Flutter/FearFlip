@@ -48,6 +48,11 @@ as **PNG, 1024x1024, top-down, on pure white**:
 |---|---|---|
 | `static.png` | rule | a torn paper map dissolving into TV static and ash |
 
+### 2d. Landmarks (plans/07): 2 models, 4 decals
+
+Prompts: `ASSET_PROMPTS.md` §3b: `models/landmark_statue.glb`, `models/landmark_debris.glb`,
+`textures/decals/glyph_1.png` … `glyph_4.png` (the painted numerals I–IV). Code stand-ins until then.
+
 ### 2c. Meta hub art and the flashlight cards (plans/06 P5)
 
 Prompts: `images/menu/PROMPTS.md` → "Meta hub" (`hub_entry`, `hub_altar`, `hub_mirror`, `hub_bestiary`,

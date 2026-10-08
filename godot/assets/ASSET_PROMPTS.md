@@ -180,6 +180,34 @@ corridor.
 > blue fire, carved protective runes and a few yellowed paper notes pinned under small stones, calm but eerie, dark
 > fantasy, semi-realistic. Isolated on a plain white background, even lighting.
 
+### 3b. Landmarks (plans/07)
+
+Things to remember at the maze's junctions ("left at the statue, right at III"). Today they're code stand-ins: a
+grey capsule on a box, three brown boxes, a red sans-serif numeral. The coloured and flickering lamps reuse
+`ceiling_lamp.glb` and need nothing new. Each slot below loads as soon as the file exists.
+
+**landmark_statue.glb** (`models/`). About 5k triangles max, 2.0 m tall including its plinth, footprint 0.6 x 0.6 m or
+smaller (it stands in a corridor corner). Front faces +Z. It needs a silhouette you recognise from 6 m away in fog; a
+candle at its feet is added in Godot.
+> Game asset concept, three-quarter front view: a weathered stone statue of a tall thin hooded figure standing on a
+> plain square plinth, both hands covering its face as if weeping, long robe falling straight to the plinth, cracked
+> grey stone with dark water stains and a little moss, bold simple silhouette, dark fantasy horror, semi-realistic.
+> Isolated on a plain white background, even studio lighting, no shadow on the background.
+
+**landmark_debris.glb** (`models/`). About 4k triangles max, 0.8 m tall, footprint 0.7 x 0.7 m or smaller. Front +Z.
+> Game asset concept, three-quarter view: a small heap of broken old furniture piled in a corner: a smashed wooden
+> chair on its side, two splintered crates stacked crookedly, a torn grey cloth draped over them and a rusty chain
+> hanging off the top, dark grimy wood, dark horror style, semi-realistic. Isolated on a plain white background, even
+> studio lighting.
+
+**glyph_1.png … glyph_4.png** (`textures/decals/`). 512x512, **transparent PNG** (if the tool can't do transparency,
+use pure white and say so, and Claude will cut it out). Painted on the wall at 0.9 m, so keep a margin of about 10%. One
+numeral per file: `glyph_1` = I, `glyph_2` = II, `glyph_3` = III, `glyph_4` = IV. Same brush and colour on all four
+so they read as one set. The prompt for III (swap the numeral for the other three):
+> The Roman numeral III hand-painted on a wall in thick dark dried-blood red paint with a wide brush, rough uneven
+> strokes, drips running down from the bottom of each stroke, a few splatters around it, front view, flat, centred,
+> isolated on a transparent background, no wall texture, no shadow, no other text.
+
 ---
 
 ## 4. HUD and screen overlays

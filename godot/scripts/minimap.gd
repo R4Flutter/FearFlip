@@ -37,6 +37,7 @@ var exit_open := false
 var devil_awake := false
 var circles: SafeCircles
 var traps: TrapField
+var landmarks: Landmarks
 ## Hidden cracks this many cells from you show faintly (the Cartographer omen; 0 = only cracks you found).
 var crack_reveal := 0
 var _time := 0.0
@@ -86,6 +87,9 @@ func _draw() -> void:
 		for i in circles.cells.size():
 			var fill := circles.charge[i] / circles.capacity
 			draw_arc(_to_map(Vector2(circles.cells[i]), cell), maxf(cell * 0.45, 5.0), 0.0, TAU, 20, Color(0.1, 0.35, 0.9, 0.25 + 0.75 * fill), 2.0, true)
+	if landmarks != null:
+		for i in landmarks.cells.size():
+			_draw_landmark(i, _to_map(Vector2(landmarks.cells[i]), cell), cell)
 	if traps != null:
 		for i in traps.cells.size():
 			var hidden := traps.states[i] == TrapField.State.HIDDEN
@@ -144,6 +148,23 @@ func _draw_player(at: Vector2, cell: float) -> void:
 	var right := at + Vector2.from_angle(facing - 2.5) * r
 	var back := at + Vector2.from_angle(facing + PI) * r * 0.45
 	draw_colored_polygon(PackedVector2Array([tip, left, back, right]), fog_colors[world])
+
+
+## The same names as in the maze: a lamp is a dot in its colour, a glyph its numeral, the statue a triangle,
+## the debris a square.
+func _draw_landmark(i: int, at: Vector2, cell: float) -> void:
+	var r := maxf(cell * 0.24, 3.5)
+	match landmarks.kinds[i]:
+		Landmarks.Kind.LAMP, Landmarks.Kind.FLICKER:
+			draw_circle(at, r + 1.0, Color(0, 0, 0, 0.7))
+			draw_circle(at, r, landmarks.color(i))
+		Landmarks.Kind.GLYPH:
+			var text: String = Landmarks.GLYPHS[landmarks.variants[i]]
+			draw_string(ThemeDB.fallback_font, at + Vector2(-3.0 * text.length(), 4), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.4, 0.32))
+		Landmarks.Kind.STATUE:
+			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -r * 1.2), at + Vector2(r, r * 0.8), at + Vector2(-r, r * 0.8)]), Color(0.85, 0.85, 0.9))
+		Landmarks.Kind.DEBRIS:
+			draw_rect(Rect2(at - Vector2(r, r) * 0.8, Vector2(r, r) * 1.6), Color(0.78, 0.56, 0.34))
 
 
 ## Pulses faster as it closes in.
