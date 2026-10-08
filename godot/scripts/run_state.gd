@@ -6,6 +6,9 @@ extends RefCounted
 ## ConfigFile so a relaunch resumes.
 
 const REVIVES_PER_ACT := 3
+## Act mastery (plans/06 D6): a floor's grade in points; the second star wants an S average.
+const GRADE_POINTS := {"S": 3, "A": 2, "B": 1, "C": 0}
+const S_AVERAGE := 2.5
 ## Bumped when the save's meaning changes: an older save starts a fresh run.
 const SAVE_VERSION := 2
 
@@ -30,6 +33,12 @@ static var run_cards: Array[String] = []
 ## Choices owed before the next floor plays, oldest first: "curse", "omen", "door" or "gate". Saved, so
 ## quitting at a picker offers the same choice again on relaunch.
 static var picks: Array[String] = []
+## This act's record for its stars (reset by start_run and descend): revives used, the grade points and count
+## of its floors cleared, and whether you sprinted on any of them.
+static var act_revives := 0
+static var act_points := 0
+static var act_floors := 0
+static var act_sprinted := false
 ## The floor this run started on: there is something to continue once you're past it.
 static var start_floor := 1
 ## True once the run has ended (death or act clear): playing again starts a new run, never resumes it.
@@ -58,6 +67,10 @@ static func load_save() -> void:
 		run_cards.assign(cfg.get_value("run", "run_cards", []))
 		picks.assign(cfg.get_value("run", "picks", []))
 		start_floor = cfg.get_value("run", "start_floor", StageRule.act_start(act()))
+		act_revives = cfg.get_value("run", "act_revives", 0)
+		act_points = cfg.get_value("run", "act_points", 0)
+		act_floors = cfg.get_value("run", "act_floors", 0)
+		act_sprinted = cfg.get_value("run", "act_sprinted", false)
 	if run_seed == 0 or not MetaState.is_act_unlocked(act()):
 		start_run(1)
 
@@ -78,6 +91,10 @@ static func save() -> void:
 	cfg.set_value("run", "run_cards", run_cards)
 	cfg.set_value("run", "picks", picks)
 	cfg.set_value("run", "start_floor", start_floor)
+	cfg.set_value("run", "act_revives", act_revives)
+	cfg.set_value("run", "act_points", act_points)
+	cfg.set_value("run", "act_floors", act_floors)
+	cfg.set_value("run", "act_sprinted", act_sprinted)
 	cfg.save(save_path)
 
 
@@ -99,6 +116,7 @@ static func start_run(act_number: int) -> bool:
 	_cleared_cards.clear()
 	run_cards.clear()
 	picks.clear()
+	_new_act()
 	if MetaState.acts_unlocked > 1:
 		picks.append("curse")
 	for _i in act_number - 1 + MetaState.slots():
@@ -149,9 +167,51 @@ static func descend() -> void:
 	door = ""
 	last_door = ""
 	_cleared_cards.clear()
+	_new_act()
 	_deal()
 	picks.append("omen")
+	MetaState.record({"descents": 1})
 	save()
+
+
+## A floor cleared: its grade and whether you sprinted count toward this act's stars.
+static func note_floor(grade: String, sprinted: bool) -> void:
+	act_points += GRADE_POINTS.get(grade, 0)
+	act_floors += 1
+	act_sprinted = act_sprinted or sprinted
+	save()
+
+
+## This act so far: [no revive, S-grade average, under a curse] (plans/06 D6).
+static func act_stars() -> Array:
+	var cursed := run_cards.any(func(id: String) -> bool: return Cards.kind(id) == "curse")
+	return [act_revives == 0, act_floors > 0 and float(act_points) / act_floors >= S_AVERAGE, cursed]
+
+
+## The Gate is beaten: this act's stars are kept for good and its clear counted for the challenges (a deep run
+## is the last Gate on a run from the first floor). Returns what to announce.
+static func master_act(gate_grade: String) -> Array[String]:
+	var earned := act_stars()
+	MetaState.award_stars(act(), earned)
+	var counts := {"acts": 1, "clears_act_%d" % act(): 1}
+	if earned[0]:
+		counts["acts_clean"] = 1
+	if earned[2]:
+		counts["acts_cursed"] = 1
+	if act() == 1 and not act_sprinted:
+		counts["act1_no_sprint"] = 1
+	if gate_grade == "S":
+		counts["gate_s"] = 1
+	if act() == StageRule.ACT_COUNT and start_floor == 1:
+		counts["deep_runs"] = 1
+	return MetaState.record(counts)
+
+
+static func _new_act() -> void:
+	act_revives = 0
+	act_points = 0
+	act_floors = 0
+	act_sprinted = false
 
 
 static func act() -> int:
@@ -254,6 +314,7 @@ static func use_revive() -> bool:
 	if revives_left() <= 0:
 		return false
 	revives_used += 1
+	act_revives += 1
 	run_over = false
 	save()
 	return true

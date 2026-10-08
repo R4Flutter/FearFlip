@@ -151,6 +151,106 @@ func test_the_profile_keeps_the_hub_through_a_relaunch() -> void:
 	assert_eq(MetaState.shards, 999 - Unlocks.item("lantern")["cost"])
 
 
+func test_every_challenge_is_well_formed() -> void:
+	var ids := {}
+	for challenge: Dictionary in Unlocks.CHALLENGES:
+		var id: String = challenge["id"]
+		assert_false(ids.has(id), "%s is unique" % id)
+		ids[id] = true
+		assert_false(String(challenge["name"]).is_empty() or String(challenge["text"]).is_empty(), id)
+		assert_gt(challenge["goal"], 0, id)
+		assert_true(challenge.has("shards") or challenge.has("item"), "%s pays something" % id)
+		if challenge.has("item"):
+			assert_false(Unlocks.item(challenge["item"]).is_empty(), "%s pays an Altar item" % id)
+	assert_true(ids.size() >= 35 and ids.size() <= 45, "about 40 challenges: %d" % ids.size())
+
+
+func test_a_challenge_pays_once_when_its_counter_crosses_the_goal() -> void:
+	var challenge := Unlocks.challenge("finders_keepers")
+	var goal: int = challenge["goal"]
+	MetaState.record({"chests": goal - 1})
+	var shards := MetaState.shards
+	assert_eq(MetaState.record({"chests": 1}), ["CHALLENGE  ·  " + challenge["name"]])
+	assert_eq(MetaState.shards, shards + challenge["shards"])
+	assert_eq(MetaState.record({"chests": 1}), [], "paid once")
+	assert_eq(MetaState.stat("chests"), goal + 1)
+	assert_eq(MetaState.stat("never_counted"), 0)
+
+
+func test_a_challenge_item_is_given_or_paid_out_if_you_own_it() -> void:
+	var challenge := Unlocks.challenge("chest_hunter")
+	var item: String = challenge["item"]
+	MetaState.record({"chests": challenge["goal"] - 1})
+	assert_false(MetaState.owns(item))
+	MetaState.record({"chests": 1})
+	assert_true(MetaState.owns(item), "won, not bought")
+	_fresh_profile()
+	MetaState.shards = 999
+	MetaState.buy(item)
+	MetaState.record({"chests": challenge["goal"] - 1})
+	var shards := MetaState.shards
+	MetaState.record({"chests": 1})
+	assert_eq(MetaState.shards, shards + Unlocks.item(item)["cost"], "already yours: its price instead")
+
+
+func test_act_stars_need_no_revive_an_s_average_and_a_curse() -> void:
+	RunState.start_run(1)
+	for i in 9:
+		RunState.note_floor("S", false)
+	RunState.note_floor("A", false)
+	assert_eq(RunState.act_stars(), [true, true, false])
+	RunState.note_floor("C", false)
+	RunState.note_floor("C", false)
+	assert_eq(RunState.act_stars()[1], false, "29 points over 12 floors is under an S average")
+	RunState.use_revive()
+	assert_eq(RunState.act_stars()[0], false, "a revive costs the first star")
+	RunState.run_cards.append("curse_blackout")
+	assert_eq(RunState.act_stars()[2], true, "cleared under a curse")
+
+
+func test_mastering_an_act_keeps_its_best_stars_and_counts_the_clear() -> void:
+	RunState.start_run(1)
+	for i in 10:
+		RunState.note_floor("S", false)
+	var news := RunState.master_act("S")
+	assert_eq(MetaState.stars_of(1), [true, true, false])
+	for stat: String in ["acts", "clears_act_1", "acts_clean", "act1_no_sprint", "gate_s"]:
+		assert_eq(MetaState.stat(stat), 1, stat)
+	assert_true(news.has("CHALLENGE  ·  " + Unlocks.challenge("soft_steps")["name"]), str(news))
+	RunState.start_run(1)
+	RunState.use_revive()
+	RunState.note_floor("B", true)
+	RunState.run_cards.append("curse_blackout")
+	RunState.master_act("B")
+	assert_eq(MetaState.stars_of(1), [true, true, true], "the best of every clear")
+	assert_eq(MetaState.stat("act1_no_sprint"), 1, "this clear sprinted")
+	assert_eq(MetaState.stars_of(2), [false, false, false])
+
+
+func test_descending_counts_the_next_act_fresh() -> void:
+	MetaState.unlock_act(2)
+	RunState.start_run(1)
+	RunState.note_floor("C", true)
+	RunState.use_revive()
+	RunState.descend()
+	assert_eq(RunState.act_stars(), [true, false, false], "a new act: no revive yet, no floors yet")
+	assert_eq(RunState.act_sprinted, false)
+	assert_eq(MetaState.stat("descents"), 1)
+
+
+func test_the_profile_keeps_stats_and_stars_through_a_relaunch() -> void:
+	RunState.start_run(1)
+	RunState.note_floor("S", true)
+	RunState.use_revive()
+	MetaState.record({"flips": 3})
+	MetaState.award_stars(2, [false, true, false])
+	_relaunch()
+	assert_eq(MetaState.stat("flips"), 3)
+	assert_eq(MetaState.stars_of(2), [false, true, false])
+	assert_eq(RunState.act_stars()[0], false, "the act's revive survives a relaunch")
+	assert_eq(RunState.act_sprinted, true)
+
+
 func _average_chest() -> float:
 	var total := 0
 	for seed_value in 1000:

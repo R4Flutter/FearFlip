@@ -33,6 +33,10 @@ static var notes_found := 0
 static var unlocked: Array[String] = []
 ## Worn gear, kind -> id (Unlocks.EQUIP_KINDS); a kind not in it wears its free default.
 static var equipped := {}
+## Lifetime counters, stat -> count, banked with each floor like its shards (record()): challenges read them.
+static var stats := {}
+## Act mastery (D6), act -> [cleared without a revive, S-grade average, cleared under a curse]: the best of every clear.
+static var stars := {}
 static var _loaded := false
 
 
@@ -49,6 +53,8 @@ static func load_profile() -> void:
 	notes_found = cfg.get_value("meta", "notes_found", 0)
 	unlocked.assign(cfg.get_value("meta", "unlocked", []))
 	equipped = cfg.get_value("meta", "equipped", {})
+	stats = cfg.get_value("meta", "stats", {})
+	stars = cfg.get_value("meta", "stars", {})
 
 
 static func save() -> void:
@@ -59,11 +65,44 @@ static func save() -> void:
 	cfg.set_value("meta", "notes_found", notes_found)
 	cfg.set_value("meta", "unlocked", unlocked)
 	cfg.set_value("meta", "equipped", equipped)
+	cfg.set_value("meta", "stats", stats)
+	cfg.set_value("meta", "stars", stars)
 	cfg.save(profile_path)
 
 
 static func earn(amount: int) -> void:
 	shards += amount
+	save()
+
+
+static func stat(key: String) -> int:
+	return stats.get(key, 0)
+
+
+## Banks counters (stat -> amount) and pays every challenge they complete. Returns what to announce.
+static func record(counts: Dictionary) -> Array[String]:
+	var news: Array[String] = []
+	for key: String in counts:
+		var before := stat(key)
+		stats[key] = before + counts[key]
+		for challenge: Dictionary in Unlocks.CHALLENGES:
+			if challenge["stat"] == key and before < challenge["goal"] and stats[key] >= challenge["goal"]:
+				_pay(challenge)
+				news.append("CHALLENGE  ·  " + challenge["name"])
+	save()
+	return news
+
+
+static func stars_of(act: int) -> Array:
+	return stars.get(act, [false, false, false])
+
+
+## Keeps the best of `earned` (RunState.act_stars) for `act`.
+static func award_stars(act: int, earned: Array) -> void:
+	var best := stars_of(act).duplicate()
+	for i in best.size():
+		best[i] = best[i] or earned[i]
+	stars[act] = best
 	save()
 
 
@@ -152,6 +191,18 @@ static func flash_color(world_color: Color) -> Color:
 ## Omen picks every run opens with (the Altar's omen slots).
 static func slots() -> int:
 	return unlocked.filter(func(id: String) -> bool: return Unlocks.item(id).get("kind") == "slot").size()
+
+
+## A challenge's reward: shards, or its Altar item (that item's price if you own it already).
+static func _pay(challenge: Dictionary) -> void:
+	shards += challenge.get("shards", 0)
+	var id: String = challenge.get("item", "")
+	if id.is_empty():
+		return
+	if owns(id):
+		shards += Unlocks.item(id)["cost"]
+	else:
+		unlocked.append(id)
 
 
 static func _reachable(item: Dictionary) -> bool:
