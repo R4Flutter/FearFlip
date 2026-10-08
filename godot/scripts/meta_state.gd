@@ -57,6 +57,7 @@ static func load_profile() -> void:
 	equipped = cfg.get_value("meta", "equipped", {})
 	stats = cfg.get_value("meta", "stats", {})
 	stars = cfg.get_value("meta", "stars", {})
+	Daily.load_state(cfg)
 
 
 static func save() -> void:
@@ -69,6 +70,7 @@ static func save() -> void:
 	cfg.set_value("meta", "equipped", equipped)
 	cfg.set_value("meta", "stats", stats)
 	cfg.set_value("meta", "stars", stars)
+	Daily.save_state(cfg)
 	cfg.save(profile_path)
 
 
@@ -81,9 +83,10 @@ static func stat(key: String) -> int:
 	return stats.get(key, 0)
 
 
-## Banks counters (stat -> amount) and pays what they complete: every challenge, and each bestiary entry seen for
-## the first time. Returns what to announce.
+## Banks counters (stat -> amount) and pays what they complete: every challenge, each bestiary entry seen for the
+## first time, and the day's quests (Daily). Returns what to announce.
 static func record(counts: Dictionary) -> Array[String]:
+	Daily.refresh_quests(Daily.today())
 	var news: Array[String] = []
 	for key: String in counts:
 		var before := stat(key)
@@ -96,6 +99,7 @@ static func record(counts: Dictionary) -> Array[String]:
 			if beast["seen"] == key and before == 0 and stats[key] > 0:
 				shards += BESTIARY_SHARDS
 				news.append("BESTIARY  ·  " + beast["name"])
+	news.append_array(Daily.check_quests())
 	save()
 	return news
 
@@ -200,16 +204,19 @@ static func slots() -> int:
 	return unlocked.filter(func(id: String) -> bool: return Unlocks.item(id).get("kind") == "slot").size()
 
 
-## A challenge's reward: shards, or its Altar item (that item's price if you own it already).
-static func _pay(challenge: Dictionary) -> void:
-	shards += challenge.get("shards", 0)
-	var id: String = challenge.get("item", "")
-	if id.is_empty():
-		return
+## An Altar item given (a challenge, a streak milestone): yours, or its price in shards if it already is.
+static func grant(id: String) -> void:
 	if owns(id):
 		shards += Unlocks.item(id)["cost"]
 	else:
 		unlocked.append(id)
+
+
+## A challenge's reward: shards and/or its Altar item.
+static func _pay(challenge: Dictionary) -> void:
+	shards += challenge.get("shards", 0)
+	if challenge.has("item"):
+		grant(challenge["item"])
 
 
 static func _reachable(item: Dictionary) -> bool:

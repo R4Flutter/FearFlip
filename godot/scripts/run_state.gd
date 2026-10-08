@@ -43,6 +43,12 @@ static var act_sprinted := false
 static var start_floor := 1
 ## True once the run has ended (death or act clear): playing again starts a new run, never resumes it.
 static var run_over := false
+## The run's kind (plans/06 §6): "campaign" (saved), "daily" (today's ranked try) or "practice" (the Daily again,
+## for nothing). Only a campaign saves mid-run, so the Daily never touches it; leave_daily() reloads the campaign.
+static var mode := "campaign"
+## In a Daily: its floor (1..Daily.FLOORS) and the date it belongs to.
+static var daily_floor := 0
+static var daily_date := ""
 static var _loaded := false
 
 
@@ -76,6 +82,8 @@ static func load_save() -> void:
 
 
 static func save() -> void:
+	if is_daily():
+		return
 	var cfg := ConfigFile.new()
 	cfg.set_value("run", "version", SAVE_VERSION)
 	cfg.set_value("run", "floor", current_floor)
@@ -124,6 +132,47 @@ static func start_run(act_number: int) -> bool:
 	_deal()
 	save()
 	return true
+
+
+## Today's Daily from its first floor: the ranked try while it's open (unless `practice`), else practice. One
+## life, the day's omen and cards, no picks.
+static func start_daily(practice: bool) -> void:
+	var date := Daily.today()
+	mode = "daily" if not practice and Daily.ranked_open(date) else "practice"
+	if mode == "daily":
+		Daily.begin_ranked(date)
+	daily_date = date
+	daily_floor = 1
+	run_seed = Daily.seed_of(date)
+	current_floor = Daily.STAGE_FLOORS[0]
+	revives_used = REVIVES_PER_ACT
+	run_over = false
+	run_shards = 0
+	door = ""
+	last_door = ""
+	_cleared_cards.clear()
+	run_cards.assign([Daily.omen(date)])
+	picks.clear()
+	_new_act()
+	_deal()
+
+
+## Back from the Daily: the campaign as its save left it (a fresh run if it never had one).
+static func leave_daily() -> void:
+	mode = "campaign"
+	run_seed = 0
+	_loaded = false
+	load_save()
+
+
+static func is_daily() -> bool:
+	return mode != "campaign"
+
+
+## A Daily floor is over, cleared or died on: its square on the share line. Only the ranked try keeps it.
+static func note_daily(square: String, seconds: float) -> void:
+	if mode == "daily":
+		Daily.add_result(square, seconds)
 
 
 ## Banked shards are kept for good, dead or alive, and counted toward this run.
@@ -231,6 +280,12 @@ static func floor_seed() -> int:
 ## On to the next floor, through the normal door until choose_door() picks another. It owes an omen
 ## pick if the floor cleared promised one (Shrine, Sanctuary), then the door choice where there is one.
 static func advance_floor() -> void:
+	if is_daily():
+		daily_floor = mini(daily_floor + 1, Daily.FLOORS)
+		current_floor = Daily.STAGE_FLOORS[daily_floor - 1]
+		_deal()
+		picks.clear()
+		return
 	var omen_owed := mod("omen_pick", 0.0) > 0.0
 	_cleared_cards = floor_cards.duplicate()
 	last_door = door
@@ -300,6 +355,9 @@ static func mod(key: String, base: float) -> float:
 
 
 static func _deal() -> void:
+	if is_daily():
+		floor_cards = Daily.cards(daily_date, daily_floor)
+		return
 	var exclude: Array = _cleared_cards.duplicate()
 	for id in run_cards:
 		exclude.append(Cards.find(id).get("rule", ""))
