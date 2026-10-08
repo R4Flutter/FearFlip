@@ -59,8 +59,9 @@ static func load_profile() -> void:
 		return
 	_loaded = true
 	var cfg := ConfigFile.new()
+	Portal.pull(profile_path)
 	cfg.load(profile_path)
-	acts_unlocked = clampi(cfg.get_value("acts", "unlocked", 1), 1, StageRule.ACT_COUNT)
+	acts_unlocked = clampi(cfg.get_value("acts", "unlocked", 1), 1, LiveOps.released_acts)
 	shards = cfg.get_value("meta", "shards", STARTER_SHARDS)
 	omen_tokens = cfg.get_value("meta", "omen_tokens", 0)
 	notes_found = cfg.get_value("meta", "notes_found", 0)
@@ -91,6 +92,7 @@ static func save() -> void:
 	cfg.set_value("meta", "abyss_best", abyss_best)
 	Daily.save_state(cfg)
 	cfg.save(profile_path)
+	Portal.push(profile_path)
 
 
 static func earn(amount: int) -> void:
@@ -253,8 +255,9 @@ static func _pay(challenge: Dictionary) -> void:
 		grant(challenge["item"])
 
 
+## What comes before it is owned, and it's in season (an event's cosmetics: LiveOps).
 static func _reachable(item: Dictionary) -> bool:
-	return not item.has("after") or owns(item["after"])
+	return (not item.has("after") or owns(item["after"])) and LiveOps.in_season(item)
 
 
 static func floor_clear_shards(floor_in_act: int, grade: String) -> int:
@@ -321,9 +324,10 @@ static func note_depth(depth: int) -> void:
 	if depth > abyss_best:
 		abyss_best = depth
 		save()
+		Portal.submit_depth(depth)
 
 
-## Opens every act up to `act` for good (capped at the last act).
+## Opens every act up to `act` for good (capped at the last act that is out: LiveOps.released_acts).
 static func unlock_act(act: int) -> void:
-	acts_unlocked = clampi(maxi(acts_unlocked, act), 1, StageRule.ACT_COUNT)
+	acts_unlocked = clampi(maxi(acts_unlocked, act), 1, LiveOps.released_acts)
 	save()

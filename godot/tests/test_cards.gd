@@ -313,3 +313,21 @@ func test_stacked_cards_and_ranks_never_break_the_fairness_limits() -> void:
 					return
 				checked += 1
 	assert_eq(checked, floors.size() * 3 * Cards.CURSES.size())
+
+
+## plans/06 P9: an event's rule cards and every Cursed Week card stack like any other, on top of the top rank.
+func test_event_and_weekly_cards_stay_inside_the_limits() -> void:
+	var weekly: Array = Cards.WEEKLY.map(func(card: Dictionary) -> String: return card["id"])
+	var floors: Array[int] = DOOR_FLOORS.duplicate()
+	floors.append(StageRule.LAST_FLOOR + 16)
+	var checked := 0
+	for event: Dictionary in Cards.EVENTS:
+		for number in floors:
+			var rule := StageRule.for_floor(number)
+			var cards: Array = Cards.deck(rule.act, event["id"]) + ["vault", "hunt"] + Cards.ranks(Cards.MAX_RANK) + weekly
+			var problem := _fairness_problem(cards, rule)
+			if problem != "":
+				assert_true(false, "%s floor %d: %s" % [event["id"], number, problem])
+				return
+			checked += 1
+	assert_eq(checked, Cards.EVENTS.size() * floors.size())

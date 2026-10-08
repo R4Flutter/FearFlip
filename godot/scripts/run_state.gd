@@ -54,8 +54,7 @@ static var daily_date := ""
 ## The playtest log (plans/06 P0, read for the §7 KPIs): one JSON line per event. Only the game writes it: a -s script
 ## (the test runner) or the editor's own test runner leaves it off unless a test turns it on with its own path.
 static var events_path := "user://events.jsonl"
-static var log_events := Engine.get_main_loop() != null and Engine.get_main_loop().get_script() == null \
-		and not Engine.is_editor_hint()
+static var log_events := is_game()
 static var _session := 0
 static var _loaded := false
 
@@ -70,6 +69,7 @@ static func load_save() -> void:
 		_session = int(Time.get_unix_time_from_system())
 		log_event("session", {"acts": MetaState.acts_unlocked, "shards": MetaState.shards})
 	var cfg := ConfigFile.new()
+	Portal.pull(save_path)
 	if cfg.load(save_path) == OK and cfg.get_value("run", "version", 1) == SAVE_VERSION:
 		current_floor = clampi(cfg.get_value("run", "floor", 1), 1, StageRule.MAX_FLOOR)
 		run_seed = cfg.get_value("run", "seed", 0)
@@ -117,6 +117,7 @@ static func save() -> void:
 	cfg.set_value("run", "act_sprinted", act_sprinted)
 	cfg.set_value("run", "rank", rank)
 	cfg.save(save_path)
+	Portal.push(save_path)
 
 
 ## A fresh run from the first floor of `act_number` (StageRule.ABYSS_ACT: the Abyss) at the rank the act picker
@@ -186,6 +187,12 @@ static func is_daily() -> bool:
 	return mode != "campaign"
 
 
+## True in the game itself; false under a -s script (the test runner) or the editor's own test runner.
+static func is_game() -> bool:
+	var loop := Engine.get_main_loop()
+	return loop != null and loop.get_script() == null and not Engine.is_editor_hint()
+
+
 ## One line of the playtest log: `data` plus the event's kind ("e"), unix time ("t") and session ("s").
 static func log_event(kind: String, data := {}) -> void:
 	if not log_events:
@@ -229,8 +236,11 @@ static func clear_act() -> void:
 
 
 ## The Gate is beaten: the next act opens for good, and the run owes the RETURN / DESCEND choice (below the last
-## Gate, DESCEND leads into the Abyss).
+## Gate, DESCEND leads into the Abyss). Before an act that isn't out yet (LiveOps.released_acts), the run just ends.
 static func clear_gate() -> void:
+	if act() < StageRule.ACT_COUNT and act() >= LiveOps.released_acts:
+		clear_act()
+		return
 	MetaState.unlock_act(act() + 1)
 	picks.assign(["gate"])
 	save()
@@ -354,6 +364,9 @@ static func pick_options() -> Array[String]:
 	match picks[0]:
 		"curse":
 			ids = Cards.curses(draw_seed)
+			var week := LiveOps.cursed_week()
+			if week != "":
+				ids[-1] = week  # the Cursed Week takes the last place (plans/06 E6)
 		"omen":
 			ids = Cards.omens(draw_seed, MetaState.omen_pool(), run_cards)
 		"door":
@@ -400,7 +413,7 @@ static func _deal() -> void:
 	var exclude: Array = _cleared_cards.duplicate()
 	for id in run_cards:
 		exclude.append(Cards.find(id).get("rule", ""))
-	floor_cards = Cards.deal(floor_seed(), StageRule.for_floor(current_floor), door, exclude)
+	floor_cards = Cards.deal(floor_seed(), StageRule.for_floor(current_floor), door, exclude, LiveOps.event().get("id", ""))
 
 
 static func revives_left() -> int:

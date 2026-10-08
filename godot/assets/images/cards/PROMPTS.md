@@ -101,6 +101,21 @@ The four curses reuse their twin rule card's art (`blackout.png`, `hungry_dark.p
 | `uv_light.png` | torch | a violet UV torch beam sweeping a corridor floor, hidden cracks lighting up bright under it |
 | `camera_flash.png` | torch | an old instant camera mid-flash, a horned silhouette frozen white at the far end of the corridor |
 
+## Live ops from P9 (same 880x520 card art)
+
+One picture per set: every Cursed Week card shares `cursed_week.png`, and each event's rule cards share the event's
+file (the card's `"art"` key in `cards.gd`). The same art also heads the event and Cursed Week entries on the Daily
+screen. Until a file lands, the cards show the usual stand-in.
+
+| File | Cards | Subject |
+|---|---|---|
+| `cursed_week.png` | the 8 Cursed Week curses (a new one every Monday) | a cracked stone calendar slab nailed to a maze wall, seven day marks scratched into it, the last one bleeding red, a black candle guttering beneath |
+| `blood_moon.png` | BLOOD MOON, HARVEST (Halloween event, 24 Oct to 2 Nov) | a huge blood-red full moon over an open-roofed stone maze, jack-o'-lantern faces carved into the wall tops glowing ember orange, red fog pooling in the corridors |
+| `frozen_nightmare.png` | WHITEOUT, DEEP FREEZE, FROZEN WARDS (winter event, 15 Dec to 7 Jan) | a maze corridor buried in snow and blue ice, icicles hanging from the walls, a frozen safe-circle rune glowing pale cyan under the ice, a horned silhouette blurred by a blizzard at the far end |
+
+The event cosmetics (MOONBLOOD LIGHT, BLOOD MOON FLASH, FROST LIGHT, FROSTBITE FLASH) are light and flash colours like
+the other Altar gear: they need no art. No 3D models are needed for P9.
+
 ## Priority
 
 1. `card_frame.png` + `pick_backdrop.png`: these fix the picker on their own.

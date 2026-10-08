@@ -119,7 +119,8 @@ func test_next_unlock_fills_the_bar() -> void:
 		pass
 	assert_eq(MetaState.next_unlock(), "", "everything owned")
 	for entry: Dictionary in Unlocks.ALTAR:
-		assert_true(MetaState.owns(entry["id"]), entry["id"])
+		if not entry.has("event"):  # an event's cosmetics wait for it (test_live_ops)
+			assert_true(MetaState.owns(entry["id"]), entry["id"])
 	assert_eq(MetaState.unlock_progress(), 1.0)
 
 

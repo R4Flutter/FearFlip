@@ -196,7 +196,8 @@ static func art(id: String) -> Texture2D:
 		cell.atlas = sheet
 		cell.region = Rect2((index % 4) * SIGIL_CELL, (index / 4) * SIGIL_CELL, SIGIL_CELL, SIGIL_CELL)
 		return cell
-	return Art.tex(ART + String(Cards.find(id).get("rule", id)) + ".png")
+	var card := Cards.find(id)
+	return Art.tex(ART + String(card.get("art", card.get("rule", id))) + ".png")
 
 
 func _grow(node: Control, on: bool) -> void:

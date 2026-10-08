@@ -42,7 +42,8 @@ const LIMITS := {
 const HUNT_FROM_ACT := 2
 const HUNT_FROM_FLOOR := 3
 
-## Rule cards (A1): one per floor from its act's deck ("from" = the first act that deals it).
+## Rule cards (A1): one per floor from its act's deck ("from" = the first act that deals it). An "event" card joins
+## the decks only while its event runs (LiveOps, plans/06 P9); "art" names card art shared by a set.
 const RULES: Array[Dictionary] = [
 	{"id": "thick_fog", "from": 1, "name": "THICK FOG", "text": "Fog rolls in. You see half as far.", "mods": {"fog": 1.8}},
 	{"id": "safe_haven", "from": 1, "name": "SAFE HAVEN", "text": "Twice the safe circles, but they drain twice as fast.", "mods": {"circles": 2.0, "circle_time": 0.5}},
@@ -56,6 +57,11 @@ const RULES: Array[Dictionary] = [
 	{"id": "static", "from": 3, "name": "STATIC", "text": "The map is gone. Remember the way.", "mods": {"minimap": 0.0}},
 	{"id": "tight_clock", "from": 4, "name": "TIGHT CLOCK", "text": "Less time, more shards.", "mods": {"clock": 0.85, "shards": 1.3}},
 	{"id": "relentless", "from": 5, "name": "RELENTLESS", "text": "WAKE no longer slows it down.", "mods": {"follow_flips": 1}},
+	{"id": "blood_moon", "from": 1, "event": "blood_moon", "art": "blood_moon", "name": "BLOOD MOON", "text": "The moon is red. It runs faster, and every shard counts double.", "mods": {"devil_speed": 1.15, "shards": 2.0}},
+	{"id": "harvest", "from": 1, "event": "blood_moon", "art": "blood_moon", "name": "HARVEST", "text": "Two chests wait down dead ends. It wakes sooner.", "mods": {"chests": 2, "devil_delay": 0.7}},
+	{"id": "whiteout", "from": 1, "event": "frozen_nightmare", "art": "frozen_nightmare", "name": "WHITEOUT", "text": "Snow-blind fog fills the maze, but the frozen cracks glow.", "mods": {"fog": 1.6, "trap_cue": 1.5}},
+	{"id": "deep_freeze", "from": 1, "event": "frozen_nightmare", "art": "frozen_nightmare", "name": "DEEP FREEZE", "text": "The cold slows it down. It slows your flip too.", "mods": {"devil_speed": 0.9, "flip_cooldown": 1.3}},
+	{"id": "frozen_wards", "from": 1, "event": "frozen_nightmare", "art": "frozen_nightmare", "name": "FROZEN WARDS", "text": "Safe circles freeze solid: they hold twice as long, but there are fewer.", "mods": {"circle_time": 2.0, "circles": 0.7}},
 ]
 ## Doors into the next floor (A2). "safe" doors never raise the danger.
 const DOORS: Array[Dictionary] = [
@@ -103,6 +109,24 @@ const CURSES: Array[Dictionary] = [
 	{"id": "curse_hungry_dark", "rule": "hungry_dark", "name": "HUNGRY DARK", "text": "It runs 15% faster all run. +50% shards.", "mods": {"devil_speed": 1.15, "shards": 1.5}},
 	{"id": "curse_short_fuse", "rule": "short_fuse", "name": "SHORT FUSE", "text": "Flipping Time twice as often all run. +40% shards.", "mods": {"flip_interval": 0.5, "shards": 1.4}},
 	{"id": "curse_deaf_night", "rule": "deaf_night", "name": "DEAF NIGHT", "text": "No music all run, only your heartbeat. +25% shards.", "mods": {"music": 0.0, "shards": 1.25}},
+]
+## Cursed Week (plans/06 E6, P9): one a week, picked by the week number, offered with the run-start curses. A cost, a
+## consolation and more shards than most curses.
+const WEEKLY: Array[Dictionary] = [
+	{"id": "week_blood_tide", "art": "cursed_week", "name": "BLOOD TIDE", "text": "It runs 10% faster all run, but the ceiling lights burn brighter. +60% shards.", "mods": {"devil_speed": 1.1, "lights": 1.5, "shards": 1.6}},
+	{"id": "week_long_night", "art": "cursed_week", "name": "LONG NIGHT", "text": "15% less time on every clock, but a chest waits on every floor. +50% shards.", "mods": {"clock": 0.85, "chests": 1, "shards": 1.5}},
+	{"id": "week_blind", "art": "cursed_week", "name": "BLIND WEEK", "text": "Thick fog all run, but your map marks cracks within 3 cells. +50% shards.", "mods": {"fog": 1.5, "crack_reveal": 3, "shards": 1.5}},
+	{"id": "week_restless_dead", "art": "cursed_week", "name": "RESTLESS DEAD", "text": "It wakes far sooner, but every floor has one more safe circle. +50% shards.", "mods": {"devil_delay": 0.6, "extra_circles": 1, "shards": 1.5}},
+	{"id": "week_broken_floors", "art": "cursed_week", "name": "BROKEN FLOORS", "text": "Half again the cracked floors, but every crack glows. +50% shards.", "mods": {"traps": 1.5, "trap_cue": 1.4, "shards": 1.5}},
+	{"id": "week_quicksilver", "art": "cursed_week", "name": "QUICKSILVER", "text": "Flipping Time comes far sooner, but your flip recharges faster. +50% shards.", "mods": {"flip_interval": 0.7, "flip_cooldown": 0.8, "shards": 1.5}},
+	{"id": "week_silent", "art": "cursed_week", "name": "SILENT WEEK", "text": "No music all run, but your heartbeat warns you 2 cells earlier. +40% shards.", "mods": {"music": 0.0, "heartbeat": 2, "shards": 1.4}},
+	{"id": "week_dark", "art": "cursed_week", "name": "DARK WEEK", "text": "No ceiling light all run, but your beam reaches a third farther. +50% shards.", "mods": {"lights": 0.0, "beam_range": 1.3, "shards": 1.5}},
+]
+## Events (plans/06 E7, P9): a card set (RULES with this "event") and cosmetics (Unlocks.ALTAR items with it) that switch
+## on by date: "MM-DD", both days in, a span may cross the new year.
+const EVENTS: Array[Dictionary] = [
+	{"id": "blood_moon", "name": "BLOOD MOON", "from": "10-24", "to": "11-02", "text": "Halloween in the maze: a red moon over the floors, double shards when it rises, and two cosmetics at the Altar."},
+	{"id": "frozen_nightmare", "name": "FROZEN NIGHTMARE", "from": "12-15", "to": "01-07", "text": "Winter in the maze: whiteouts, deep freezes and frozen wards on the floors, and two cosmetics at the Altar."},
 ]
 ## Flashlights (plans/06 D2): bought at the Altar (Unlocks), one carried into every run. Side-grades, not raw power.
 const TORCHES: Array[Dictionary] = [
@@ -153,18 +177,19 @@ static func kind(id: String) -> String:
 	return _lookup(id)[1]
 
 
-static func deck(act: int) -> Array[String]:
+## `act`'s rule cards, and `event`'s while it runs.
+static func deck(act: int, event := "") -> Array[String]:
 	var ids: Array[String] = []
 	for card: Dictionary in RULES:
-		if card["from"] <= act:
+		if card["from"] <= act and card.get("event", event) == event:
 			ids.append(card["id"])
 	return ids
 
 
-## `count` rule cards from `act`'s deck, none of them in `exclude`, shuffled by `seed_value`.
-static func draw(seed_value: int, act: int, count: int, exclude: Array) -> Array[String]:
+## `count` rule cards from `act`'s deck (with `event`'s), none of them in `exclude`, shuffled by `seed_value`.
+static func draw(seed_value: int, act: int, count: int, exclude: Array, event := "") -> Array[String]:
 	var pool: Array[String] = []
-	for id in deck(act):
+	for id in deck(act, event):
 		if not exclude.has(id):
 			pool.append(id)
 	_shuffle(pool, hash([seed_value, "rules"]))
@@ -173,8 +198,9 @@ static func draw(seed_value: int, act: int, count: int, exclude: Array) -> Array
 
 ## A floor's cards: the Gate's or the Sanctuary's own, else the door taken (a Mystery also shows which door
 ## it was) and the floor's rule cards (one more through a Hunt, one fewer through a Shrine), none repeated from
-## `exclude` (the floor before). The game's first floor has none: the core loop comes first.
-static func deal(seed_value: int, rule: StageRule, door: String, exclude: Array) -> Array[String]:
+## `exclude` (the floor before), from the act's deck and the running `event`'s cards. The game's first floor has none:
+## the core loop comes first.
+static func deal(seed_value: int, rule: StageRule, door: String, exclude: Array, event := "") -> Array[String]:
 	var cards: Array[String] = []
 	if rule.is_gate:
 		cards.append(GATES[rule.act - 1]["id"])
@@ -191,7 +217,7 @@ static func deal(seed_value: int, rule: StageRule, door: String, exclude: Array)
 	elif door != "normal" and door != "":
 		cards.append(door)
 	var count := rule.rule_cards + (1 if door == "hunt" else 0) - (1 if door == "shrine" else 0)
-	cards.append_array(draw(seed_value, rule.act, count, exclude))
+	cards.append_array(draw(seed_value, rule.act, count, exclude, event))
 	return cards
 
 
@@ -251,6 +277,32 @@ static func ranks(rank: int) -> Array[String]:
 	return ids
 
 
+## The cursed card of `date`'s week (weeks run Monday to Sunday, UTC, like the Daily).
+static func weekly(date: String) -> String:
+	return WEEKLY[posmod(_week(date), WEEKLY.size())]["id"]
+
+
+## Days left in `date`'s week, today included: 7 on a Monday, 1 on a Sunday.
+static func week_days_left(date: String) -> int:
+	return 7 - posmod(Daily.day_index(date) + 3, 7)
+
+
+## The event running on `date` ({} when none).
+static func event_on(date: String) -> Dictionary:
+	var day := date.substr(5, 5)
+	for event: Dictionary in EVENTS:
+		var from: String = event["from"]
+		var to: String = event["to"]
+		if (day >= from and day <= to) if from <= to else (day >= from or day <= to):
+			return event
+	return {}
+
+
+## Weeks since the epoch's first Monday (1970-01-01 was a Thursday).
+static func _week(date: String) -> int:
+	return floori((Daily.day_index(date) + 3) / 7.0)
+
+
 ## NO CURSE first, then three of the curses, shuffled by `seed_value`.
 static func curses(seed_value: int) -> Array[String]:
 	var ids: Array[String] = []
@@ -284,7 +336,7 @@ static func _lookup(id: String) -> Array:
 	if _by_id.is_empty():
 		for entry: Array in [[RULES, "rule"], [DOORS, "door"], [GATES, "gate"], [[SANCTUARY], "sanctuary"],
 				[OMENS, "omen"], [CURSES, "curse"], [GATE_CHOICES, "choice"], [TORCHES, "torch"], [[MERCY], "mercy"],
-				[RANKS, "rank"]]:
+				[RANKS, "rank"], [WEEKLY, "curse"]]:
 			for card: Dictionary in entry[0]:
 				_by_id[card["id"]] = [card, entry[1]]
 	return _by_id.get(id, [{}, ""])

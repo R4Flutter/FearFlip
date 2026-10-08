@@ -2192,6 +2192,8 @@ func _win_game() -> void:
 		RunState.clear_gate()
 	if rule.act == StageRule.ACT_COUNT:
 		_show_message("YOU ESCAPED THE DESCENT\n" + earned)
+	elif rule.act >= LiveOps.released_acts:
+		_show_message("ACT %d CLEARED\nACT %d ARRIVES SOON\n%s" % [rule.act, rule.act + 1, earned])
 	else:
 		_show_message("ACT %d CLEARED\nACT %d  ·  %s  UNLOCKED\n%s" % [rule.act, rule.act + 1, StageRule.ACT_NAMES[rule.act].to_upper(), earned])
 	_show_act_cleared()

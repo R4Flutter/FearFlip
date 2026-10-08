@@ -1031,6 +1031,8 @@ func _act_card(parent: Control, act: int) -> void:
 			else "CLEAR ACT %d TO OPEN" % (act - 1)
 	if act == StageRule.ABYSS_ACT and unlocked:
 		sub = "DEEPEST %d" % MetaState.abyss_best
+	elif act <= StageRule.ACT_COUNT and act > LiveOps.released_acts:
+		sub = "COMING SOON"
 	for line: Array in [[ROMAN[act - 1], 54, tint.lightened(0.35), 18.0],
 			[StageRule.ACT_NAMES[act - 1].to_upper(), 20, Color.WHITE, ACT_CARD_SIZE.y - 74],
 			[sub, 11, BONE if unlocked else BLOOD, ACT_CARD_SIZE.y - 40]]:
@@ -1243,6 +1245,23 @@ func _fill_daily(list: VBoxContainer) -> void:
 	var reward := "Next reward at %d days: %s." % [next, Unlocks.item(Daily.STREAK_REWARDS[next])["name"]] if next > 0 else "Every streak reward is yours."
 	_entry(list, "%d DAY%s IN A ROW" % [Daily.streak, "" if Daily.streak == 1 else "S"], "Best %d. Freezes %d: each covers a missed day, one more every %d days in a row (%d at most). %s" % [
 			Daily.best_streak, Daily.freezes, Daily.FREEZE_EVERY, Daily.MAX_FREEZES, reward], EMBER)
+	# Live ops (plans/06 P9): the week's cursed card and the event running, if any.
+	var week := LiveOps.cursed_week()
+	if week != "":
+		var left := Cards.week_days_left(LiveOps.today())
+		var card := Cards.find(week)
+		_section(list, "CURSED WEEK  ·  %s  ·  %d DAY%s LEFT" % [card["name"], left, "" if left == 1 else "S"],
+				"A new one every Monday. Take it as your curse when a run starts (once Act 1 is cleared).")
+		_entry(list, card["name"], card["text"], BLOOD, CardChoice.art(week))
+	var event := LiveOps.event()
+	if not event.is_empty():
+		_section(list, "%s  ·  UNTIL %s" % [event["name"], _month_day(event["to"])], event["text"])
+
+
+## "01-07" -> "7 JAN".
+func _month_day(month_day: String) -> String:
+	var months := ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+	return "%d %s" % [month_day.substr(3, 2).to_int(), months[month_day.substr(0, 2).to_int() - 1]]
 
 
 func _play_daily(practice: bool) -> void:
@@ -1273,7 +1292,8 @@ func _fill_altar(list: VBoxContainer) -> void:
 	for section: Array in ALTAR_SECTIONS:
 		_section(list, section[1], section[2])
 		for entry: Dictionary in Unlocks.ALTAR:
-			if entry["kind"] == section[0]:
+			# An event's cosmetics show while it runs, and for good once yours.
+			if entry["kind"] == section[0] and (LiveOps.in_season(entry) or MetaState.owns(entry["id"])):
 				_altar_item(list, entry["id"])
 
 

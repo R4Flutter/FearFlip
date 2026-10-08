@@ -9,7 +9,8 @@ const KINDS: Array[String] = ["omen", "slot", "torch", "light", "flash"]
 ## Gear: one of each kind is worn (MetaState.equip); the free one until you pick another.
 const EQUIP_KINDS: Array[String] = ["torch", "light", "flash"]
 ## Altar items. Omens and torches take their name, text and mods from Cards. "after" = owned first; cost 0 = yours
-## from the start. Prices climb gently: for a new profile the next unlock is never more than 2 runs away (P5 gate).
+## from the start; "event" = sold only while that event runs (Cards.EVENTS, plans/06 P9), kept for good once bought.
+## Prices climb gently: for a new profile the next unlock is never more than 2 runs away (P5 gate).
 const ALTAR: Array[Dictionary] = [
 	{"id": "twin_flip", "kind": "omen", "cost": 70},
 	{"id": "feather_step", "kind": "omen", "cost": 90},
@@ -35,6 +36,10 @@ const ALTAR: Array[Dictionary] = [
 	{"id": "world_flash", "kind": "flash", "cost": 0, "name": "WORLD FLASH", "text": "Each flip flashes the colour of the world you land in."},
 	{"id": "gold_flash", "kind": "flash", "cost": 100, "name": "GOLD FLASH", "text": "Each flip flashes gold.", "color": Color(1.0, 0.78, 0.3)},
 	{"id": "void_flash", "kind": "flash", "cost": 150, "name": "VOID FLASH", "text": "Each flip blinks violet-black, like falling asleep.", "color": Color(0.3, 0.0, 0.45)},
+	{"id": "moonblood_light", "kind": "light", "cost": 120, "event": "blood_moon", "name": "MOONBLOOD LIGHT", "text": "A deep rose beam under the red moon. Sold during the Blood Moon only.", "color": Color(1.0, 0.3, 0.45)},
+	{"id": "blood_moon_flash", "kind": "flash", "cost": 150, "event": "blood_moon", "name": "BLOOD MOON FLASH", "text": "Each flip flashes the red of the moon. Sold during the Blood Moon only.", "color": Color(0.85, 0.08, 0.05)},
+	{"id": "frost_light", "kind": "light", "cost": 120, "event": "frozen_nightmare", "name": "FROST LIGHT", "text": "An icy cyan beam. Sold during the Frozen Nightmare only.", "color": Color(0.7, 0.95, 1.0)},
+	{"id": "frostbite_flash", "kind": "flash", "cost": 150, "event": "frozen_nightmare", "name": "FROSTBITE FLASH", "text": "Each flip flashes snow-white. Sold during the Frozen Nightmare only.", "color": Color(0.92, 0.97, 1.0)},
 ]
 
 ## Challenges: once MetaState.stat(stat) reaches goal they pay "shards" or "item" (an Altar item; its price in
