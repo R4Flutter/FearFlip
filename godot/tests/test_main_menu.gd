@@ -32,6 +32,10 @@ func teardown() -> void:
 	MetaState.stats = {}
 	MetaState.stars = {}
 	MetaState.notes_found = 0
+	MetaState.ranks_open = 0
+	MetaState.rank = 0
+	MetaState.abyss_best = 0
+	RunState.start_floor = 1
 	RunState.mode = "campaign"
 	Daily.played = ""
 	Daily.result.clear()
@@ -217,6 +221,49 @@ func test_one_reroll_from_the_daily_screen() -> void:
 	(menu._screen.find_child("Reroll_" + first, true, false) as Button).pressed.emit()
 	assert_false(Daily.quest_ids.has(first), "swapped for another")
 	assert_eq(menu._screen.find_children("Reroll_*", "Button", true, false).size(), 0, "one free reroll a day")
+
+
+# --- plans/06 P8: the Abyss and the Nightmare Ranks ----------------------------------------------------
+
+func test_the_abyss_waits_beside_the_acts_until_floor_50_falls() -> void:
+	var menu := _spawn_menu(1, StageRule.ACT_COUNT, true)
+	var abyss := menu._acts.find_child("Act%d" % StageRule.ABYSS_ACT, true, false) as Button
+	assert_ne(abyss, null, "the Abyss card sits beside the acts")
+	assert_true(abyss.disabled, "locked until floor 50 falls")
+	assert_true(_texts(abyss).has("CLEAR ACT 5 TO OPEN"), str(_texts(abyss)))
+	assert_eq(menu._acts.find_child("Ranks", true, false), null, "no ranks before floor 50 falls")
+
+
+func test_after_floor_50_the_abyss_and_the_ranks_open() -> void:
+	MetaState.stats = {"clears_act_%d" % StageRule.ACT_COUNT: 1}
+	MetaState.ranks_open = 3
+	MetaState.rank = 1
+	MetaState.abyss_best = 9
+	var menu := _spawn_menu(1, StageRule.ACT_COUNT, true)
+	var abyss := menu._acts.find_child("Act%d" % StageRule.ABYSS_ACT, true, false) as Button
+	assert_false(abyss.disabled)
+	assert_true(_texts(abyss).has("DEEPEST 9"), str(_texts(abyss)))
+	var ranks: Control = menu._acts.find_child("Ranks", true, false)
+	assert_ne(ranks, null, "the rank picker")
+	var up := ranks.find_child("RankUp", true, false) as Button
+	for i in 3:
+		up.pressed.emit()
+	assert_eq(MetaState.rank, 3, "never past the ranks open")
+	assert_true(_texts(ranks).has("NIGHTMARE RANK 3"), str(_texts(ranks)))
+	var down := ranks.find_child("RankDown", true, false) as Button
+	for i in 4:
+		down.pressed.emit()
+	assert_eq(MetaState.rank, 0)
+	assert_true(_texts(ranks).has("NO RANK"), str(_texts(ranks)))
+	assert_true(_texts(menu._right).has("THE ABYSS"), "the dashboard's goal card turns to the depths")
+
+
+func test_continue_names_the_depth_in_the_abyss() -> void:
+	MetaState.stats = {"clears_act_%d" % StageRule.ACT_COUNT: 1}
+	RunState.start_floor = StageRule.LAST_FLOOR + 1
+	var menu := _spawn_menu(StageRule.LAST_FLOOR + 7, StageRule.ACT_COUNT)
+	var sub: Label = menu._menu.get_node("Continue/Content/Sub")
+	assert_eq(sub.text, "DEPTH 7  ·  THE ABYSS")
 
 
 func _texts(root: Node) -> Array:

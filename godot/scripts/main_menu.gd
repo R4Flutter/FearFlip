@@ -115,15 +115,18 @@ const STAR_RULES := "Three stars an act: clear it with no revives, with an S-gra
 const SQUARE_COLORS := {"clean": Color(0.25, 0.5, 1.0), "chased": BLOOD, "s": GOLD, "died": Color(0.2, 0.2, 0.22)}
 const SQUARE_SIZE := 20.0
 
-# The act picker (plans/06 P1). Art is optional: act_N.png / act_locked.png in ART, see PROMPTS.md.
-const ACT_CARD_SIZE := Vector2(200, 290)
+# The act picker (plans/06 P1), the Abyss card beside the acts (P8). Art is optional: act_N.png (act_6.png = the
+# Abyss) / act_locked.png in ART, see PROMPTS.md.
+const ACT_CARD_SIZE := Vector2(180, 290)
 const ACT_CARD_GAP := 14
 const LOCK_SIZE := Vector2(110, 110)
 const LOCKED_TINT := Color(0.35, 0.33, 0.38)
-const ROMAN: Array[String] = ["I", "II", "III", "IV", "V"]
-## One colour per act (cold, blood, violet, ember, crimson): the card's border, numeral and art stand-in.
+## One numeral per act, the Abyss last.
+const ROMAN: Array[String] = ["I", "II", "III", "IV", "V", "∞"]
+## One colour per act (cold, blood, violet, ember, crimson; the Abyss's bruise): the card's border, numeral and art
+## stand-in.
 const ACT_TINTS: Array[Color] = [Color(0.35, 0.6, 1.0), Color(0.95, 0.2, 0.15), Color(0.65, 0.35, 1.0),
-		Color(1.0, 0.5, 0.15), Color(0.8, 0.05, 0.1)]
+		Color(1.0, 0.5, 0.15), Color(0.8, 0.05, 0.1), Color(0.55, 0.3, 0.65)]
 
 const HOW_TO := [
 	["WASD  ·  MOUSE", "Move and look. Shift sprints, F toggles the flashlight."],
@@ -207,6 +210,8 @@ var _how_to: Control
 var _how_box: Control
 var _how_back: Button
 var _acts: Control
+var _rank_label: Label
+var _rank_rule: Label
 var _fade: ColorRect
 var _music: AudioStreamPlayer
 var _flip_sfx: AudioStreamPlayer
@@ -637,8 +642,9 @@ func _build_column() -> void:
 	add_child(_menu)
 	if RunState.has_progress():
 		var rule := StageRule.for_floor(RunState.current_floor)
-		_row("CONTINUE", "FLOOR %d / %d  ·  %s" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT, rule.act_name.to_upper()],
-				Icon.MAZE, _start, true)
+		var where := "DEPTH %d" % rule.floor_in_act if rule.act == StageRule.ABYSS_ACT \
+				else "FLOOR %d / %d" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT]
+		_row("CONTINUE", "%s  ·  %s" % [where, rule.act_name.to_upper()], Icon.MAZE, _start, true)
 	else:
 		var top := MetaState.acts_unlocked
 		_row("PLAY", "ACT %d  ·  %s" % [top, StageRule.ACT_NAMES[top - 1].to_upper()], Icon.MAZE, _play_now, true)
@@ -746,13 +752,19 @@ func _build_right() -> void:
 	_how_row = _icon_button(Icon.HELMET, "Guide", _open_how_to)
 	_icon_button(Icon.MAIL, "Inbox", _open_archive)
 
-	# Unfinished business (plans/06 E5): the next unlock, and how far the next act's shortcut is.
+	# Unfinished business (plans/06 E5): the next unlock, and how far the next act's shortcut is (once floor 50 has
+	# fallen, how deep you've been: floor 100 is the bragging goal).
 	_quests.append(_next_unlock_quest())
-	var act := MetaState.acts_unlocked
-	var reached := clampi(RunState.best_floor, StageRule.act_start(act), StageRule.act_start(act) + StageRule.GATE_FLOOR - 1)
-	var left := StageRule.floors_to_gate(reached)
-	_quests.append(_quest(QUEST_TOP + QUEST_SIZE.y + 10, "ACT %d SHORTCUT" % (act + 1) if act < StageRule.ACT_COUNT else "THE ESCAPE",
-			"%d FLOOR%s TO GO" % [left, "" if left == 1 else "S"], StageRule.FLOORS_PER_ACT - left, StageRule.FLOORS_PER_ACT, Icon.TARGET))
+	if MetaState.abyss_open():
+		var goal := StageRule.ABYSS_GOAL_FLOOR - StageRule.LAST_FLOOR
+		_quests.append(_quest(QUEST_TOP + QUEST_SIZE.y + 10, "THE ABYSS", "DEEPEST %d  ·  FLOOR %d IS DEPTH %d" % [
+				MetaState.abyss_best, StageRule.ABYSS_GOAL_FLOOR, goal], MetaState.abyss_best, goal, Icon.TARGET))
+	else:
+		var act := MetaState.acts_unlocked
+		var reached := clampi(RunState.best_floor, StageRule.act_start(act), StageRule.act_start(act) + StageRule.GATE_FLOOR - 1)
+		var left := StageRule.floors_to_gate(reached)
+		_quests.append(_quest(QUEST_TOP + QUEST_SIZE.y + 10, "ACT %d SHORTCUT" % (act + 1) if act < StageRule.ACT_COUNT else "THE ESCAPE",
+				"%d FLOOR%s TO GO" % [left, "" if left == 1 else "S"], StageRule.FLOORS_PER_ACT - left, StageRule.FLOORS_PER_ACT, Icon.TARGET))
 	_quests.append(_daily_quest())
 	_build_play()
 	for act_number in range(1, StageRule.ACT_COUNT + 1):
@@ -980,7 +992,8 @@ func _build_how_to() -> void:
 	_how_back.pressed.connect(_close_how_to)
 
 
-## Every act as a card. With a run in progress, a warning names the floor that picking an act abandons.
+## Every act as a card, and the Abyss beside them. With a run in progress, a warning names the floor that picking an
+## act abandons. Once floor 50 has fallen, the Nightmare Rank the next run plays sits under the cards.
 func _build_acts() -> void:
 	var box := _modal("CHOOSE YOUR ACT")
 	_acts = box.get_parent()
@@ -990,8 +1003,10 @@ func _build_acts() -> void:
 	var cards := HBoxContainer.new()
 	cards.add_theme_constant_override("separation", ACT_CARD_GAP)
 	box.add_child(cards)
-	for act in range(1, StageRule.ACT_COUNT + 1):
+	for act in range(1, StageRule.ABYSS_ACT + 1):
 		_act_card(cards, act)
+	if MetaState.ranks_open > 0:
+		_build_ranks(box)
 	var back := _text_button(box, "BACK   [ESC]", 20)
 	back.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	back.pressed.connect(_close_acts)
@@ -1014,6 +1029,8 @@ func _act_card(parent: Control, act: int) -> void:
 	var first := StageRule.act_start(act)
 	var sub := "FLOORS %d-%d" % [first, first + StageRule.FLOORS_PER_ACT - 1] if unlocked \
 			else "CLEAR ACT %d TO OPEN" % (act - 1)
+	if act == StageRule.ABYSS_ACT and unlocked:
+		sub = "DEEPEST %d" % MetaState.abyss_best
 	for line: Array in [[ROMAN[act - 1], 54, tint.lightened(0.35), 18.0],
 			[StageRule.ACT_NAMES[act - 1].to_upper(), 20, Color.WHITE, ACT_CARD_SIZE.y - 74],
 			[sub, 11, BONE if unlocked else BLOOD, ACT_CARD_SIZE.y - 40]]:
@@ -1034,6 +1051,36 @@ func _act_card(parent: Control, act: int) -> void:
 	_hoverable(card)
 	card.focus_entered.connect(_card_highlight.bind(content, true))
 	card.focus_exited.connect(_card_highlight.bind(content, false))
+
+
+## The Nightmare Rank the next run plays (plans/06 P8): ‹ › within the ranks open, its newest rule and what it pays.
+func _build_ranks(box: VBoxContainer) -> void:
+	var row := HBoxContainer.new()
+	row.name = "Ranks"
+	row.add_theme_constant_override("separation", 16)
+	box.add_child(row)
+	var down := _text_button(row, "‹", 28)
+	down.name = "RankDown"
+	down.pressed.connect(_set_rank.bind(-1))
+	_rank_label = _label(row, "", 20, GOLD)
+	_rank_label.custom_minimum_size.x = 230
+	_rank_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var up := _text_button(row, "›", 28)
+	up.name = "RankUp"
+	up.pressed.connect(_set_rank.bind(1))
+	_rank_rule = _label(row, "", 15, BONE, _body)
+	_set_rank(0)
+
+
+## Moves the picker's rank by `step` (kept for the next run, and the next launch).
+func _set_rank(step: int) -> void:
+	var rank := clampi(MetaState.chosen_rank() + step, 0, MetaState.ranks_open)
+	if rank != MetaState.rank:
+		MetaState.rank = rank
+		MetaState.save()
+	_rank_label.text = "NIGHTMARE RANK %d" % rank if rank > 0 else "NO RANK"
+	_rank_rule.text = "Every rank adds one rule and pays more." if rank == 0 else "%s: %s  ·  SHARDS ×%.2f" % [
+			Cards.RANKS[rank - 1]["name"], Cards.RANKS[rank - 1]["text"], Cards.fold(Cards.ranks(rank), "shards", 1.0)]
 
 
 ## An act card's face in `content`: its art (a tinted gradient until act_N.png lands), a dark fade under the

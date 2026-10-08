@@ -240,3 +240,76 @@ func _fairness_problem(cards: Array, rule: StageRule) -> String:
 	if Cards.fold(cards, "shards", 1.0) > 3.0:
 		return "shards run away"
 	return ""
+
+
+# --- plans/06 P8: the Abyss and the Nightmare Ranks ----------------------------------------------------
+
+## Every Abyss floor deals its whole stack (one more through a Hunt, one fewer through a Shrine), never a rule card
+## the floor before had, never a curse's twin, whatever the doors and the curse.
+func test_the_abyss_deals_its_whole_stack_every_floor() -> void:
+	var checked := 0
+	for run in 60:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = run
+		var curse: Dictionary = Cards.CURSES[1 + run % (Cards.CURSES.size() - 1)]
+		var previous: Array = []
+		var last_door := ""
+		for depth in range(1, 31):
+			var rule := StageRule.for_floor(StageRule.LAST_FLOOR + depth)
+			var seed_value := run * 1000 + depth
+			var door := "" if depth == 1 else Cards.doors(seed_value, rule, last_door)[rng.randi() % 3]
+			var exclude := previous.duplicate()
+			exclude.append(curse["rule"])
+			var cards := Cards.deal(seed_value, rule, door, exclude)
+			var taken: String = cards[1] if door == "mystery" else door
+			var want := rule.rule_cards + (1 if taken == "hunt" else (-1 if taken == "shrine" else 0))
+			var rules := cards.filter(func(id: String) -> bool: return Cards.kind(id) == "rule")
+			var stale := rules.any(func(id: String) -> bool: return previous.has(id) or id == curse["rule"])
+			if rules.size() != want or stale:
+				assert_true(false, "run %d depth %d through %s: %s after %s" % [run, depth, door, cards, previous])
+				return
+			previous = cards
+			last_door = taken
+			checked += 1
+	assert_eq(checked, 60 * 30)
+
+
+func test_twenty_ranks_each_add_one_rule() -> void:
+	assert_eq(Cards.RANKS.size(), Cards.MAX_RANK)
+	assert_eq(Cards.ranks(0), [])
+	assert_eq(Cards.ranks(3), [Cards.RANKS[0]["id"], Cards.RANKS[1]["id"], Cards.RANKS[2]["id"]], "a rank holds every rank below it")
+	assert_eq(Cards.ranks(99).size(), Cards.MAX_RANK)
+	var pay := 1.0
+	for i in Cards.MAX_RANK:
+		var card: Dictionary = Cards.RANKS[i]
+		assert_eq(Cards.kind(card["id"]), "rank")
+		assert_eq(card["mods"].size(), 2, "%s: one rule and its shards" % card["id"])
+		var more := Cards.fold(Cards.ranks(i + 1), "shards", 1.0)
+		assert_true(more > pay, "rank %d pays more than rank %d" % [i + 1, i])
+		pay = more
+
+
+## Every rank on top of everything else a floor can hold: every rule card, every door, every omen, a curse and five
+## descents, on campaign door floors, Gates and the Abyss.
+func test_stacked_cards_and_ranks_never_break_the_fairness_limits() -> void:
+	var run: Array = Cards.omen_pool(99)
+	run.append_array(["descend", "descend", "descend", "descend", "descend"])
+	var floors: Array[int] = DOOR_FLOORS.duplicate()
+	for act in StageRule.ACT_COUNT:
+		floors.append(act * StageRule.FLOORS_PER_ACT + StageRule.GATE_FLOOR)
+	for depth in [1, 6, 11, 16, 50]:
+		floors.append(StageRule.LAST_FLOOR + depth)
+	var checked := 0
+	for number in floors:
+		var rule := StageRule.for_floor(number)
+		for rank in [1, 10, Cards.MAX_RANK]:
+			for curse: Dictionary in Cards.CURSES:
+				var cards: Array = Cards.deck(rule.act) + ["vault", "hunt", "mystery"] + run + Cards.ranks(rank) + [curse["id"]]
+				var problem := _fairness_problem(cards, rule)
+				if problem == "" and roundi(Cards.fold(cards, "circles", 2.0)) < 1:
+					problem = "no safe circle"
+				if problem != "":
+					assert_true(false, "floor %d rank %d %s: %s" % [number, rank, curse["id"], problem])
+					return
+				checked += 1
+	assert_eq(checked, floors.size() * 3 * Cards.CURSES.size())

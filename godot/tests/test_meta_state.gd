@@ -99,6 +99,17 @@ func test_banked_shards_survive_death_and_relaunch() -> void:
 	assert_eq(MetaState.shards, MetaState.STARTER_SHARDS + 25, "the profile keeps them")
 
 
+func test_the_abyss_and_the_ranks_survive_a_relaunch() -> void:
+	MetaState.ranks_open = 4
+	MetaState.rank = 3
+	MetaState.note_depth(12)
+	MetaState.note_depth(7)
+	_relaunch()
+	assert_eq(MetaState.ranks_open, 4)
+	assert_eq(MetaState.rank, 3, "the picker remembers your rank")
+	assert_eq(MetaState.abyss_best, 12, "the deepest stands")
+
+
 func _average_chest() -> float:
 	var total := 0
 	for seed_value in 1000:

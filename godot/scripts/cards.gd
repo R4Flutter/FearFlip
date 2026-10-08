@@ -2,8 +2,8 @@ class_name Cards
 extends RefCounted
 ## Floor variety (plans/06 P3). Every modifier is a card {id, name, text, mods}: the rule cards a floor
 ## is dealt (a deck per act), the door you pick into it, each act's Gate twist and the Sanctuary.
-## RunState.mod() folds a floor's cards and the run's (omens, curse, descents: P4) into one value per
-## mod, and LIMITS keep any stack fair. Ranks (P8) join later as more cards of the same shape.
+## RunState.mod() folds a floor's cards and the run's (omens, curse, descents: P4, the Nightmare Rank: P8) into one
+## value per mod, and LIMITS keep any stack fair.
 
 ## Mods that count (neutral 0) add up across cards; every other mod is a factor (neutral 1).
 const ADDED: Array[String] = ["keys", "chests", "mirror", "follow_flips", "devil_awake", "rare_chest", "omen_pick",
@@ -18,6 +18,9 @@ const MIN_ROOMS := 6
 ## Omens a new profile can be offered; each omen token found adds the next one in OMENS order.
 const STARTER_OMENS := 6
 const OMEN_CHOICES := 3
+const MAX_RANK := 20
+## Every rank pays this much more (a factor, like every "shards" mod): rank 20 alone pays about x2.65.
+const RANK_SHARDS := 1.05
 ## Folded values are held inside these (in each system's own units), whatever the stack.
 const LIMITS := {
 	"devil_speed": Vector2(0.8, 1.3),
@@ -110,7 +113,31 @@ const TORCHES: Array[Dictionary] = [
 ]
 ## Hidden mercy (plans/06 G3, MetaState.mercy_on): one more safe circle, a slower Devil, fewer Director hints.
 const MERCY := {"id": "mercy", "name": "MERCY", "text": "", "mods": {"extra_circles": 1, "devil_speed": 0.95, "hint_stretch": 1.0 / 0.7}}
-## After a Gate (not the last): bank and leave, or push your luck into the next act (plans/06 §2).
+## Nightmare Ranks (plans/06 D7, P8): opened by the first floor-50 clear, one more per Gate cleared at your top rank.
+## Rank n plays every rank up to n, Hades-Heat style: each adds one rule and pays RANK_SHARDS more.
+const RANKS: Array[Dictionary] = [
+	{"id": "rank_1", "name": "RESTLESS", "text": "It wakes 15% sooner.", "mods": {"devil_delay": 0.85, "shards": RANK_SHARDS}},
+	{"id": "rank_2", "name": "SHORT NIGHT", "text": "5% less time on every clock.", "mods": {"clock": 0.95, "shards": RANK_SHARDS}},
+	{"id": "rank_3", "name": "FEWER HAVENS", "text": "Fewer safe circles.", "mods": {"circles": 0.7, "shards": RANK_SHARDS}},
+	{"id": "rank_4", "name": "QUICKENING", "text": "Flipping Time comes around 10% sooner.", "mods": {"flip_interval": 0.9, "shards": RANK_SHARDS}},
+	{"id": "rank_5", "name": "BRITTLE", "text": "A quarter more cracked floors.", "mods": {"traps": 1.25, "shards": RANK_SHARDS}},
+	{"id": "rank_6", "name": "THIN WARDS", "text": "Safe circles drain a fifth faster.", "mods": {"circle_time": 0.8, "shards": RANK_SHARDS}},
+	{"id": "rank_7", "name": "HEAVY VEIL", "text": "Your flip recharges a fifth slower.", "mods": {"flip_cooldown": 1.2, "shards": RANK_SHARDS}},
+	{"id": "rank_8", "name": "DIM", "text": "The ceiling lights burn at half strength.", "mods": {"lights": 0.5, "shards": RANK_SHARDS}},
+	{"id": "rank_9", "name": "MIST", "text": "The fog is a fifth thicker.", "mods": {"fog": 1.2, "shards": RANK_SHARDS}},
+	{"id": "rank_10", "name": "HUNGER", "text": "It runs 5% faster.", "mods": {"devil_speed": 1.05, "shards": RANK_SHARDS}},
+	{"id": "rank_11", "name": "QUIET CRACKS", "text": "Cracks are a fifth harder to see.", "mods": {"trap_cue": 0.8, "shards": RANK_SHARDS}},
+	{"id": "rank_12", "name": "SHORTER NIGHT", "text": "Another 5% off every clock.", "mods": {"clock": 0.95, "shards": RANK_SHARDS}},
+	{"id": "rank_13", "name": "RED MIST", "text": "NIGHTMARE's fog thickens by a fifth.", "mods": {"nightmare_fog": 1.2, "shards": RANK_SHARDS}},
+	{"id": "rank_14", "name": "THIRD KEY", "text": "One more key on every floor.", "mods": {"keys": 1, "shards": RANK_SHARDS}},
+	{"id": "rank_15", "name": "STARVED", "text": "It runs another 5% faster.", "mods": {"devil_speed": 1.05, "shards": RANK_SHARDS}},
+	{"id": "rank_16", "name": "DULL HEART", "text": "Your heartbeat warns you 2 cells later.", "mods": {"heartbeat": -2, "shards": RANK_SHARDS}},
+	{"id": "rank_17", "name": "HOLLOW WARDS", "text": "Safe circles drain another fifth faster.", "mods": {"circle_time": 0.8, "shards": RANK_SHARDS}},
+	{"id": "rank_18", "name": "EAGER", "text": "It wakes another 15% sooner.", "mods": {"devil_delay": 0.85, "shards": RANK_SHARDS}},
+	{"id": "rank_19", "name": "FRENZY", "text": "Flipping Time comes around another 10% sooner.", "mods": {"flip_interval": 0.9, "shards": RANK_SHARDS}},
+	{"id": "rank_20", "name": "NO REFUGE", "text": "WAKE no longer slows it down.", "mods": {"follow_flips": 1, "shards": RANK_SHARDS}},
+]
+## After a Gate: bank and leave, or push your luck into the next act, or below the last into the Abyss (plans/06 §2).
 const GATE_CHOICES: Array[Dictionary] = [
 	{"id": "return", "name": "RETURN", "text": "Bank your shards and climb back out. The next act stays open.", "mods": {}},
 	{"id": "descend", "name": "DESCEND", "text": "Keep your omens and go deeper: half again the shards. Revives don't refill.", "mods": {"shards": 1.5}},
@@ -121,7 +148,7 @@ static func find(id: String) -> Dictionary:
 	return _lookup(id)[0]
 
 
-## "rule", "door", "gate", "sanctuary", "omen", "curse", "choice" or "torch" ("" for an unknown id).
+## "rule", "door", "gate", "sanctuary", "omen", "curse", "choice", "torch", "mercy" or "rank" ("" for an unknown id).
 static func kind(id: String) -> String:
 	return _lookup(id)[1]
 
@@ -145,8 +172,8 @@ static func draw(seed_value: int, act: int, count: int, exclude: Array) -> Array
 
 
 ## A floor's cards: the Gate's or the Sanctuary's own, else the door taken (a Mystery also shows which door
-## it was) and the rule cards it deals, none repeated from `exclude` (the floor before). The game's first
-## floor has none: the core loop comes first.
+## it was) and the floor's rule cards (one more through a Hunt, one fewer through a Shrine), none repeated from
+## `exclude` (the floor before). The game's first floor has none: the core loop comes first.
 static func deal(seed_value: int, rule: StageRule, door: String, exclude: Array) -> Array[String]:
 	var cards: Array[String] = []
 	if rule.is_gate:
@@ -163,7 +190,7 @@ static func deal(seed_value: int, rule: StageRule, door: String, exclude: Array)
 		cards.append(door)
 	elif door != "normal" and door != "":
 		cards.append(door)
-	var count := 0 if door == "shrine" else (2 if door == "hunt" else 1)
+	var count := rule.rule_cards + (1 if door == "hunt" else 0) - (1 if door == "shrine" else 0)
 	cards.append_array(draw(seed_value, rule.act, count, exclude))
 	return cards
 
@@ -216,6 +243,14 @@ static func omens(seed_value: int, pool: Array[String], held: Array) -> Array[St
 	return options.slice(0, OMEN_CHOICES)
 
 
+## The rank cards rank `rank` plays: every one up to it.
+static func ranks(rank: int) -> Array[String]:
+	var ids: Array[String] = []
+	for card: Dictionary in RANKS.slice(0, clampi(rank, 0, MAX_RANK)):
+		ids.append(card["id"])
+	return ids
+
+
 ## NO CURSE first, then three of the curses, shuffled by `seed_value`.
 static func curses(seed_value: int) -> Array[String]:
 	var ids: Array[String] = []
@@ -248,7 +283,8 @@ static var _by_id := {}
 static func _lookup(id: String) -> Array:
 	if _by_id.is_empty():
 		for entry: Array in [[RULES, "rule"], [DOORS, "door"], [GATES, "gate"], [[SANCTUARY], "sanctuary"],
-				[OMENS, "omen"], [CURSES, "curse"], [GATE_CHOICES, "choice"], [TORCHES, "torch"], [[MERCY], "mercy"]]:
+				[OMENS, "omen"], [CURSES, "curse"], [GATE_CHOICES, "choice"], [TORCHES, "torch"], [[MERCY], "mercy"],
+				[RANKS, "rank"]]:
 			for card: Dictionary in entry[0]:
 				_by_id[card["id"]] = [card, entry[1]]
 	return _by_id.get(id, [{}, ""])

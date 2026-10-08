@@ -131,9 +131,9 @@ const MUSIC_DB := -14.0
 ## Deaf Night's card turns the music down to this.
 const SILENT_DB := -80.0
 ## Per-act look (plans/06 A5): each act turns WAKE's cold light and the walls to its own hue (-1 keeps
-## the original), Act 5 drains them to ash; NIGHTMARE stays red, so a flip always reads.
-const ACT_HUES: Array[float] = [-1.0, 0.42, 0.76, 0.09, -1.0]
-const ACT_SATURATION: Array[float] = [1.0, 1.0, 1.0, 1.0, 0.15]
+## the original), Act 5 drains them to ash, the Abyss bruises them violet; NIGHTMARE stays red, so a flip always reads.
+const ACT_HUES: Array[float] = [-1.0, 0.42, 0.76, 0.09, -1.0, 0.83]
+const ACT_SATURATION: Array[float] = [1.0, 1.0, 1.0, 1.0, 0.15, 0.5]
 ## Light on a chest waiting down a dead end, so it can be found in the dark.
 const DETOUR_CHEST_GLOW := 0.8
 ## The flashlight's shadow bias (depth, normal): lower brings back the stripes on far walls (shadow acne).
@@ -154,6 +154,7 @@ const EXIT_DECAL_SIZE := 1.9
 ## NIGHTMARE dressing per floor: blood on floors, claw marks on walls.
 const BLOOD_DECALS := 6
 const SCRATCH_DECALS := 8
+const HANDPRINT_DECALS := 4
 ## The Sanctuary's altar: its collision box and soft blue light.
 const ALTAR_SIZE := Vector3(1.2, 1.0, 0.85)
 const ALTAR_LIGHT := Color(0.35, 0.6, 1.0)
@@ -508,12 +509,20 @@ func _floor_title() -> String:
 	if RunState.is_daily():
 		return "%s  ·  FLOOR %d / %d\n%s" % [_daily_name(), RunState.daily_floor, Daily.FLOORS,
 				"PRACTICE  ·  NOTHING IS BANKED" if RunState.mode == "practice" else "ONE TRY  ·  MAKE IT COUNT"]
-	var title := "%s  ·  FLOOR %d / %d" % [rule.act_name.to_upper(), rule.floor_in_act, StageRule.FLOORS_PER_ACT]
+	var lines: Array[String] = ["%s  ·  %s" % [rule.act_name.to_upper(), _where(rule)]]
 	if rule.is_sanctuary:
-		return title + "\nSANCTUARY  ·  NOTHING HUNTS YOU HERE"
-	if rule.is_gate:
-		return title + "\nTHE GATE  ·  ESCAPE IT TO CLEAR ACT %d" % rule.act
-	return title
+		lines.append("SANCTUARY  ·  NOTHING HUNTS YOU HERE")
+	elif rule.is_gate:
+		lines.append("THE GATE  ·  ESCAPE IT TO CLEAR ACT %d" % rule.act)
+	if RunState.rank > 0:
+		lines.append("NIGHTMARE RANK %d" % RunState.rank)
+	return "\n".join(lines)
+
+## Where a floor sits: "FLOOR 3 / 10" in an act, "DEPTH 7" in the Abyss (plans/06 P8).
+func _where(of: StageRule) -> String:
+	if of.act == StageRule.ABYSS_ACT:
+		return "DEPTH %d" % of.floor_in_act
+	return "FLOOR %d / %d" % [of.floor_in_act, StageRule.FLOORS_PER_ACT]
 
 func _process(delta: float) -> void:
 	if player == null or get_tree().paused:
@@ -1751,10 +1760,11 @@ func _build_dressing() -> void:
 		blood.position = cell_to_world(floors[rng.randi() % floors.size()]) + Vector3(rng.randf_range(-0.5, 0.5), 0.012, rng.randf_range(-0.5, 0.5))
 		blood.rotation.y = rng.randf() * TAU
 		dressing.add_child(blood)
-	for i in SCRATCH_DECALS:
-		var scratch := Art.decal(Art.DECALS + "decal_scratches.png", rng.randf_range(0.9, 1.4), Color(1, 1, 1, 0.85), false)
+	for i in SCRATCH_DECALS + HANDPRINT_DECALS:
+		var art := "decal_scratches.png" if i < SCRATCH_DECALS else "decal_handprint.png"
+		var scratch := Art.decal(Art.DECALS + art, rng.randf_range(0.9, 1.4) if i < SCRATCH_DECALS else rng.randf_range(0.45, 0.65), Color(1, 1, 1, 0.85), false)
 		if scratch == null or floors.is_empty():
-			break
+			continue
 		var cell := floors[rng.randi() % floors.size()]
 		var walls: Array[Vector2i] = []
 		for d in FloorLayout.DIRS:
@@ -2090,7 +2100,7 @@ func _update_hud() -> void:
 	elif flip.charges_left == 0:
 		flip_line = "FLIP  %.1fs" % flip.cooldown_left
 	var goal_line := "OPEN THE CHEST" if exit_open else "KEYS  %d / %d" % [sigils_collected, layout.sigils.size()]
-	var where := "ACT %d  ·  FLOOR %d / %d" % [rule.act, rule.floor_in_act, StageRule.FLOORS_PER_ACT]
+	var where := ("THE ABYSS" if rule.act == StageRule.ABYSS_ACT else "ACT %d" % rule.act) + "  ·  " + _where(rule)
 	if RunState.is_daily():
 		where = "%s  ·  FLOOR %d / %d" % [_daily_name(), RunState.daily_floor, Daily.FLOORS]
 	if card_names != "":
@@ -2173,7 +2183,7 @@ func _win_game() -> void:
 	if not rule.is_gate:
 		if fixed_seed == 0:
 			RunState.advance_floor()
-		_show_message("FLOOR %d / %d CLEARED   %s to spare\n%s" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT, _format_time(time_left), earned])
+		_show_message("%s CLEARED   %s to spare\n%s" % [_where(rule), _format_time(time_left), earned])
 		get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_offer_picks)
 		return
 	if fixed_seed == 0:
@@ -2302,8 +2312,7 @@ func _take_pick(id: String) -> void:
 
 func _pick_title() -> String:
 	if RunState.picks[0] == "door":
-		var next := StageRule.for_floor(RunState.current_floor)
-		return "CHOOSE YOUR DOOR  ·  FLOOR %d / %d" % [next.floor_in_act, StageRule.FLOORS_PER_ACT]
+		return "CHOOSE YOUR DOOR  ·  " + _where(StageRule.for_floor(RunState.current_floor))
 	return PICK_TITLES.get(RunState.picks[0], "")
 
 ## Picks owed before this floor plays (a run's curse and start kit, or one a quit left open): offered on a
@@ -2389,10 +2398,15 @@ func _lose_game(cause: String = "devil") -> void:
 		RunState.end_run()
 	var steps := maxi(exit_dist[world][player_cell.y * layout.size + player_cell.x], 0)
 	var floor_progress := clampf(_progress(), 0.0, 1.0)
-	var comeback := Lore.voice(cause, MetaState.stat("deaths"), floor_progress, rule.floor_in_act)
+	var abyss := rule.act == StageRule.ABYSS_ACT
+	# The Voice's floor lines (the first floor, the Gate) are an act's; the Abyss has neither.
+	var comeback := Lore.voice(cause, MetaState.stat("deaths"), floor_progress, 0 if abyss else rule.floor_in_act)
 	var detail := "%d m from the exit   ·   Act %d, floor %d / %d   ·   best floor %d / %d\n%s" % [
 		roundi(steps * CELL_SIZE), rule.act, rule.floor_in_act, StageRule.FLOORS_PER_ACT,
-		RunState.best_floor, StageRule.LAST_FLOOR, comeback]
+		mini(RunState.best_floor, StageRule.LAST_FLOOR), StageRule.LAST_FLOOR, comeback]
+	if abyss:
+		detail = "%d m from the exit   ·   The Abyss, depth %d   ·   deepest %d\n%s" % [roundi(steps * CELL_SIZE),
+				rule.floor_in_act, MetaState.abyss_best, comeback]
 	if RunState.is_daily():
 		detail = "%d m from the exit   ·   Daily #%d, floor %d / %d\n%s" % [roundi(steps * CELL_SIZE),
 				Daily.number(RunState.daily_date), RunState.daily_floor, Daily.FLOORS, comeback]
@@ -2401,7 +2415,7 @@ func _lose_game(cause: String = "devil") -> void:
 	var progress := MetaState.unlock_progress()
 	var business := "+%d SHARDS THIS RUN   ·   %s   ·   %s" % [RunState.run_shards + floor_shards,
 			"UNLOCK READY" if progress >= 1.0 else "NEXT UNLOCK %d%%" % floori(progress * 100.0), _shortcut_line()]
-	var retry := "NEW RUN  ·  ACT %d  ·  [R]" % rule.act
+	var retry := "NEW RUN  ·  THE ABYSS  ·  [R]" if abyss else "NEW RUN  ·  ACT %d  ·  [R]" % rule.act
 	var share := ""
 	if RunState.is_daily():
 		retry = "PRACTICE  ·  [R]"
@@ -2495,8 +2509,12 @@ func _stop_devil_cam() -> void:
 	devil_cam = null
 	devil.position = _devil_world_position()
 
-## How far the next act's shortcut is (just the Gate once that act is open; the escape in the last act).
+## How far the next act's shortcut is (just the Gate once that act is open; the escape in the last act; your deepest
+## in the Abyss).
 func _shortcut_line() -> String:
+	if rule.act == StageRule.ABYSS_ACT:
+		var to_beat := MetaState.abyss_best + 2 - rule.floor_in_act
+		return "%d FLOOR%s TO BEAT YOUR DEEPEST" % [to_beat, "" if to_beat == 1 else "S"]
 	var left := StageRule.floors_to_gate(rule.floor_number)
 	var floors := "%d FLOOR%s" % [left, "" if left == 1 else "S"]
 	if rule.act == StageRule.ACT_COUNT:
@@ -2518,7 +2536,7 @@ func _revive() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_flash_message("REVIVED   %d left this act" % RunState.revives_left())
 
-## Back to the last safe circle you used (the spawn if none yet) with its clock and floor cracks; it backs off.
+## Back to the last safe circle you used (the spawn if none yet) with its clock and floor cracks; the Devil sleeps.
 func _return_to_circle() -> void:
 	var at: Dictionary = snapshot if not snapshot.is_empty() else {"cell": layout.spawn, "time_left": time_left, "traps": traps.states.duplicate()}
 	var cell: Vector2i = at["cell"]
@@ -2545,8 +2563,12 @@ func _return_to_circle() -> void:
 		circles.charge[circle] = circles.capacity
 	catch_grace = REVIVE_GRACE
 	lunge_left = 0.0
-	if devil_active:
-		_start_retreat()
+	# It goes back to sleep instead of standing where it caught you: it wakes again later, behind you, far away and
+	# out of sight, with the usual telegraph (_try_spawn_devil), and not while you're still in the circle.
+	devil_active = false
+	devil_retreating = false
+	devil_stun = 0.0
+	devil.visible = false
 	game_state = "playing"
 
 ## TRY AGAIN: a new run from this act's first floor, on a new maze (a debug seed just reloads).

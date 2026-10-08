@@ -22,6 +22,11 @@ func setup() -> void:
 
 func teardown() -> void:
 	MetaState.acts_unlocked = 1
+	MetaState.stats = {}
+	MetaState.ranks_open = 0
+	MetaState.rank = 0
+	MetaState.abyss_best = 0
+	MetaState.save()
 	RunState.start_run(1)
 	RunState.best_floor = 1
 
@@ -252,13 +257,94 @@ func test_descending_keeps_the_omens_and_the_revives_used() -> void:
 	assert_true(RunState.has_progress(), "an act's first floor, but deep into this run")
 
 
-func test_the_last_gate_ends_the_run() -> void:
+# --- plans/06 P8: the Abyss and the Nightmare Ranks ----------------------------------------------------
+
+func test_the_last_gate_offers_the_abyss() -> void:
 	MetaState.unlock_act(StageRule.ACT_COUNT)
 	RunState.start_run(StageRule.ACT_COUNT)
 	RunState.current_floor = StageRule.LAST_FLOOR
+	RunState.master_act("A")
 	RunState.clear_gate()
-	assert_true(RunState.run_over)
-	assert_eq(RunState.picks, [])
+	assert_true(MetaState.abyss_open(), "floor 50 has fallen")
+	assert_eq(RunState.pick_options(), ["return", "descend"])
+	RunState.take("descend")
+	assert_eq(RunState.current_floor, StageRule.LAST_FLOOR + 1, "down into the Abyss")
+	assert_eq(RunState.act(), StageRule.ABYSS_ACT)
+	assert_eq(MetaState.acts_unlocked, StageRule.ACT_COUNT, "still five acts")
+	assert_false(RunState.run_over)
+	_relaunch()
+	assert_eq(RunState.current_floor, StageRule.LAST_FLOOR + 1, "the Abyss survives a relaunch")
+
+
+func test_the_abyss_opens_with_floor_50() -> void:
+	MetaState.unlock_act(StageRule.ACT_COUNT)
+	assert_false(RunState.start_run(StageRule.ABYSS_ACT), "locked until floor 50 falls")
+	MetaState.record({"clears_act_%d" % StageRule.ACT_COUNT: 1})
+	assert_true(RunState.start_run(StageRule.ABYSS_ACT))
+	assert_eq(RunState.current_floor, StageRule.LAST_FLOOR + 1)
+	assert_eq(RunState.picks.count("omen"), StageRule.ACT_COUNT, "the start kit: an omen for every act above it")
+
+
+func test_the_deepest_floor_cleared_is_the_depth_score() -> void:
+	MetaState.unlock_act(StageRule.ACT_COUNT)
+	MetaState.record({"clears_act_%d" % StageRule.ACT_COUNT: 1})
+	RunState.start_run(StageRule.ABYSS_ACT)
+	RunState.note_floor("A", false)
+	assert_eq(MetaState.abyss_best, 1, "depth 1 cleared")
+	for i in 3:
+		RunState.advance_floor()
+	RunState.note_floor("B", false)
+	assert_eq(MetaState.abyss_best, 4)
+	RunState.start_run(StageRule.ABYSS_ACT)
+	RunState.note_floor("S", false)
+	assert_eq(MetaState.abyss_best, 4, "a shallower run never lowers it")
+	RunState.start_run(1)
+	RunState.note_floor("S", false)
+	assert_eq(MetaState.abyss_best, 4, "campaign floors are no depth")
+
+
+func test_ranks_open_with_floor_50_and_climb_one_gate_at_a_time() -> void:
+	MetaState.rank = 3
+	RunState.start_run(1)
+	assert_eq(RunState.rank, 0, "no rank before floor 50 falls")
+	MetaState.unlock_act(StageRule.ACT_COUNT)
+	RunState.start_run(StageRule.ACT_COUNT)
+	RunState.current_floor = StageRule.LAST_FLOOR
+	var news := RunState.master_act("A")
+	assert_eq(MetaState.ranks_open, 1)
+	assert_true(news.has("NIGHTMARE RANK 1 OPEN"), str(news))
+	MetaState.rank = 1
+	RunState.start_run(1)
+	assert_eq(RunState.rank, 1)
+	RunState.current_floor = StageRule.GATE_FLOOR
+	assert_true(RunState.master_act("B").has("NIGHTMARE RANK 2 OPEN"))
+	assert_eq(MetaState.ranks_open, 2, "a Gate at your top rank opens the next")
+	RunState.start_run(1)
+	RunState.current_floor = StageRule.GATE_FLOOR
+	RunState.master_act("B")
+	assert_eq(MetaState.ranks_open, 2, "a Gate below your top rank opens nothing")
+	MetaState.ranks_open = Cards.MAX_RANK
+	MetaState.rank = Cards.MAX_RANK
+	RunState.start_run(1)
+	RunState.current_floor = StageRule.GATE_FLOOR
+	RunState.master_act("B")
+	assert_eq(MetaState.ranks_open, Cards.MAX_RANK, "twenty is the top")
+
+
+func test_a_rank_folds_into_every_floor_but_never_the_daily() -> void:
+	MetaState.ranks_open = Cards.MAX_RANK
+	MetaState.rank = 5
+	RunState.start_run(1)
+	assert_eq(RunState.rank, 5)
+	assert_eq(RunState.mod("shards", 1.0), Cards.fold(Cards.ranks(5), "shards", 1.0), "floor 1 holds nothing but the rank")
+	_relaunch()
+	assert_eq(RunState.rank, 5, "a run keeps its rank through a relaunch")
+	MetaState.rank = 0
+	assert_eq(RunState.rank, 5, "the picker never changes a run in progress")
+	RunState.start_daily(true)
+	assert_eq(RunState.rank, 0, "the Daily is the same maze for everyone")
+	RunState.leave_daily()
+	assert_eq(RunState.rank, 5, "back to the campaign run")
 
 
 ## Forget everything in memory and read it back, as a new process would.

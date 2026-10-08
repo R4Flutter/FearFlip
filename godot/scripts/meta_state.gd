@@ -44,6 +44,12 @@ static var stats := {}
 static var stars := {}
 ## Deaths per campaign floor since it was last cleared (mercy).
 static var deaths_at := {}
+## Nightmare Ranks (plans/06 P8): the highest rank open (0 until floor 50 first falls) and the rank the act picker
+## holds.
+static var ranks_open := 0
+static var rank := 0
+## The Abyss's depth score: the most Abyss floors cleared in one run.
+static var abyss_best := 0
 static var _loaded := false
 
 
@@ -63,6 +69,9 @@ static func load_profile() -> void:
 	stats = cfg.get_value("meta", "stats", {})
 	stars = cfg.get_value("meta", "stars", {})
 	deaths_at = cfg.get_value("meta", "deaths_at", {})
+	ranks_open = clampi(cfg.get_value("meta", "ranks_open", 0), 0, Cards.MAX_RANK)
+	rank = cfg.get_value("meta", "rank", 0)
+	abyss_best = cfg.get_value("meta", "abyss_best", 0)
 	Daily.load_state(cfg)
 
 
@@ -77,6 +86,9 @@ static func save() -> void:
 	cfg.set_value("meta", "stats", stats)
 	cfg.set_value("meta", "stars", stars)
 	cfg.set_value("meta", "deaths_at", deaths_at)
+	cfg.set_value("meta", "ranks_open", ranks_open)
+	cfg.set_value("meta", "rank", rank)
+	cfg.set_value("meta", "abyss_best", abyss_best)
 	Daily.save_state(cfg)
 	cfg.save(profile_path)
 
@@ -273,7 +285,42 @@ static func chest_roll(floor_seed: int) -> Dictionary:
 
 
 static func is_act_unlocked(act: int) -> bool:
+	if act == StageRule.ABYSS_ACT:
+		return abyss_open()
 	return act >= 1 and act <= acts_unlocked
+
+
+## Floor 50 has fallen at least once: the Abyss is open (and the ranks with it).
+static func abyss_open() -> bool:
+	return stat("clears_act_%d" % StageRule.ACT_COUNT) > 0
+
+
+## The rank a new run plays: the picker's, never above the ranks open.
+static func chosen_rank() -> int:
+	return clampi(rank, 0, ranks_open)
+
+
+## A Gate fell on a run at rank `cleared`: the first floor-50 clear opens rank 1, and a Gate at your top rank
+## opens the next (up to Cards.MAX_RANK). Returns what to announce.
+static func open_ranks(cleared: int, last_act: bool) -> Array[String]:
+	var before := ranks_open
+	if last_act:
+		ranks_open = maxi(ranks_open, 1)
+	if cleared > 0 and cleared == ranks_open:
+		ranks_open = mini(ranks_open + 1, Cards.MAX_RANK)
+	var news: Array[String] = []
+	for opened in range(before + 1, ranks_open + 1):
+		news.append("NIGHTMARE RANK %d OPEN" % opened)
+	if ranks_open != before:
+		save()
+	return news
+
+
+## An Abyss floor cleared `depth` floors down: the depth score keeps the deepest.
+static func note_depth(depth: int) -> void:
+	if depth > abyss_best:
+		abyss_best = depth
+		save()
 
 
 ## Opens every act up to `act` for good (capped at the last act).

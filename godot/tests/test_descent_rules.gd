@@ -145,3 +145,34 @@ func test_floors_to_gate_counts_down_to_the_shortcut() -> void:
 	assert_eq(StageRule.floors_to_gate(StageRule.GATE_FLOOR), 1, "standing on the Gate")
 	assert_eq(StageRule.floors_to_gate(11), 10, "each act counts on its own")
 	assert_eq(StageRule.floors_to_gate(StageRule.LAST_FLOOR), 1)
+
+
+# --- plans/06 P8: the Abyss -------------------------------------------------------------------------
+
+func test_the_abyss_lies_below_floor_50() -> void:
+	var first := StageRule.for_floor(StageRule.LAST_FLOOR + 1)
+	assert_eq(first.act, StageRule.ABYSS_ACT)
+	assert_eq(first.act_name, StageRule.ABYSS_NAME)
+	assert_eq(first.floor_in_act, 1, "depth 1")
+	assert_false(first.is_sanctuary or first.is_gate, "no Sanctuary and no Gate: it never ends")
+	assert_eq(first.difficulty, 1.0, "the hardest endpoints and never past them")
+	assert_eq(StageRule.act_of(StageRule.LAST_FLOOR + 37), StageRule.ABYSS_ACT)
+	assert_eq(StageRule.act_start(StageRule.ABYSS_ACT), StageRule.LAST_FLOOR + 1)
+	var deep := StageRule.for_floor(StageRule.LAST_FLOOR + 50)
+	assert_eq(deep.floor_number, 100, "floor 100 is a real floor: the bragging goal")
+	assert_eq(deep.floor_in_act, 50)
+	assert_eq(deep.devil_base_ratio, first.devil_base_ratio, "deeper adds rules, not speed (GEMINI: complexity, not unfair speed)")
+	assert_eq(deep.time_slack, first.time_slack)
+	assert_eq(StageRule.for_floor(StageRule.LAST_FLOOR).act, StageRule.ACT_COUNT, "floor 50 is still the last Gate")
+
+
+func test_an_extra_rule_card_every_five_floors_down() -> void:
+	var counts: Array[int] = []
+	for depth: int in [1, 5, 6, 10, 11, 16, 40]:
+		counts.append(StageRule.for_floor(StageRule.LAST_FLOOR + depth).rule_cards)
+	assert_eq(counts, [1, 1, 2, 2, 3, 4, StageRule.ABYSS_MAX_RULES], "one more every %d floors, up to %d" % [
+			StageRule.ABYSS_CARD_EVERY, StageRule.ABYSS_MAX_RULES])
+	for f in range(1, StageRule.LAST_FLOOR + 1):
+		if StageRule.for_floor(f).rule_cards != 1:
+			assert_true(false, "campaign floor %d deals one rule card" % f)
+			return

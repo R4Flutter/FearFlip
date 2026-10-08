@@ -39,6 +39,8 @@ static var act_revives := 0
 static var act_points := 0
 static var act_floors := 0
 static var act_sprinted := false
+## The run's Nightmare Rank (plans/06 P8), fixed as it starts: mod() folds Cards.ranks(rank) into every floor.
+static var rank := 0
 ## The floor this run started on: there is something to continue once you're past it.
 static var start_floor := 1
 ## True once the run has ended (death or act clear): playing again starts a new run, never resumes it.
@@ -69,7 +71,7 @@ static func load_save() -> void:
 		log_event("session", {"acts": MetaState.acts_unlocked, "shards": MetaState.shards})
 	var cfg := ConfigFile.new()
 	if cfg.load(save_path) == OK and cfg.get_value("run", "version", 1) == SAVE_VERSION:
-		current_floor = clampi(cfg.get_value("run", "floor", 1), 1, StageRule.LAST_FLOOR)
+		current_floor = clampi(cfg.get_value("run", "floor", 1), 1, StageRule.MAX_FLOOR)
 		run_seed = cfg.get_value("run", "seed", 0)
 		best_floor = cfg.get_value("run", "best_floor", 1)
 		revives_used = cfg.get_value("run", "revives_used", 0)
@@ -86,6 +88,7 @@ static func load_save() -> void:
 		act_points = cfg.get_value("run", "act_points", 0)
 		act_floors = cfg.get_value("run", "act_floors", 0)
 		act_sprinted = cfg.get_value("run", "act_sprinted", false)
+		rank = cfg.get_value("run", "rank", 0)
 	if run_seed == 0 or not MetaState.is_act_unlocked(act()):
 		start_run(1)
 
@@ -112,12 +115,13 @@ static func save() -> void:
 	cfg.set_value("run", "act_points", act_points)
 	cfg.set_value("run", "act_floors", act_floors)
 	cfg.set_value("run", "act_sprinted", act_sprinted)
+	cfg.set_value("run", "rank", rank)
 	cfg.save(save_path)
 
 
-## A fresh run from the first floor of `act_number`: new maze, full revives. Locked acts refuse. Once
-## Act 1 is cleared it opens on a curse offer, and a later act's start owes one omen pick per act skipped
-## (the shortcut start kit) plus one per Altar omen slot.
+## A fresh run from the first floor of `act_number` (StageRule.ABYSS_ACT: the Abyss) at the rank the act picker
+## holds: new maze, full revives. Locked acts refuse. Once Act 1 is cleared it opens on a curse offer, and a later
+## act's start owes one omen pick per act skipped (the shortcut start kit) plus one per Altar omen slot.
 static func start_run(act_number: int) -> bool:
 	if not MetaState.is_act_unlocked(act_number):
 		return false
@@ -128,6 +132,7 @@ static func start_run(act_number: int) -> bool:
 	revives_used = 0
 	run_over = false
 	run_shards = 0
+	rank = MetaState.chosen_rank()
 	door = ""
 	last_door = ""
 	_cleared_cards.clear()
@@ -155,6 +160,7 @@ static func start_daily(practice: bool) -> void:
 	daily_floor = 1
 	run_seed = Daily.seed_of(date)
 	current_floor = Daily.STAGE_FLOORS[0]
+	rank = 0
 	revives_used = REVIVES_PER_ACT
 	run_over = false
 	run_shards = 0
@@ -222,12 +228,9 @@ static func clear_act() -> void:
 	end_run()
 
 
-## The Gate is beaten: the next act opens for good. The last act's Gate ends the run; any other owes
-## the RETURN / DESCEND choice first.
+## The Gate is beaten: the next act opens for good, and the run owes the RETURN / DESCEND choice (below the last
+## Gate, DESCEND leads into the Abyss).
 static func clear_gate() -> void:
-	if act() == StageRule.ACT_COUNT:
-		clear_act()
-		return
 	MetaState.unlock_act(act() + 1)
 	picks.assign(["gate"])
 	save()
@@ -238,7 +241,7 @@ static func clear_gate() -> void:
 static func descend() -> void:
 	MetaState.unlock_act(act() + 1)
 	run_cards.append("descend")
-	current_floor = mini(current_floor + 1, StageRule.LAST_FLOOR)
+	current_floor = mini(current_floor + 1, StageRule.MAX_FLOOR)
 	best_floor = maxi(best_floor, current_floor)
 	door = ""
 	last_door = ""
@@ -250,8 +253,10 @@ static func descend() -> void:
 	save()
 
 
-## A floor cleared: its grade and whether you sprinted count toward this act's stars.
+## A floor cleared: its grade and whether you sprinted count toward this act's stars; in the Abyss, its depth.
 static func note_floor(grade: String, sprinted: bool) -> void:
+	if act() == StageRule.ABYSS_ACT:
+		MetaState.note_depth(current_floor - StageRule.LAST_FLOOR)
 	act_points += GRADE_POINTS.get(grade, 0)
 	act_floors += 1
 	act_sprinted = act_sprinted or sprinted
@@ -264,8 +269,9 @@ static func act_stars() -> Array:
 	return [act_revives == 0, act_floors > 0 and float(act_points) / act_floors >= S_AVERAGE, cursed]
 
 
-## The Gate is beaten: this act's stars are kept for good and its clear counted for the challenges (a deep run
-## is the last Gate on a run from the first floor). Returns what to announce.
+## The Gate is beaten: this act's stars are kept for good, its clear counted for the challenges (a deep run is the
+## last Gate on a run from the first floor) and the Nightmare Ranks climb (MetaState.open_ranks). Returns what to
+## announce.
 static func master_act(gate_grade: String) -> Array[String]:
 	var earned := act_stars()
 	MetaState.award_stars(act(), earned)
@@ -280,7 +286,9 @@ static func master_act(gate_grade: String) -> Array[String]:
 		counts["gate_s"] = 1
 	if act() == StageRule.ACT_COUNT and start_floor == 1:
 		counts["deep_runs"] = 1
-	return MetaState.record(counts)
+	var news := MetaState.record(counts)
+	news.append_array(MetaState.open_ranks(rank, act() == StageRule.ACT_COUNT))
+	return news
 
 
 static func _new_act() -> void:
@@ -317,7 +325,7 @@ static func advance_floor() -> void:
 	_cleared_cards = floor_cards.duplicate()
 	last_door = door
 	door = "normal"
-	current_floor = mini(current_floor + 1, StageRule.LAST_FLOOR)
+	current_floor = mini(current_floor + 1, StageRule.MAX_FLOOR)
 	best_floor = maxi(best_floor, current_floor)
 	_deal()
 	picks.clear()
@@ -376,10 +384,10 @@ static func take(id: String) -> void:
 	save()
 
 
-## One mod for this floor: `base` folded through its cards, the run's, the gear worn (MetaState.gear) and hidden
-## mercy (a campaign floor that keeps killing you), held inside the fairness limits (Cards.fold).
+## One mod for this floor: `base` folded through its cards, the run's, the gear worn (MetaState.gear), the run's
+## rank and hidden mercy (a campaign floor that keeps killing you), held inside the fairness limits (Cards.fold).
 static func mod(key: String, base: float) -> float:
-	var ids: Array[String] = floor_cards + run_cards + MetaState.gear()
+	var ids: Array[String] = floor_cards + run_cards + MetaState.gear() + Cards.ranks(rank)
 	if not is_daily() and MetaState.mercy_on(current_floor):
 		ids.append(Cards.MERCY["id"])
 	return Cards.fold(ids, key, base)

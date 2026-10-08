@@ -27,11 +27,11 @@ Keep the full-size original in `src/`, and put a copy downscaled to ~2x display 
 
 | File | Used as | Generate at | Ship here at |
 |---|---|---|---|
-| `act_1.png` … `act_5.png` | act picker cards (`main_menu.gd` `_act_card`, cover-fit 200x290) | portrait 2:3, e.g. 1024x1536 | 400x600 |
+| `act_1.png` … `act_6.png` | act picker cards, `act_6.png` = the Abyss (P8) (`main_menu.gd` `_act_card`, cover-fit 180x290) | portrait 2:3, e.g. 1024x1536 | 400x600 |
 | `act_locked.png` | padlock over locked act cards (110x110) | 1024x1024, transparent | 256x256 |
 | `act_cleared_burst.png` | flare behind "ACT CLEARED" when the Gate is beaten (`main.gd` `_show_act_cleared`, drawn additively) | 3:1, e.g. 1536x512, on pure black | 1440x480 |
 
-Card layout rule (all five): portrait, edge to edge, no frame. Keep the subject in the top 60%; the bottom 40% sits
+Card layout rule (all six): portrait, edge to edge, no frame. Keep the subject in the top 60%; the bottom 40% sits
 under a dark gradient with the act name. The sides may be cropped. No text, letters or numbers anywhere.
 
 **act_1.png: AWAKENING** (cold blue)
@@ -68,6 +68,14 @@ under a dark gradient with the act name. The sides may be cropped. No text, lett
 > maze: a colossal horned demon rises behind a shattered iron gate bound with snapped chains, molten cracks across
 > its body, eyes blazing; a tiny survivor silhouette stands before it on a ledge of broken stone, flashlight raised.
 > Mood: the final escape. Crimson, black and molten gold, lava glow from below, volumetric smoke, epic scale, high
+> detail, no text, no UI, no watermark.
+
+**act_6.png: THE ABYSS** (bruised violet and black; plans/06 Phase 8, the endless floors below floor 50)
+> Dark fantasy horror mobile game card art, semi-realistic painterly anime style, portrait 2:3. Looking straight
+> down a bottomless square shaft of stone maze walls that repeat forever into darkness, each level a little more
+> broken and overgrown with black roots; faint violet glow rising from far below, red eyes blinking open at many
+> depths; a tiny survivor on the top ledge peers over the edge with a flashlight, the beam swallowed by the dark.
+> Mood: it never ends. Bruised violet, deep black and a little crimson, vertigo perspective, volumetric fog, high
 > detail, no text, no UI, no watermark.
 
 **act_locked.png**

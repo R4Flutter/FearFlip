@@ -4,11 +4,23 @@ extends Resource
 ## Difficulty is a sawtooth, not a ramp: it climbs through an act, eases at the Sanctuary (F5), and the
 ## Gate (F10) plays like F8 (its twist arrives with plans/06 P3). The next act starts above this act's
 ## first floor but below its F9. Every knob lerps from its [easiest, hardest] pair by `difficulty`.
+## Below F50 lies the Abyss (plans/06 P8): endless, every floor at the hardest endpoints and never past them, a rule
+## card more every ABYSS_CARD_EVERY floors instead (GEMINI: deeper adds complexity, not unfair speed).
 
 const ACT_COUNT := 5
 const FLOORS_PER_ACT := 10
 const LAST_FLOOR := ACT_COUNT * FLOORS_PER_ACT
-const ACT_NAMES: Array[String] = ["Awakening", "Hunted", "Mind Break", "Precision Hell", "THE BREAKER"]
+## The Abyss counts as the act after the last: its "floor in act" is the depth.
+const ABYSS_ACT := ACT_COUNT + 1
+const ABYSS_NAME := "The Abyss"
+## One act name per act, the Abyss last.
+const ACT_NAMES: Array[String] = ["Awakening", "Hunted", "Mind Break", "Precision Hell", "THE BREAKER", ABYSS_NAME]
+const ABYSS_CARD_EVERY := 5
+## A floor's stack (+1 through a Hunt) can always be dealt without a card from the floor before or the curse's twin.
+const ABYSS_MAX_RULES := 4
+## "Floor 100 lives on as a bragging goal in the Abyss" (plans/06 §2).
+const ABYSS_GOAL_FLOOR := 100
+const MAX_FLOOR := 999
 const SANCTUARY_FLOOR := 5
 const GATE_FLOOR := 10
 ## The Sanctuary plays like its act's F2, the Gate like its F8.
@@ -94,24 +106,31 @@ const GRADE_CHASED := 0.4
 @export var trap_cue_strength := 1.0
 ## Traps on dead-end entrances (crack going in, die coming out). Act 2+ only.
 @export var dead_end_traps := false
+## Rule cards dealt through a plain door (Cards.deal): 1, more the deeper into the Abyss.
+@export var rule_cards := 1
 
 
 static func for_floor(number: int) -> StageRule:
-	var f := clampi(number, 1, LAST_FLOOR)
+	var f := clampi(number, 1, MAX_FLOOR)
 	var rule := StageRule.new()
 	rule.floor_number = f
 	rule.act = act_of(f)
 	rule.act_name = ACT_NAMES[rule.act - 1]
 	rule.floor_in_act = f - act_start(rule.act) + 1
-	rule.is_sanctuary = rule.floor_in_act == SANCTUARY_FLOOR
-	rule.is_gate = rule.floor_in_act == GATE_FLOOR
-	var plays_as := rule.floor_in_act
-	if rule.is_sanctuary:
-		plays_as = SANCTUARY_PLAYS_AS
-	elif rule.is_gate:
-		plays_as = GATE_PLAYS_AS
-	# F1 = the act's base, F9 = base + IN_ACT_RAMP.
-	var t := (rule.act - 1) * ACT_STEP + IN_ACT_RAMP * float(plays_as - 1) / (GATE_FLOOR - 2)
+	var t := 1.0
+	if rule.act == ABYSS_ACT:
+		@warning_ignore("integer_division")
+		rule.rule_cards = mini(1 + (rule.floor_in_act - 1) / ABYSS_CARD_EVERY, ABYSS_MAX_RULES)
+	else:
+		rule.is_sanctuary = rule.floor_in_act == SANCTUARY_FLOOR
+		rule.is_gate = rule.floor_in_act == GATE_FLOOR
+		var plays_as := rule.floor_in_act
+		if rule.is_sanctuary:
+			plays_as = SANCTUARY_PLAYS_AS
+		elif rule.is_gate:
+			plays_as = GATE_PLAYS_AS
+		# F1 = the act's base, F9 = base + IN_ACT_RAMP.
+		t = (rule.act - 1) * ACT_STEP + IN_ACT_RAMP * float(plays_as - 1) / (GATE_FLOOR - 2)
 	rule.difficulty = t
 	var maze_size := MAZE_SIZES[roundi(t * (MAZE_SIZES.size() - 1))]
 	rule.rooms = roundi(lerpf(ROOMS_3D.x, ROOMS_3D.y, inverse_lerp(MAZE_SIZE_RANGE.x, MAZE_SIZE_RANGE.y, maze_size)))
@@ -134,13 +153,15 @@ static func for_floor(number: int) -> StageRule:
 
 
 static func act_of(number: int) -> int:
+	if number > LAST_FLOOR:
+		return ABYSS_ACT
 	@warning_ignore("integer_division")
 	return (clampi(number, 1, LAST_FLOOR) - 1) / FLOORS_PER_ACT + 1
 
 
-## An act's first floor (1, 11, 21, 31, 41): every run of that act starts here.
+## An act's first floor (1, 11, 21, 31, 41, and 51 for the Abyss): every run of that act starts here.
 static func act_start(act_number: int) -> int:
-	return (clampi(act_number, 1, ACT_COUNT) - 1) * FLOORS_PER_ACT + 1
+	return (clampi(act_number, 1, ABYSS_ACT) - 1) * FLOORS_PER_ACT + 1
 
 
 ## Seconds for a floor: walking the route at `walk` m/s, times the slack (squeezed or stretched by the

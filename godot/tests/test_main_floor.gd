@@ -11,6 +11,8 @@ func suite_name() -> String:
 
 func teardown() -> void:
 	RunState.mode = "campaign"
+	RunState.rank = 0
+	MetaState.abyss_best = 0
 
 
 ## A debug floor (fixed seed) built from `cards` on `floor_number`; RunState goes back to Act 1 F1 after.
@@ -136,6 +138,8 @@ func test_safe_circle_blocks_catch_and_revive_returns_there() -> void:
 	assert_eq(main.game_state, "playing")
 	assert_true(main.get_node("HUD").visible, "the HUD comes back with you")
 	assert_eq(main.player_cell, circle)
+	assert_false(main.devil_active, "the Devil isn't left standing in front of you")
+	assert_false(main.devil.visible)
 	assert_eq(RunState.revives_left(), revives - 1)
 	RunState.revives_used = 0
 
@@ -853,3 +857,23 @@ func test_the_devil_cam_replays_the_catch_from_its_eyes() -> void:
 	fallen._lose_game("trap")
 	assert_eq(fallen.death_screen.get_node_or_null("DevilCam"), null, "only the Devil gets a camera")
 
+
+
+# --- plans/06 P8: the Abyss ---------------------------------------------------------------------------
+
+func test_an_abyss_floor_names_its_depth_and_rank() -> void:
+	RunState.rank = 4
+	var main := _spawn_floor([], StageRule.LAST_FLOOR + 7)
+	var title: String = main._floor_title()
+	assert_true(title.begins_with("THE ABYSS  ·  DEPTH 7"), title)
+	assert_true(title.contains("NIGHTMARE RANK 4"), title)
+
+
+func test_dying_in_the_abyss_names_the_depth_and_the_deepest() -> void:
+	MetaState.abyss_best = 12
+	var main := _spawn_floor([], StageRule.LAST_FLOOR + 7)
+	main._lose_game("devil")
+	var detail: String = main.death_screen._detail.text
+	assert_true(detail.contains("The Abyss, depth 7"), detail)
+	assert_true(detail.contains("deepest 12"), detail)
+	assert_eq(main.death_screen._retry_sub.text, "NEW RUN  ·  THE ABYSS  ·  [R]")
