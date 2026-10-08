@@ -134,6 +134,7 @@ func test_safe_circle_blocks_catch_and_revive_returns_there() -> void:
 	var revives: int = RunState.revives_left()
 	main._revive()
 	assert_eq(main.game_state, "playing")
+	assert_true(main.get_node("HUD").visible, "the HUD comes back with you")
 	assert_eq(main.player_cell, circle)
 	assert_eq(RunState.revives_left(), revives - 1)
 	RunState.revives_used = 0
@@ -823,4 +824,32 @@ func _cell_at_distance(main: Node3D, gap: int) -> Vector2i:
 		if main.player_dist[i] == gap:
 			return main.layout.cell_at(i)
 	return main.player_cell
+
+
+func test_the_devil_cam_replays_the_catch_from_its_eyes() -> void:
+	var main := _stalked_floor()
+	for i in roundi(main.TAPE_SECONDS / main.TAPE_STEP) + 10:
+		main.devil.position += Vector3(0.05, 0, 0)  # it closes in
+		main._record_tape(main.TAPE_STEP)
+	assert_eq(main.tape.size(), roundi(main.TAPE_SECONDS / main.TAPE_STEP), "only the last %.0f s are kept" % main.TAPE_SECONDS)
+	main._lose_game("devil")
+	var view: SubViewportContainer = main.death_screen.get_node_or_null("DevilCam")
+	assert_ne(view, null, "caught: the last seconds from its eyes")
+	var sub := view.get_child(0) as SubViewport
+	assert_eq(sub.world_3d, main.get_viewport().find_world_3d(), "the same maze, seen from elsewhere")
+	var eye := sub.get_child(0) as Camera3D
+	assert_eq(eye.cull_mask & main.DEVIL_LAYER, 0, "it doesn't see the inside of its own head")
+	assert_true(eye.environment != null and eye.environment.ambient_light_energy > main.env.ambient_light_energy, "it sees in the dark")
+	assert_false(main.get_node("HUD").visible, "the death screen stands alone")
+	var start: Vector3 = eye.global_position
+	main._process(1.0)
+	assert_ne(eye.global_position, start, "the replay moves")
+	main._stop_devil_cam()
+	assert_eq(main.death_screen.get_node_or_null("DevilCam"), null)
+	assert_eq(main.devil.position, main._devil_world_position(), "the Devil is back where it stands")
+	var fallen := _stalked_floor()
+	for i in 20:
+		fallen._record_tape(fallen.TAPE_STEP)
+	fallen._lose_game("trap")
+	assert_eq(fallen.death_screen.get_node_or_null("DevilCam"), null, "only the Devil gets a camera")
 

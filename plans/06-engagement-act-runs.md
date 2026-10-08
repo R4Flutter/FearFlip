@@ -66,6 +66,23 @@
 > ranked Daily plays; its milestones (3, 7, 14, 30 days) give existing Altar cosmetics (bone light, gold flash,
 > spectral light, void flash; their price in shards if owned) instead of new ones. Menu: a DAILY row, the Daily status
 > card under the shortcut (E5) and the Daily screen. HOW TO PLAY moved to a top-bar icon so seven rows still fit.
+>
+> **P7 (Director + Devil Cam + mercy) done** on `feature/godot-3d-director` (`scripts/director.gd`). Differences from
+> §3/§6: the Devil is no longer omniscient. It follows your scent trail and only cuts straight to you while it senses
+> you. It sees down a straight corridor within 5 tiles ahead of it (or next to it), or your lit flashlight beam pointed
+> at it within 7. It hears along corridors: footsteps 2 tiles, a sprint 6, a flip 6, a cracking floor 8. A noise or a
+> Director hint gives it a cell to investigate, and after that it goes back to your scent. There is no separate Search
+> state. The menace meter rises while it sees you, is within 6 tiles or within hearing range, and falls otherwise.
+> After 35 s of calm the Director builds and hints a cell within 4 tiles of you every 10 s. At 80 menace it peaks, and
+> only at the peak may it chase at full speed (otherwise it is capped at 2.2-3.0 m/s). A peak lasts up to 12 s, or
+> 6 s after it loses you, then it retreats 12 tiles for 15-25 s. The last key still enrages it: it hears it anywhere
+> and the meter jumps to the peak. Lantern Heart (it can't see your beam), Echo Step (it chases a flip's echo 2-4 tiles
+> away, if it would have heard the flip) and Soft Soles (a sprint is as quiet as a walk) now work. They are sold at the
+> Altar for 220/240/260 and paid by Clear Act 1 without sprinting and 10 Phase Dodges, as §3 planned. Mercy is G3 and
+> hidden: 3 deaths on one campaign floor give it +1 safe circle, a 5% slower Devil and hints spaced 1/0.7 apart until
+> you clear it. It never applies in the Daily or on a fixed seed. Devil Cam: the last 4 s of your and the Devil's
+> positions replay at 0.75x from its eyes in a 320x180 window on the death screen. The replay is a re-render of the
+> world it caught you in, with night sight and a red glare. Only Devil catches get one. The HUD now hides on death.
 
 ## Context
 

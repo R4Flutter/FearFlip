@@ -59,6 +59,18 @@ const SPAWN_TELEGRAPH := 1.5
 const CIRCLE_RETREAT_DISTANCE := 10
 ## The Director's relief (plans/06 P7): the Devil backs off at least this far (path tiles) while it relaxes.
 const RELAX_RETREAT_DISTANCE := 12
+## Devil Cam (plans/06 C6): the last TAPE_SECONDS of the hunt, sampled every TAPE_STEP, replayed through its eyes on
+## the death screen at REPLAY_SPEED. Its model sits on DEVIL_LAYER so its own camera looks out, not at its skull.
+const TAPE_SECONDS := 4.0
+const TAPE_STEP := 0.1
+const REPLAY_SPEED := 0.75
+const DEVIL_LAYER := 1 << 1
+const DEVIL_EYE := 2.2
+const DEVIL_CAM_SIZE := Vector2(320, 180)
+## It sees in the dark: its eye's ambient light and exposure multiplied, the fog thinned, and a red glare from its
+## eyes (energy, range, cone degrees) that lights you up in the replay.
+const DEVIL_SIGHT := Vector3(6.0, 1.8, 0.4)
+const DEVIL_GLARE := Vector3(6.0, 16.0, 50.0)
 ## Echo Step: a flip's echo sounds this many path tiles from you.
 const ECHO_DISTANCE := Vector2i(2, 4)
 const REVIVE_GRACE := 3.0
@@ -246,6 +258,11 @@ var quiet_sprint := false
 ## The Director (menace: when the Devil comes) and where the Devil last stepped (it sees ahead of it).
 var director: Director
 var devil_facing := Vector2i.ZERO
+## Devil Cam: [its position, its yaw, your position] every TAPE_STEP while it hunts, and the replay on death.
+var tape: Array = []
+var devil_cam: SubViewportContainer
+var _tape_clock := 0.0
+var _replay_time := 0.0
 ## The torch worn (Altar gear, folded like a card): the beam's shape, and Camera Flashes left this floor.
 var beam_energy := 1.0
 var beam_range := 1.0
@@ -503,12 +520,15 @@ func _process(delta: float) -> void:
 		return  # no floor yet (the pick screen), or paused
 	_update_flashlight(delta)
 	_animate_devil(delta)
+	if devil_cam != null:
+		_replay(delta)
 	var tilt := deg_to_rad(INVERT_TILT_DEGREES) if flip.forced_active and game_state == "playing" else 0.0
 	camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, tilt, clampf(4.0 * delta, 0.0, 1.0))
 	if game_state == "dying":
 		_animate_fall(delta)
 	if game_state != "playing":
 		return
+	_record_tape(delta)
 	elapsed += delta
 	time_left -= delta
 	catch_grace = maxf(catch_grace - delta, 0.0)
@@ -686,11 +706,11 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 	var dodged := not forced and devil_active and (lunge_left > 0.0 or
 			(_devil_distance() <= PHASE_DODGE_TILES and not devil_retreating and not circles.protects(player_cell)))
 	_apply_world(new_world)
-	if flip_echo:
-		brain.sense_left = 0.0  # it lost you in the echo
-		_noise(_cell_near_player(ECHO_DISTANCE.x, ECHO_DISTANCE.y), DevilBrain.NOISE_FLIP)
-	else:
+	if not flip_echo:
 		_noise(player_cell, DevilBrain.NOISE_FLIP)
+	elif _hears(player_cell, DevilBrain.NOISE_FLIP):
+		brain.sense_left = 0.0  # it heard the flip, but chases its echo instead of you
+		brain.investigate(_cell_near_player(ECHO_DISTANCE.x, ECHO_DISTANCE.y))
 	_count("flips")
 	if forced:
 		_count("forced_flips")
@@ -952,6 +972,9 @@ func _step_devil() -> void:
 	if devil_retreating and steps_since_retreat >= rule.devil_respawn_steps and not circles.protects(player_cell) \
 			and director.phase != Director.Phase.RELAX:
 		devil_retreating = false
+	# ponytail: its goal (a noise, a hint, your scent) is always reachable while both worlds share one maze
+	# (FloorLayout.NIGHTMARE_CHANGE = 0). Above 0 a flip can wall one off and it stands frozen until it senses you
+	# or gets a new hint: then drop goals it can't reach (BFS from devil_cell) before stepping.
 	devil_cell = layout.next_step(world, devil_cell, devil_target if devil_retreating else _devil_goal())
 	if devil_cell != prev_devil_cell:
 		devil_facing = devil_cell - prev_devil_cell
@@ -975,16 +998,20 @@ func _devil_sees() -> bool:
 ## A noise at `cell` carrying `radius` path tiles (master plan §7). At your cell it hears you (it knows where you
 ## are for a while); elsewhere it goes to look.
 func _noise(cell: Vector2i, radius: int) -> void:
-	if not devil_active:
-		return
-	var from := player_dist if cell == player_cell else layout.distances(world, cell)
-	var reach := from[devil_cell.y * layout.size + devil_cell.x]
-	if reach < 0 or reach > radius:
+	if not _hears(cell, radius):
 		return
 	if cell == player_cell:
 		brain.sense(false, true, 0.0)
 	else:
 		brain.investigate(cell)
+
+## The Devil (awake) is within `radius` path tiles of `cell`: it would hear a noise there.
+func _hears(cell: Vector2i, radius: int) -> bool:
+	if not devil_active:
+		return false
+	var from := player_dist if cell == player_cell else layout.distances(world, cell)
+	var reach := from[devil_cell.y * layout.size + devil_cell.x]
+	return reach >= 0 and reach <= radius
 
 ## A random open cell `near`..`far` path tiles from you (your own cell if there is none).
 func _cell_near_player(near: int, far: int) -> Vector2i:
@@ -1828,6 +1855,8 @@ func _build_devil() -> void:
 	devil_rig = DevilRig.new(devil_mesh)
 	# The devil model's chest is ~24 deg off +Z; square it up so it runs straight, not crabwise.
 	devil_mesh.rotation.y = -devil_rig.facing_yaw()
+	for part: MeshInstance3D in devil_mesh.find_children("*", "MeshInstance3D", true, false):
+		part.layers = DEVIL_LAYER  # the Devil Cam looks out of its eyes, not at its skull
 
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.02, 0.02)
@@ -2378,6 +2407,88 @@ func _lose_game(cause: String = "devil") -> void:
 	if not news.is_empty():
 		business += "\n" + "   ·   ".join(news)
 	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive, retry, business, share)
+	get_node("HUD").visible = false  # the death screen stands alone
+	if cause == "devil" and tape.size() >= 5:
+		_start_devil_cam()
+
+func _record_tape(delta: float) -> void:
+	_tape_clock += delta
+	if _tape_clock < TAPE_STEP or not devil_active:
+		return
+	_tape_clock = 0.0
+	tape.append([devil.position, devil.rotation.y, player.global_position])
+	if tape.size() > roundi(TAPE_SECONDS / TAPE_STEP):
+		tape.pop_front()
+
+## Devil Cam (plans/06 C6): the last seconds again, through its eyes, in a corner of the death screen. Clip bait.
+func _start_devil_cam() -> void:
+	devil_cam = SubViewportContainer.new()
+	devil_cam.name = "DevilCam"
+	devil_cam.stretch = true
+	devil_cam.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	devil_cam.position = Vector2(16, 16)
+	devil_cam.size = DEVIL_CAM_SIZE
+	var view := SubViewport.new()
+	view.world_3d = get_viewport().find_world_3d()
+	devil_cam.add_child(view)
+	var eye := Camera3D.new()
+	eye.cull_mask = 0xFFFFF & ~DEVIL_LAYER
+	eye.fov = 70.0
+	var sight := env.duplicate() as Environment
+	sight.ambient_light_energy = env.ambient_light_energy * DEVIL_SIGHT.x
+	sight.tonemap_exposure = env.tonemap_exposure * DEVIL_SIGHT.y
+	sight.fog_density = env.fog_density * DEVIL_SIGHT.z
+	eye.environment = sight
+	var glare := SpotLight3D.new()
+	glare.light_color = Color(1.0, 0.3, 0.25)
+	glare.light_energy = DEVIL_GLARE.x
+	glare.spot_range = DEVIL_GLARE.y
+	glare.spot_angle = DEVIL_GLARE.z
+	eye.add_child(glare)
+	view.add_child(eye)
+	eye.current = true
+	death_screen.add_child(devil_cam)
+	var tag := Label.new()
+	tag.name = "DevilCamTag"
+	tag.text = "DEVIL CAM"
+	tag.position = Vector2(26, 20)
+	tag.add_theme_font_override("font", DeathScreen.ui_font())
+	tag.add_theme_font_size_override("font_size", 16)
+	tag.add_theme_color_override("font_color", MainMenu.BLOOD)
+	death_screen.add_child(tag)
+	_replay_time = 0.0
+	_replay(0.0)
+
+## One frame of the Devil Cam: both of you where you were (looping, a little slowed), its eye on you.
+func _replay(delta: float) -> void:
+	_replay_time = fmod(_replay_time + delta * REPLAY_SPEED, TAPE_STEP * (tape.size() - 1))
+	var at := _replay_time / TAPE_STEP
+	var i := mini(floori(at), tape.size() - 2)
+	var t := at - i
+	var a: Array = tape[i]
+	var b: Array = tape[i + 1]
+	devil.position = (a[0] as Vector3).lerp(b[0], t)
+	devil.rotation.y = lerp_angle(a[1], b[1], t)
+	player.global_position = (a[2] as Vector3).lerp(b[2], t)
+	devil_mesh.position.y = -DEVIL_Y + devil_rig.animate(((b[0] as Vector3) - a[0]).length() / TAPE_STEP, delta)
+	var eye := devil_cam.get_child(0).get_child(0) as Camera3D
+	eye.global_position = devil.global_position + Vector3(0, DEVIL_EYE - DEVIL_Y, 0)
+	# Its eyes on you while it can see you; round a corner, on the way ahead.
+	var target := eye.global_position + Vector3(sin(devil.rotation.y), -0.1, cos(devil.rotation.y))
+	if DevilBrain.line_of_sight(layout, world, world_to_cell(devil.global_position), world_to_cell(player.global_position)):
+		target = player.global_position + Vector3(0, 0.3, 0)
+	if eye.global_position.distance_to(target) > 0.1:
+		eye.look_at(target)
+
+func _stop_devil_cam() -> void:
+	if devil_cam == null:
+		return
+	for node: Node in [devil_cam, death_screen.get_node_or_null("DevilCamTag")]:
+		if node != null:
+			death_screen.remove_child(node)
+			node.queue_free()
+	devil_cam = null
+	devil.position = _devil_world_position()
 
 ## How far the next act's shortcut is (just the Gate once that act is open; the escape in the last act).
 func _shortcut_line() -> String:
@@ -2393,6 +2504,8 @@ func _shortcut_line() -> String:
 func _revive() -> void:
 	if game_state != "lost" or snapshot.is_empty() or not RunState.use_revive():
 		return
+	_stop_devil_cam()
+	get_node("HUD").visible = true
 	floor_revives += 1
 	# Ad hook: a rewarded ad plays here before the revive; premium skips it (plans/ads_managment_prompt.md).
 	death_screen.visible = false
