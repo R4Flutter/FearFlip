@@ -160,7 +160,9 @@ func _draw_landmark(i: int, at: Vector2, cell: float) -> void:
 			draw_circle(at, r, landmarks.color(i))
 		Landmarks.Kind.GLYPH:
 			var text: String = Landmarks.GLYPHS[landmarks.variants[i]]
-			draw_string(ThemeDB.fallback_font, at + Vector2(-3.0 * text.length(), 4), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.4, 0.32))
+			var font_size := clampi(roundi(_room * 0.62), 7, 11)  # VIII fits the corridor on a 29x29 map too
+			var width := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+			draw_string(ThemeDB.fallback_font, at + Vector2(-width * 0.5, font_size * 0.35), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(1.0, 0.4, 0.32))
 		Landmarks.Kind.STATUE:
 			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -r * 1.2), at + Vector2(r, r * 0.8), at + Vector2(-r, r * 0.8)]), Color(0.85, 0.85, 0.9))
 		Landmarks.Kind.DEBRIS:

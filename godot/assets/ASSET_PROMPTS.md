@@ -200,10 +200,12 @@ candle at its feet is added in Godot.
 > hanging off the top, dark grimy wood, dark horror style, semi-realistic. Isolated on a plain white background, even
 > studio lighting.
 
-**glyph_1.png … glyph_4.png** (`textures/decals/`). 512x512, **transparent PNG** (if the tool can't do transparency,
-use pure white and say so, and Claude will cut it out). Painted on the wall at 0.9 m, so keep a margin of about 10%. One
-numeral per file: `glyph_1` = I, `glyph_2` = II, `glyph_3` = III, `glyph_4` = IV. Same brush and colour on all four
-so they read as one set. The prompt for III (swap the numeral for the other three):
+**glyph_1.png … glyph_12.png** (`textures/decals/`). 512x512, **transparent PNG** (if the tool can't do
+transparency, use pure white and say so, and Claude will cut it out). Painted on the wall at 0.9 m, so keep a margin of
+about 10%. One numeral per file: `glyph_1` = I, `glyph_2` = II … `glyph_12` = XII (big floors use all twelve). Same
+brush and colour on all twelve so they read as one set. Image tools often misspell long numerals (VIII, XII): check
+each one, regenerate the wrong ones, and skip any that won't come out right, since the game paints a missing numeral
+itself. The prompt for III (swap in the other numerals):
 > The Roman numeral III hand-painted on a wall in thick dark dried-blood red paint with a wide brush, rough uneven
 > strokes, drips running down from the bottom of each stroke, a few splatters around it, front view, flat, centred,
 > isolated on a transparent background, no wall texture, no shadow, no other text.

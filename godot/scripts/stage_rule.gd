@@ -45,7 +45,8 @@ const MAZE_SIZES: Array[int] = [
 
 const MAZE_SIZE_RANGE := Vector2i(10, 29)
 ## Rooms per side for the smallest / largest 2D maze. Tune here if floors feel too short or long.
-const ROOMS_3D := Vector2i(8, 14)
+## Every floor is at least Act 5 F1's 27x27 (the user's call, 8 Oct 2026: big mazes only; it was 8..14).
+const ROOMS_3D := Vector2i(13, 14)
 
 # Curve endpoints: [difficulty 0 (Act 1 F1), difficulty 1 (Act 5 F9)].
 const TIME_SLACK := Vector2(2.6, 1.7)

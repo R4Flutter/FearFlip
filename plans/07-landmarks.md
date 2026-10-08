@@ -1,8 +1,10 @@
 # 07: Landmarks (make the maze memorable)
 
 **Status (8 Oct 2026): L1-L5 built** (`scripts/landmarks.gd`, `tests/test_landmarks.gd`, `main.gd::_build_landmarks`,
-minimap marks, prompts in `assets/ASSET_PROMPTS.md` §3b). Measured on 200 seeds: 10 landmarks per 15x15 floor,
-~91% of open cells within 4 steps (worst floor 83%), ~38 ms per floor including generation. Changed from the
+minimap marks, prompts in `assets/ASSET_PROMPTS.md` §3b). Every floor is 27x27 or 29x29 now (`StageRule.ROOMS_3D`
+13..14), so the count scales: one landmark per 11 open cells (31 on 27x27, 36 on 29x29), ~87% of open cells within
+4 steps at every size, ~20-25 ms per big floor. 19 names (glyphs run I-XII); on big floors a name repeats, but only
+14+ tiles from its twin. Changed from the
 plan: worlds share one maze now (`FloorLayout.NIGHTMARE_CHANGE` = 0), so every landmark is an anchor and there's no
 world-only kind. Lamps get a halo, because walls are one mesh each and the Compatibility renderer gives a mesh at
 most 8 lights, so a lamp's colour barely reaches them. L6 (the event log and the playtest) is still open.

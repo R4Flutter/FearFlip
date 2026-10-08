@@ -6,18 +6,22 @@ extends RefCounted
 
 enum Kind { LAMP, FLICKER, GLYPH, STATUE, DEBRIS }
 
-## Every open cell ends up this many path cells or fewer from a landmark (as far as MAX_LANDMARKS allows).
+## Every open cell ends up this many path cells or fewer from a landmark (as far as the budget allows).
 const COVER_RADIUS := 4
 ## Landmarks at least this many path cells apart.
 const MIN_SPACING := 4
-## Two of a kind at least this far apart, so "the statue" points at one place.
+## Two of a kind at least this far apart, so "the statue" points at one place nearby.
 const SAME_KIND_SPACING := 6
-const MAX_LANDMARKS := 10
+## The budget: one landmark per this many open cells (~9 on a 15x15 floor, ~31 on 27x27).
+const CELLS_PER_LANDMARK := 11
+## A big floor needs more landmarks than there are names, so a name comes back, but only this many tiles from its
+## twin (Manhattan, so at least as many path cells): "the red lamp in the north half".
+const REPEAT_SPACING := 14
 ## How much a cell is worth as a landmark: junction, corner, straight corridor.
 const TIER_WEIGHT: Array[float] = [1.0, 0.75, 0.4]
 ## Kept apart from both worlds' looks so a red lamp reads red in WAKE and in NIGHTMARE.
 const LAMP_COLORS: Array[Color] = [Color(1.0, 0.16, 0.1), Color(0.2, 1.0, 0.3), Color(1.0, 0.62, 0.12), Color(0.75, 0.35, 1.0)]
-const GLYPHS: Array[String] = ["I", "II", "III", "IV"]
+const GLYPHS: Array[String] = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"]
 
 var cells: Array[Vector2i] = []
 var kinds: Array[int] = []
@@ -27,69 +31,100 @@ var variants: Array[int] = []
 var sides: Array[Vector2i] = []
 
 
+## Cells are grid indices (y * size + x) inside: FloorLayout.is_open costs ~2 us a call, too slow for a few hundred
+## bounded searches on a 29x29 floor.
 func _init(layout: FloorLayout, seed_value: int, excluded: Array[Vector2i]) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([seed_value, "landmarks"])
+	var size := layout.size
+	# 1 = open in both worlds, border cells never (so an open cell's four neighbours are always on the grid).
+	var open := PackedByteArray()
+	open.resize(size * size)
+	for i in open.size():
+		var cell := layout.cell_at(i)
+		var inside := cell.x > 0 and cell.y > 0 and cell.x < size - 1 and cell.y < size - 1
+		open[i] = 1 if inside and layout.is_open(FloorLayout.World.WAKE, cell) and layout.is_open(FloorLayout.World.NIGHTMARE, cell) else 0
+	var steps := PackedInt32Array([1, -1, size, -size])
+	var skip := {}
+	for cell in excluded:
+		skip[cell.y * size + cell.x] = true
 	var uncovered := {}
-	var candidates: Array[Vector2i] = []
-	for y in layout.size:
-		for x in layout.size:
-			var cell := Vector2i(x, y)
-			if not _open(layout, cell):
-				continue
-			uncovered[cell] = true
-			if _ways(layout, cell).size() >= 2 and not excluded.has(cell):
-				candidates.append(cell)
+	var candidates: Array[int] = []
+	var weight := {}
+	for i in open.size():
+		if open[i] == 0:
+			continue
+		uncovered[i] = true
+		var ways := open[i + 1] + open[i - 1] + open[i + size] + open[i - size]
+		if ways < 2 or skip.has(i):
+			continue
+		candidates.append(i)
+		var straight := ways == 2 and (open[i + 1] + open[i - 1] == 2 or open[i + size] + open[i - size] == 2)
+		weight[i] = TIER_WEIGHT[0 if ways >= 3 else (2 if straight else 1)]
+	var budget := ceili(uncovered.size() / float(CELLS_PER_LANDMARK))
 	_shuffle(candidates, rng)
-	# cell -> {nearby cell: path cells}, out to the widest rule (SAME_KIND_SPACING).
+	# Per candidate: {nearby cell: path cells} out to the widest rule, the cells it covers and how many of those are
+	# still uncovered (kept up to date below). Per cell: the candidates that would cover it.
 	var reach := {}
-	for cell in candidates:
-		reach[cell] = _within(layout, cell, SAME_KIND_SPACING)
-	var picks: Array[Vector2i] = []
+	var covers := {}
+	var gains := {}
+	var covered_by := {}
+	for i in candidates:
+		var near := _within(open, steps, i, SAME_KIND_SPACING)
+		reach[i] = near
+		var mine: Array[int] = []
+		for c: int in near:
+			if near[c] <= COVER_RADIUS:
+				mine.append(c)
+				covered_by.get_or_add(c, []).append(i)
+		covers[i] = mine
+		gains[i] = mine.size()
+	var picks: Array[int] = []
+	var blocked := {}
 	# Greedy set cover: the cell that covers the most still-uncovered cells, decisions weighted up.
-	while picks.size() < MAX_LANDMARKS and not uncovered.is_empty():
-		var best := Vector2i(-1, -1)
+	while picks.size() < budget and not uncovered.is_empty():
+		var best := -1
 		var best_score := 0.0
-		for cell in candidates:
-			if picks.any(func(p: Vector2i) -> bool: return reach[p].get(cell, MIN_SPACING) < MIN_SPACING):
-				continue
-			var gain := 0
-			for near: Vector2i in reach[cell]:
-				if reach[cell][near] <= COVER_RADIUS and uncovered.has(near):
-					gain += 1
-			var score := gain * TIER_WEIGHT[_tier(layout, cell)]
-			if score > best_score:
-				best = cell
+		for i in candidates:
+			var score: float = gains[i] * weight[i]
+			if score > best_score and not blocked.has(i):
+				best = i
 				best_score = score
-		if best_score <= 0.0:
+		if best < 0:
 			break
 		picks.append(best)
-		for near: Vector2i in reach[best]:
-			if reach[best][near] <= COVER_RADIUS:
-				uncovered.erase(near)
-	# One of each name: every lamp colour, every glyph, one flicker, one statue, one debris pile.
-	var pool: Array[Vector2i] = [Vector2i(Kind.FLICKER, 0), Vector2i(Kind.STATUE, 0), Vector2i(Kind.DEBRIS, 0)]
+		for near: int in reach[best]:
+			if reach[best][near] < MIN_SPACING:
+				blocked[near] = true
+		for near: int in covers[best]:
+			if uncovered.erase(near):
+				for other: int in covered_by[near]:
+					gains[other] -= 1
+	# Names: every lamp colour, every glyph, one flicker, one statue, one debris pile; reshuffled when they run out.
+	var names: Array[Vector2i] = [Vector2i(Kind.FLICKER, 0), Vector2i(Kind.STATUE, 0), Vector2i(Kind.DEBRIS, 0)]
 	for i in LAMP_COLORS.size():
-		pool.append(Vector2i(Kind.LAMP, i))
+		names.append(Vector2i(Kind.LAMP, i))
 	for i in GLYPHS.size():
-		pool.append(Vector2i(Kind.GLYPH, i))
-	_shuffle(pool, rng)
-	for cell in picks:
+		names.append(Vector2i(Kind.GLYPH, i))
+	var pool: Array[Vector2i] = []
+	var named: Array[int] = []
+	for i in picks:
+		var cell := layout.cell_at(i)
 		var walls: Array[Vector2i] = []
 		for d in FloorLayout.DIRS:
 			if not layout.is_open(FloorLayout.ANY, cell + d):
 				walls.append(d)
 		var side := walls[rng.randi() % walls.size()] if not walls.is_empty() else Vector2i.ZERO
-		var fits := pool.filter(func(entry: Vector2i) -> bool: return entry.x != Kind.GLYPH or side != Vector2i.ZERO)
-		var spaced := fits.filter(func(entry: Vector2i) -> bool:
-			for i in cells.size():
-				if kinds[i] == entry.x and reach[cells[i]].get(cell, SAME_KIND_SPACING) < SAME_KIND_SPACING:
-					return false
-			return true)
-		if fits.is_empty():
-			continue  # a crossroads with only glyphs left: nothing to paint on
-		var entry: Vector2i = spaced[0] if not spaced.is_empty() else fits[0]
+		var entry := _name_for(i, cell, side, pool, named, reach)
+		if entry.x < 0:
+			var fresh := names.duplicate()
+			_shuffle(fresh, rng)
+			pool.append_array(fresh)
+			entry = _name_for(i, cell, side, pool, named, reach)
+		if entry.x < 0:
+			continue  # nothing fits here (a crossroads among glyphs, twins too close): leave it plain
 		pool.erase(entry)
+		named.append(i)
 		cells.append(cell)
 		kinds.append(entry.x)
 		variants.append(entry.y)
@@ -110,40 +145,49 @@ func color(i: int) -> Color:
 	return LAMP_COLORS[variants[i]] if kinds[i] == Kind.LAMP else Color(0.92, 0.9, 0.82)
 
 
-static func _open(layout: FloorLayout, cell: Vector2i) -> bool:
-	return layout.is_open(FloorLayout.World.WAKE, cell) and layout.is_open(FloorLayout.World.NIGHTMARE, cell)
+## The first name in `pool` that suits grid index `index` (`cell`): a glyph needs a wall, a name already used must be
+## REPEAT_SPACING from its twin, and one whose kind sits within SAME_KIND_SPACING is only the fallback. (-1, -1) if
+## none. `named` = the grid index of each landmark so far.
+func _name_for(index: int, cell: Vector2i, side: Vector2i, pool: Array[Vector2i], named: Array[int], reach: Dictionary) -> Vector2i:
+	var fallback := Vector2i(-1, -1)
+	for entry in pool:
+		if entry.x == Kind.GLYPH and side == Vector2i.ZERO:
+			continue
+		var twin := false
+		var crowded := false
+		for i in cells.size():
+			if kinds[i] != entry.x:
+				continue
+			if variants[i] == entry.y and absi(cells[i].x - cell.x) + absi(cells[i].y - cell.y) < REPEAT_SPACING:
+				twin = true
+				break
+			crowded = crowded or reach[named[i]].get(index, SAME_KIND_SPACING) < SAME_KIND_SPACING
+		if twin:
+			continue
+		if not crowded:
+			return entry
+		if fallback.x < 0:
+			fallback = entry
+	return fallback
 
 
-static func _ways(layout: FloorLayout, cell: Vector2i) -> Array[Vector2i]:
-	var ways: Array[Vector2i] = []
-	for d in FloorLayout.DIRS:
-		if _open(layout, cell + d):
-			ways.append(d)
-	return ways
-
-
-## 0 junction (3+ ways), 1 corner, 2 straight corridor.
-static func _tier(layout: FloorLayout, cell: Vector2i) -> int:
-	var ways := _ways(layout, cell)
-	if ways.size() >= 3:
-		return 0
-	return 2 if ways[0] == -ways[1] else 1
-
-
-## {cell: path cells} for cells open in both worlds up to `limit` path cells from `from` (a bounded BFS).
-static func _within(layout: FloorLayout, from: Vector2i, limit: int) -> Dictionary:
+## {grid index: path cells} for open cells up to `limit` path cells from `from` (a bounded BFS on the flat grid;
+## `steps` = the four neighbour offsets).
+static func _within(open: PackedByteArray, steps: PackedInt32Array, from: int, limit: int) -> Dictionary:
 	var dist := {from: 0}
-	var queue: Array[Vector2i] = [from]
+	var queue: Array[int] = [from]
 	var head := 0
 	while head < queue.size():
-		var cell := queue[head]
+		var here := queue[head]
 		head += 1
-		if dist[cell] == limit:
+		var d: int = dist[here]
+		if d == limit:
 			continue
-		for d in FloorLayout.DIRS:
-			if not dist.has(cell + d) and _open(layout, cell + d):
-				dist[cell + d] = dist[cell] + 1
-				queue.append(cell + d)
+		for step in steps:
+			var next := here + step
+			if open[next] == 1 and not dist.has(next):
+				dist[next] = d + 1
+				queue.append(next)
 	return dist
 
 
