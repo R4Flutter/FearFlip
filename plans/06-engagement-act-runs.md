@@ -83,6 +83,37 @@
 > you clear it. It never applies in the Daily or on a fixed seed. Devil Cam: the last 4 s of your and the Devil's
 > positions replay at 0.75x from its eyes in a 320x180 window on the death screen. The replay is a re-render of the
 > world it caught you in, with night sight and a red glare. Only Devil catches get one. The HUD now hides on death.
+>
+> **P0 (playtest log) done** on `feature/godot-3d-abyss`. `RunState.log_event()` appends one JSON line per event to
+> `user://events.jsonl`: `session` (each launch), `run` (act, mode), `floor` (floor, act, grade, seconds, cards), `death`
+> (floor, act, cause, seconds, progress), `run_end` (floor, shards), `pick` (kind, id and what was offered: the pick-rate
+> KPI), `unlock` (Altar buys) and `share` (copied results). Every line carries its unix time `t` and session `s`. Tests
+> and the editor's own test runner never write it. The 5-10 person playtest itself is still yours to run.
+>
+> **P8 (Abyss + Ranks) done** on `feature/godot-3d-abyss`. Differences from §3/§6: the Abyss is `StageRule.ABYSS_ACT`
+> (act 6, floors 51+, `floor_in_act` = depth). Every Abyss floor plays at difficulty 1.0 (Act 5 F9) and never past it;
+> it deals 1 rule card, one more every 5 floors, capped at 4 (5 through a Hunt, 3 through a Shrine), so deep floors add
+> rules, not speed. No Sanctuary or Gate down there: doors after every floor, death ends the run. The last Gate now offers
+> RETURN or DESCEND like every Gate, and DESCEND leads into the Abyss; the hub's act picker shows it as a sixth card
+> (locked until floor 50 first falls). The depth score is the most Abyss floors cleared in one run (`MetaState.abyss_best`,
+> shown on the card, the death screen and the dashboard's goal card, which counts toward floor 100 = depth 50).
+> Nightmare Ranks are `Cards.RANKS`, 20 cards of one rule each (the Devil wakes sooner, less time, fewer circles,
+> faster Flipping Time, more cracks, slower flip, dimmer lights, fog, a faster Devil, fainter cracks, a third key, a
+> duller heartbeat, and at 20 WAKE no longer slows it). Rank n plays ranks 1..n and pays 1.05^n shards (x2.65 at 20).
+> The first floor-50 clear opens rank 1; any Gate cleared at your top rank opens the next. The rank is picked in the act
+> picker (‹ ›), fixed for the run, and never applies to the Daily. The CrazyGames leaderboard came with P9's bridge.
+>
+> **P9 (live ops) done** on `feature/godot-3d-liveops` (`scripts/live_ops.gd`, `scripts/portal.gd`). Differences from
+> §3/§6: the Cursed Week (E6) is one of 8 two-sided curses (`Cards.WEEKLY`, Monday to Sunday by week number) that takes
+> the last slot of the run-start curse offer, so it is opt-in, counts as the run's curse and pays 40-60% more. Events
+> (E7) are `Cards.EVENTS` (Blood Moon 24 Oct-2 Nov, Frozen Nightmare 15 Dec-7 Jan): while one runs, its rule cards join
+> every deck (not the Daily's) and its two cosmetics (a light and a flip flash) are sold at the Altar, then kept for
+> good. The Act 4 and Act 5 drops are `LiveOps.released_acts` (5 now); a Gate before an act that isn't out ends the run
+> and its card says COMING SOON. Cloud saves: `Portal` mirrors `profile.cfg` and `save.cfg` through the CrazyGames data
+> module (pulled before each is read, pushed after each write) once the SDK is ready; the Web export preset loads the
+> SDK in its head include, single-threaded. The Abyss leaderboard sends each new deepest run, AES-GCM encrypted in the
+> head include, once CrazyGames gives the game a leaderboard key. Not done (master plan §12 Full Launch): gameplay
+> start/stop, ads, username and avatar. Export templates must be installed to export.
 
 ## Context
 
