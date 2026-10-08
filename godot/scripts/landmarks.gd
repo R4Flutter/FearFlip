@@ -12,13 +12,11 @@ const COVER_RADIUS := 4
 const MIN_SPACING := 4
 ## Two of a kind at least this far apart, so "the statue" points at one place nearby.
 const SAME_KIND_SPACING := 6
-## The budget: one landmark per this many open cells (~9 on a 15x15 floor, ~31 on 27x27).
+## The budget cap: one landmark per this many open cells. Junctions run out first (~14 landmarks on 27x27).
 const CELLS_PER_LANDMARK := 11
 ## A big floor needs more landmarks than there are names, so a name comes back, but only this many tiles from its
 ## twin (Manhattan, so at least as many path cells): "the red lamp in the north half".
 const REPEAT_SPACING := 14
-## How much a cell is worth as a landmark: junction, corner, straight corridor.
-const TIER_WEIGHT: Array[float] = [1.0, 0.75, 0.4]
 ## Kept apart from both worlds' looks so a red lamp reads red in WAKE and in NIGHTMARE.
 const LAMP_COLORS: Array[Color] = [Color(1.0, 0.16, 0.1), Color(0.2, 1.0, 0.3), Color(1.0, 0.62, 0.12), Color(0.75, 0.35, 1.0)]
 const GLYPHS: Array[String] = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"]
@@ -50,17 +48,13 @@ func _init(layout: FloorLayout, seed_value: int, excluded: Array[Vector2i]) -> v
 		skip[cell.y * size + cell.x] = true
 	var uncovered := {}
 	var candidates: Array[int] = []
-	var weight := {}
 	for i in open.size():
 		if open[i] == 0:
 			continue
 		uncovered[i] = true
-		var ways := open[i + 1] + open[i - 1] + open[i + size] + open[i - size]
-		if ways < 2 or skip.has(i):
-			continue
-		candidates.append(i)
-		var straight := ways == 2 and (open[i + 1] + open[i - 1] == 2 or open[i + size] + open[i - size] == 2)
-		weight[i] = TIER_WEIGHT[0 if ways >= 3 else (2 if straight else 1)]
+		# Only junctions (3+ ways): a corner or a corridor is no decision, so nothing to remember there.
+		if open[i + 1] + open[i - 1] + open[i + size] + open[i - size] >= 3 and not skip.has(i):
+			candidates.append(i)
 	var budget := ceili(uncovered.size() / float(CELLS_PER_LANDMARK))
 	_shuffle(candidates, rng)
 	# Per candidate: {nearby cell: path cells} out to the widest rule, the cells it covers and how many of those are
@@ -81,15 +75,14 @@ func _init(layout: FloorLayout, seed_value: int, excluded: Array[Vector2i]) -> v
 		gains[i] = mine.size()
 	var picks: Array[int] = []
 	var blocked := {}
-	# Greedy set cover: the cell that covers the most still-uncovered cells, decisions weighted up.
+	# Greedy set cover: the junction that covers the most still-uncovered cells.
 	while picks.size() < budget and not uncovered.is_empty():
 		var best := -1
-		var best_score := 0.0
+		var best_score := 0
 		for i in candidates:
-			var score: float = gains[i] * weight[i]
-			if score > best_score and not blocked.has(i):
+			if gains[i] > best_score and not blocked.has(i):
 				best = i
-				best_score = score
+				best_score = gains[i]
 		if best < 0:
 			break
 		picks.append(best)

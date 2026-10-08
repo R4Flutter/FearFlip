@@ -4,10 +4,10 @@ extends McpTestSuite
 
 const WAKE := FloorLayout.World.WAKE
 const NIGHTMARE := FloorLayout.World.NIGHTMARE
-## Measured: the greedy cover reaches ~87% of open cells on average at every size (worst floor ~79% on 15x15,
-## ~85% on 27x27 and 29x29).
-const MIN_FLOOR_COVER := 0.75
-const MIN_AVERAGE_COVER := 0.85
+## Measured with junction-only landmarks: ~50% of open cells on average at every size (worst floor ~24% on 15x15,
+## ~36% on 25x25 and 27x27); a floor has only ~16 junctions open in both worlds, and nearly all get one.
+const MIN_FLOOR_COVER := 0.2
+const MIN_AVERAGE_COVER := 0.42
 
 
 func suite_name() -> String:
@@ -33,6 +33,10 @@ func _check(rooms: int, seeds: int) -> float:
 			assert_true(layout.is_open(WAKE, cell) and layout.is_open(NIGHTMARE, cell), "%s: landmark %s in a wall" % [where, cell])
 			assert_false(excluded.has(cell), "%s: landmark on gameplay cell %s" % [where, cell])
 			assert_eq(marks.at(cell), i)
+			var ways := 0
+			for d in FloorLayout.DIRS:
+				ways += 1 if layout.is_open(WAKE, cell + d) and layout.is_open(NIGHTMARE, cell + d) else 0
+			assert_true(ways >= 3, "%s: landmark %s not at a junction" % [where, cell])
 			var side := marks.sides[i]
 			if side != Vector2i.ZERO:
 				assert_false(layout.is_open(FloorLayout.ANY, cell + side), "%s: %s leans on an open side" % [where, cell])
