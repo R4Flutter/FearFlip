@@ -529,15 +529,17 @@ func test_the_camera_flash_freezes_it_once_a_floor() -> void:
 	main._apply_world(NIGHTMARE)
 	main.catch_grace = 0.0
 	main.devil_cell = main.player_cell
-	main.devil.position = main._devil_world_position()
+	main.devil.position = main._devil_world_position() + Vector3(0.5, 0, 0)  # mid-glide
 	var press := InputEventAction.new()
 	press.action = "flashlight"
 	press.pressed = true
 	main._unhandled_input(press)
 	assert_eq(main.flash_stuns, 0, "once a floor")
 	assert_true(main.flashlight_on, "the flash isn't the light switch")
+	var frozen_at: Vector3 = main.devil.position
 	main._process(0.05)
 	assert_eq(main.lunge_left, 0.0, "frozen: no grab")
+	assert_eq(main.devil.position, frozen_at, "not even a step")
 	main.devil_stun = 0.0
 	main._process(0.05)
 	assert_gt(main.lunge_left, 0.0, "and then it moves again")

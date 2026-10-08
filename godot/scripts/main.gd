@@ -820,6 +820,8 @@ func _devil_world_position() -> Vector3:
 
 ## Glide toward the Devil's grid cell (or lunge at you), face the way it runs, drive the run cycle.
 func _animate_devil(delta: float) -> void:
+	if devil_stun > 0.0:
+		return  # frozen by a Camera Flash, mid-stride
 	var goal_position := _devil_world_position()
 	var move_speed := CELL_SIZE / _devil_step_interval()
 	if lunge_left > 0.0:

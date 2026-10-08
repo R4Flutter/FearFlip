@@ -198,6 +198,8 @@ var _shard_count: Label
 ## The open hub screen (null when none) and the row focus returns to when it closes.
 var _screen: Control
 var _screen_row: Control
+## Dashboard buttons that take no focus while a modal is up (_fence).
+var _fenced: Array[Button] = []
 var _how_to: Control
 var _how_box: Control
 var _how_back: Button
@@ -317,6 +319,7 @@ func _open_acts() -> void:
 	_acts.modulate.a = 0.0
 	_retarget(_acts).tween_property(_acts, "modulate:a", 1.0, 0.2)
 	var act := RunState.act() if RunState.has_progress() else MetaState.acts_unlocked
+	_fence(_acts)
 	(_acts.find_child("Act%d" % act, true, false) as Control).grab_focus()
 
 
@@ -324,6 +327,7 @@ func _close_acts() -> void:
 	var tween := _retarget(_acts)
 	tween.tween_property(_acts, "modulate:a", 0.0, 0.14)
 	tween.chain().tween_callback(_acts.hide)
+	_unfence()
 	(_menu.get_node("NewRun") as Control).grab_focus()
 
 
@@ -335,6 +339,7 @@ func _open_how_to() -> void:
 	var tween := _retarget(_how_to)
 	tween.tween_property(_how_to, "modulate:a", 1.0, 0.2)
 	tween.tween_property(_how_box, "scale", Vector2.ONE, 0.2)
+	_fence(_how_to)
 	_how_back.grab_focus()
 
 
@@ -342,7 +347,24 @@ func _close_how_to() -> void:
 	var tween := _retarget(_how_to)
 	tween.tween_property(_how_to, "modulate:a", 0.0, 0.14)
 	tween.chain().tween_callback(_how_to.hide)
+	_unfence()
 	_how_row.grab_focus()
+
+
+## While `modal` is up, no button behind it takes focus: arrow keys and pads can't wander onto PLAY or QUIT.
+func _fence(modal: Control) -> void:
+	_unfence()
+	for button: Button in find_children("*", "Button", true, false):
+		if not modal.is_ancestor_of(button) and button.focus_mode != Control.FOCUS_NONE:
+			button.focus_mode = Control.FOCUS_NONE
+			_fenced.append(button)
+
+
+func _unfence() -> void:
+	for button in _fenced:
+		if is_instance_valid(button):
+			button.focus_mode = Control.FOCUS_ALL
+	_fenced.clear()
 
 
 # --- Motion -----------------------------------------------------------------------------------
@@ -629,8 +651,7 @@ func _build_column() -> void:
 	_row("BESTIARY", "%d / %d MET" % [met, Lore.BESTIARY.size()], Icon.DEMON, _open_bestiary)
 	_row("ARCHIVE", "%d / %d NOTES" % [mini(MetaState.notes_found, Lore.NOTES.size()), Lore.NOTES.size()], Icon.MAIL,
 			_open_archive)
-	_how_row = _row("HOW TO PLAY", "BEST FLOOR %d / %d" % [RunState.best_floor, StageRule.LAST_FLOOR], Icon.HELMET,
-			_open_how_to)
+	_how_row = _row("HOW TO PLAY", "CONTROLS & RULES", Icon.HELMET, _open_how_to)
 	if not OS.has_feature("web"):
 		_quit = _text_button(self, "QUIT", 14)
 		_quit.position = Vector2(MARGIN + 4, VIEW.y - 40)
@@ -1080,6 +1101,7 @@ func _open_screen(title: String, fill: Callable, row: Control, art: String) -> v
 	back.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	back.pressed.connect(_close_screen)
 	_screen.visible = true
+	_fence(_screen)
 	if not reopening:
 		_screen.modulate.a = 0.0
 		_retarget(_screen).tween_property(_screen, "modulate:a", 1.0, 0.2)
@@ -1092,6 +1114,7 @@ func _close_screen() -> void:
 		return
 	_screen.queue_free()
 	_screen = null
+	_unfence()
 	if is_instance_valid(_screen_row):
 		_screen_row.grab_focus()
 
@@ -1137,8 +1160,9 @@ func _wear(id: String) -> void:
 
 
 func _fill_mirror(list: VBoxContainer) -> void:
-	_label(list, "FLOORS %d  ·  DEATHS %d  ·  FLIPS %d  ·  CHESTS %d  ·  CLOSE CALLS %d" % [MetaState.stat("floors"),
-			MetaState.stat("deaths"), MetaState.stat("flips"), MetaState.stat("chests"), MetaState.stat("close_calls")], 16, BONE)
+	_label(list, "BEST FLOOR %d / %d  ·  FLOORS %d  ·  DEATHS %d  ·  FLIPS %d  ·  CHESTS %d  ·  CLOSE CALLS %d" % [
+			RunState.best_floor, StageRule.LAST_FLOOR, MetaState.stat("floors"), MetaState.stat("deaths"),
+			MetaState.stat("flips"), MetaState.stat("chests"), MetaState.stat("close_calls")], 16, BONE)
 	_section(list, "ACT MASTERY", STAR_RULES)
 	for act in range(1, StageRule.ACT_COUNT + 1):
 		var side := _entry(list, "ACT %s  ·  %s" % [ROMAN[act - 1], StageRule.ACT_NAMES[act - 1].to_upper()],

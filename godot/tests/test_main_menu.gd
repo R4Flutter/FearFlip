@@ -149,5 +149,28 @@ func test_the_archive_keeps_found_notes_and_seen_endings() -> void:
 	assert_false(texts.has(Lore.ACT_ENDINGS[1]))
 
 
+func test_an_open_screen_keeps_focus_inside_it() -> void:
+	var menu := _spawn_menu(1)
+	var play: Button = menu._menu.get_node("Play")
+	for open: Callable in [menu._open_altar, menu._open_how_to, menu._open_acts]:
+		open.call()
+		assert_eq(play.focus_mode, Control.FOCUS_NONE, "keys can't reach PLAY behind the screen")
+		if menu._screen != null:
+			menu._close_screen()
+		elif menu._how_to.visible:
+			menu._close_how_to()
+		else:
+			menu._close_acts()
+		assert_eq(play.focus_mode, Control.FOCUS_ALL, "and can again once it closes")
+
+
+func test_best_floor_lives_in_the_mirror() -> void:
+	RunState.best_floor = 7
+	var menu := _spawn_menu(1)
+	assert_eq((menu._menu.get_node("HowToPlay/Content/Sub") as Label).text, "CONTROLS & RULES")
+	menu._open_mirror()
+	assert_true(_texts(menu._screen).any(func(text: String) -> bool: return text.contains("BEST FLOOR 7 / 50")))
+
+
 func _texts(root: Node) -> Array:
 	return root.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
