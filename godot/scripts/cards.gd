@@ -88,9 +88,9 @@ const OMENS: Array[Dictionary] = [
 	{"id": "blood_pact", "name": "BLOOD PACT", "text": "Half again the shards. It runs 10% faster.", "mods": {"shards": 1.5, "devil_speed": 1.1}},
 	{"id": "ghost_sight", "name": "GHOST SIGHT", "text": "You see the other world's walls, faintly.", "mods": {"ghost_sight": 1}},
 	{"id": "last_breath", "name": "LAST BREATH", "text": "Once a floor, a catch sends you back to your last safe circle.", "mods": {"last_breath": 1}},
-	{"id": "lantern_heart", "name": "LANTERN HEART", "text": "Your flashlight never gives you away.", "mods": {}, "needs": "devil senses (P7)"},
-	{"id": "echo_step", "name": "ECHO STEP", "text": "Every flip leaves an echo it chases instead of you.", "mods": {}, "needs": "devil senses (P7)"},
-	{"id": "soft_soles", "name": "SOFT SOLES", "text": "It can't hear you sprint.", "mods": {}, "needs": "devil senses (P7)"},
+	{"id": "lantern_heart", "name": "LANTERN HEART", "text": "Your flashlight never gives you away.", "mods": {"beam_hidden": 1}},
+	{"id": "echo_step", "name": "ECHO STEP", "text": "Every flip leaves an echo it chases instead of you.", "mods": {"flip_echo": 1}},
+	{"id": "soft_soles", "name": "SOFT SOLES", "text": "It can't hear you sprint.", "mods": {"quiet_sprint": 1}},
 ]
 ## Curses (B2): offered at a run's start once Act 1 is cleared; one lies on every floor of the run. "rule" is
 ## the rule card it doubles, which the run's floors then never deal.

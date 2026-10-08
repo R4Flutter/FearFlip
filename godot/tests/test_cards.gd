@@ -118,7 +118,7 @@ func test_the_omen_pool_starts_small_and_grows_with_tokens() -> void:
 	var starters := Cards.omen_pool(0)
 	assert_eq(starters.size(), Cards.STARTER_OMENS)
 	var all := Cards.omen_pool(99)
-	assert_eq(all.size(), 13, "13 omens work before the Devil can hear and see (P7)")
+	assert_eq(all.size(), Cards.OMENS.size(), "every omen works now the Devil can hear and see (P7)")
 	for id in all:
 		assert_eq(Cards.kind(id), "omen")
 		assert_false(Cards.find(id).has("needs"), "%s waits for its system" % id)

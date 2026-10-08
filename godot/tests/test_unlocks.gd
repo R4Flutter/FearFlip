@@ -151,6 +151,13 @@ func test_the_profile_keeps_the_hub_through_a_relaunch() -> void:
 	assert_eq(MetaState.shards, 999 - Unlocks.item("lantern")["cost"])
 
 
+func test_the_senses_omens_are_sold_and_won() -> void:
+	for id: String in ["lantern_heart", "echo_step", "soft_soles"]:
+		assert_eq(Unlocks.item(id).get("kind"), "omen", "%s at the Altar" % id)
+	assert_eq(Unlocks.challenge("soft_steps")["item"], "soft_soles", "clear Act 1 without sprinting: Soft Soles")
+	assert_eq(Unlocks.challenge("phase_walker")["item"], "echo_step", "10 Phase Dodges: Echo Step")
+
+
 func test_every_challenge_is_well_formed() -> void:
 	var ids := {}
 	for challenge: Dictionary in Unlocks.CHALLENGES:

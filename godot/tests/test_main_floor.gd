@@ -88,6 +88,7 @@ func test_devil_walks_shortest_path_through_open_cells() -> void:
 	var main := _spawn_floor()
 	main._wake_devil()
 	main.devil_cell = main.layout.devil_spawn
+	main.brain.sense(true, false, 0.0)  # it knows where you are: the shortest way there
 	var left: int = main._devil_distance()
 	while left > 0:
 		var from: Vector2i = main.devil_cell
@@ -685,4 +686,141 @@ func test_the_last_daily_floor_ends_on_its_result() -> void:
 	assert_ne(copy, null, "a ranked Daily ends with its result to copy")
 	copy.pressed.emit()
 	assert_eq(copy.text, "COPIED", "pasted anywhere: Discord, X, a group chat")
+
+
+# --- plans/06 P7: the Devil's senses and the Director on the floor ---------------------------------------------------
+
+## You walk `steps` cells along the route; the Devil wakes at its far spawn, sensing nothing.
+func _stalked_floor(steps := 4) -> Node3D:
+	var main := _spawn_floor()
+	main._apply_world(NIGHTMARE)
+	for i in steps:
+		main._enter_cell(main.route[i + 1])
+	main._wake_devil()
+	main.devil_cell = main.layout.devil_spawn
+	main.devil.position = main._devil_world_position()
+	return main
+
+
+func test_the_devil_no_longer_knows_where_you_are() -> void:
+	var main := _stalked_floor()
+	main._tick_devil(0.1)
+	assert_eq(main.brain.mode(), "patrol", "nothing seen, nothing heard")
+	assert_ne(main._devil_goal(), main.player_cell, "it follows your scent, not you")
+	main.brain.sense(true, false, 0.0)
+	assert_eq(main._devil_goal(), main.player_cell, "once it senses you, straight at you")
+
+
+func test_a_sprint_is_heard_down_the_corridors_unless_soft_soles() -> void:
+	var main := _stalked_floor()
+	main.devil_cell = _cell_at_distance(main, 4)
+	main._play_footstep(false)
+	assert_eq(main.brain.mode(), "patrol", "a walk carries %d cells" % DevilBrain.NOISE_WALK)
+	main._play_footstep(true)
+	assert_eq(main.brain.mode(), "chase", "a sprint carries %d" % DevilBrain.HEAR_SPRINT_TILES)
+	var soft := _stalked_floor()
+	soft.quiet_sprint = true
+	soft.devil_cell = _cell_at_distance(soft, 4)
+	soft._play_footstep(true)
+	assert_eq(soft.brain.mode(), "patrol", "Soft Soles: a sprint is as quiet as a walk")
+
+
+func test_echo_step_sends_it_after_an_echo() -> void:
+	var main := _stalked_floor()
+	main.devil_cell = _cell_at_distance(main, 3)
+	main._on_flipped(NIGHTMARE, false)
+	assert_eq(main.brain.mode(), "chase", "it heard where you flipped")
+	var echo := _stalked_floor()
+	echo.flip_echo = true
+	echo.devil_cell = _cell_at_distance(echo, 3)
+	echo.brain.sense(true, false, 0.0)
+	echo._on_flipped(NIGHTMARE, false)
+	assert_eq(echo.brain.mode(), "investigate", "it goes after the echo instead of you")
+	assert_ne(echo.brain.interest, echo.player_cell)
+
+
+func test_a_chase_only_runs_flat_out_at_the_peak() -> void:
+	var main := _stalked_floor()
+	main.devil_cell = _cell_at_distance(main, 12)
+	main.brain.sense(true, false, 0.0)
+	var calm: float = main._devil_step_interval()
+	assert_true(calm >= main.CELL_SIZE / DevilBrain.CALM_SPEEDS["chase"] - 0.001, "before the peak it only closes in")
+	main.director.phase = Director.Phase.PEAK
+	assert_true(main._devil_step_interval() < calm, "at the peak it runs")
+
+
+func test_relief_pulls_it_back_and_a_build_hint_points_near_you() -> void:
+	var main := _stalked_floor()
+	main.director.phase = Director.Phase.PEAK
+	main.director.menace = 100.0
+	main.director._clock = Director.PEAK_LIMIT
+	main._tick_devil(0.1)
+	assert_eq(main.director.phase, Director.Phase.RELAX)
+	assert_true(main.devil_retreating, "the peak is over: it backs off")
+	var built := _stalked_floor()
+	built.director._clock = Director.CALM_LIMIT
+	built._tick_devil(0.1)
+	assert_eq(built.director.phase, Director.Phase.BUILD)
+	assert_eq(built.brain.mode(), "investigate", "a fuzzy hint")
+	var gap: int = built.player_dist[built.brain.interest.y * built.layout.size + built.brain.interest.x]
+	assert_true(gap >= 0 and gap <= Director.HINT_RADIUS, "within %d cells of you: %d" % [Director.HINT_RADIUS, gap])
+
+
+func test_your_beam_gives_you_away_unless_lantern_heart() -> void:
+	var main := _stalked_floor()
+	var spot := _straight_line(main, 3)
+	if spot.is_empty():
+		return
+	main.player_cell = spot[0]
+	main.player.global_position = main.cell_to_world(spot[0]) + Vector3(0, main.PLAYER_HEIGHT, 0)
+	main.devil_cell = spot[3]
+	main.devil.position = main._devil_world_position()
+	main.devil_facing = spot[3] - spot[2]  # walking away: you're behind it
+	var to_devil: Vector3 = main.cell_to_world(spot[3]) - main.cell_to_world(spot[0])
+	main.yaw = atan2(-to_devil.x, -to_devil.z)
+	main.player.rotation.y = main.yaw
+	main.flashlight_on = true
+	assert_true(main._devil_sees(), "your beam on its back")
+	main.flashlight_on = false
+	assert_false(main._devil_sees(), "dark: it walks on")
+	main.flashlight_on = true
+	main.beam_hidden = true
+	assert_false(main._devil_sees(), "Lantern Heart: the beam never gives you away")
+
+
+func test_mercy_adds_a_circle_to_the_floor_that_keeps_killing_you() -> void:
+	var plain := _spawn_floor([], 2)
+	MetaState.deaths_at = {2: MetaState.MERCY_DEATHS}
+	var kind := _spawn_floor([], 2)
+	MetaState.deaths_at = {}
+	assert_eq(kind.circles.cells.size(), plain.circles.cells.size() + 1, "one more safe circle")
+	assert_true(kind.devil_speed < plain.devil_speed, "a slower Devil")
+	assert_true(kind.director.hint_stretch > plain.director.hint_stretch, "fewer hints")
+
+
+## Open cells in a straight line `length` long from some cell, in the current world (empty if none).
+func _straight_line(main: Node3D, length: int) -> Array[Vector2i]:
+	for i in main.layout.size * main.layout.size:
+		var cell: Vector2i = main.layout.cell_at(i)
+		for d: Vector2i in FloorLayout.DIRS:
+			var line: Array[Vector2i] = []
+			for k in length + 1:
+				if not main.layout.is_open(main.world, cell + d * k):
+					break
+				line.append(cell + d * k)
+			if line.size() == length + 1:
+				return line
+	return []
+
+
+## A cell exactly `gap` path tiles from you in the current world, out of your line of sight.
+func _cell_at_distance(main: Node3D, gap: int) -> Vector2i:
+	for i in main.player_dist.size():
+		var cell: Vector2i = main.layout.cell_at(i)
+		if main.player_dist[i] == gap and not DevilBrain.line_of_sight(main.layout, main.world, cell, main.player_cell):
+			return cell
+	for i in main.player_dist.size():
+		if main.player_dist[i] == gap:
+			return main.layout.cell_at(i)
+	return main.player_cell
 

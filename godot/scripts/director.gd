@@ -20,6 +20,8 @@ const PEAK_AT := 80.0
 ## Calm this long and it builds: a fuzzy hint (a cell near you), then one every HINT_EVERY s until the peak.
 const CALM_LIMIT := 35.0
 const HINT_EVERY := 10.0
+## A hint is a random cell within this many path tiles of you: fuzzy, never your own cell.
+const HINT_RADIUS := 4
 ## A peak lasts at most PEAK_LIMIT s, or until it hasn't seen you for LOST_LIMIT s; then it backs off for RELAX_TIME.
 const PEAK_LIMIT := 12.0
 const LOST_LIMIT := 6.0

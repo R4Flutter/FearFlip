@@ -57,6 +57,10 @@ const SHARD_POP_TIME := 0.9
 const SPAWN_TELEGRAPH := 1.5
 ## Path tiles it backs off to while you stand in a safe circle.
 const CIRCLE_RETREAT_DISTANCE := 10
+## The Director's relief (plans/06 P7): the Devil backs off at least this far (path tiles) while it relaxes.
+const RELAX_RETREAT_DISTANCE := 12
+## Echo Step: a flip's echo sounds this many path tiles from you.
+const ECHO_DISTANCE := Vector2i(2, 4)
 const REVIVE_GRACE := 3.0
 const REVIVE_MIN_TIME := 30.0
 const PANIC_TIME := 10.0
@@ -235,6 +239,13 @@ var ghost_sight := false
 var ghost_material: StandardMaterial3D
 ## Catches the Last Breath omen still turns into a trip back to your last circle this floor.
 var last_breath := 0
+## The senses omens (plans/06 P7): your beam never gives you away, a flip leaves an echo, a sprint is silent.
+var beam_hidden := false
+var flip_echo := false
+var quiet_sprint := false
+## The Director (menace: when the Devil comes) and where the Devil last stepped (it sees ahead of it).
+var director: Director
+var devil_facing := Vector2i.ZERO
 ## The torch worn (Altar gear, folded like a card): the beam's shape, and Camera Flashes left this floor.
 var beam_energy := 1.0
 var beam_range := 1.0
@@ -385,7 +396,7 @@ func _ready() -> void:
 	circles = SafeCircles.new()
 	circles.capacity = RunState.mod("circle_time", rule.safe_circle_protect_s)
 	circles.single_use = rule.safe_circle_single_use
-	circles.place(route, roundi(RunState.mod("circles", rule.safe_circle_count)), func(cell: Vector2i) -> bool:
+	circles.place(route, roundi(RunState.mod("circles", rule.safe_circle_count)) + roundi(RunState.mod("extra_circles", 0.0)), func(cell: Vector2i) -> bool:
 		return layout.is_open(WAKE, cell) and layout.is_open(NIGHTMARE, cell) and not layout.sigils.has(cell) and cell != layout.devil_spawn)
 	traps = TrapField.new()
 	var excluded: Array[Vector2i] = [layout.devil_spawn]
@@ -401,6 +412,8 @@ func _ready() -> void:
 	tour_m = _tour_tiles() * CELL_SIZE
 	time_left = rule.time_budget(tour_m, feel.walk_speed, RunState.mod("clock", 1.0)) + RunState.mod("time_bonus", 0.0)
 	brain = DevilBrain.new()
+	director = Director.new(seed_value)
+	director.hint_stretch = RunState.mod("hint_stretch", 1.0)
 	player_cell = layout.spawn
 	last_player_cell = player_cell
 	visited[player_cell] = true
@@ -448,6 +461,9 @@ func _fold_cards() -> void:
 	night_fog = RunState.mod("nightmare_fog", 1.0)
 	ghost_sight = RunState.mod("ghost_sight", 0.0) > 0.0
 	last_breath = roundi(RunState.mod("last_breath", 0.0))
+	beam_hidden = RunState.mod("beam_hidden", 0.0) > 0.0
+	flip_echo = RunState.mod("flip_echo", 0.0) > 0.0
+	quiet_sprint = RunState.mod("quiet_sprint", 0.0) > 0.0
 	beam_energy = RunState.mod("beam_energy", 1.0)
 	beam_range = RunState.mod("beam_range", 1.0)
 	beam_angle = RunState.mod("beam_angle", 1.0)
@@ -623,6 +639,7 @@ func _update_head_bob(h_speed: float, sprinting: bool, delta: float) -> void:
 	camera.fov = lerpf(camera.fov, target_fov, clampf(feel.fov_blend_speed * delta, 0.0, 1.0))
 
 func _play_footstep(sprinting: bool) -> void:
+	_noise(player_cell, DevilBrain.HEAR_SPRINT_TILES if sprinting and not quiet_sprint else DevilBrain.NOISE_WALK)
 	if footstep_player == null:
 		return
 	footstep_player.volume_db = feel.footstep_volume_db + (feel.sprint_footstep_boost_db if sprinting else 0.0)
@@ -669,6 +686,11 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 	var dodged := not forced and devil_active and (lunge_left > 0.0 or
 			(_devil_distance() <= PHASE_DODGE_TILES and not devil_retreating and not circles.protects(player_cell)))
 	_apply_world(new_world)
+	if flip_echo:
+		brain.sense_left = 0.0  # it lost you in the echo
+		_noise(_cell_near_player(ECHO_DISTANCE.x, ECHO_DISTANCE.y), DevilBrain.NOISE_FLIP)
+	else:
+		_noise(player_cell, DevilBrain.NOISE_FLIP)
 	_count("flips")
 	if forced:
 		_count("forced_flips")
@@ -811,6 +833,8 @@ func _collect_sigils() -> void:
 func _open_exit() -> void:
 	exit_open = true
 	enrage_left = DEVIL_ENRAGE_DURATION
+	_noise(player_cell, 1 << 20)  # it hears the last key from anywhere
+	director.menace = maxf(director.menace, Director.PEAK_AT)
 	_set_exit_look()
 	_show_message("ALL KEYS FOUND — GET TO THE CHEST")
 	get_tree().create_timer(2.5).timeout.connect(func() -> void:
@@ -862,7 +886,10 @@ func _on_chest_opened() -> void:
 func _devil_step_interval() -> float:
 	var enraged := enrage_left > 0.0
 	var ratio := rule.devil_base_ratio * devil_speed * DevilBrain.WORLD_SPEED[NIGHTMARE if follow_flips else world] * (DEVIL_ENRAGE_MULTIPLIER if enraged else 1.0)
-	return CELL_SIZE / DevilBrain.speed(_devil_distance(), feel.walk_speed, feel.walk_speed * feel.sprint_multiplier, ratio, enraged)
+	var speed := DevilBrain.speed(_devil_distance(), feel.walk_speed, feel.walk_speed * feel.sprint_multiplier, ratio, enraged)
+	if not devil_retreating and not (director.phase == Director.Phase.PEAK and brain.mode() == "chase"):
+		speed = minf(speed, DevilBrain.CALM_SPEEDS[brain.mode()])  # before the peak it prowls, it doesn't run
+	return CELL_SIZE / speed
 
 ## Current-world path tiles between the Devil and you (a large number if there is no path).
 func _devil_distance() -> int:
@@ -904,6 +931,14 @@ func _tick_devil(delta: float) -> void:
 	if devil_stun > 0.0:
 		devil_stun -= delta  # a Camera Flash: it neither walks nor grabs
 		return
+	var sees := _devil_sees()
+	brain.sense(sees, false, delta)
+	var gap := _devil_distance()
+	var was := director.phase
+	if director.advance(delta, sees, gap <= Director.NEAR_TILES, gap <= Director.HEARD_TILES):
+		brain.investigate(_cell_near_player(1, Director.HINT_RADIUS))
+	if director.phase == Director.Phase.RELAX and was != Director.Phase.RELAX:
+		_start_retreat(RELAX_RETREAT_DISTANCE)
 	devil_timer += delta
 	# Next cell only once the body is on its current cell centre: it walks corridors, never cuts a wall corner.
 	if devil_timer >= _devil_step_interval() and devil.position.distance_to(_devil_world_position()) < 0.05:
@@ -914,9 +949,50 @@ func _tick_devil(delta: float) -> void:
 ## One cell along the BFS shortest path to you (or to its retreat spot), through open cells only.
 func _step_devil() -> void:
 	prev_devil_cell = devil_cell
-	if devil_retreating and steps_since_retreat >= rule.devil_respawn_steps and not circles.protects(player_cell):
+	if devil_retreating and steps_since_retreat >= rule.devil_respawn_steps and not circles.protects(player_cell) \
+			and director.phase != Director.Phase.RELAX:
 		devil_retreating = false
-	devil_cell = layout.next_step(world, devil_cell, devil_target if devil_retreating else player_cell)
+	devil_cell = layout.next_step(world, devil_cell, devil_target if devil_retreating else _devil_goal())
+	if devil_cell != prev_devil_cell:
+		devil_facing = devil_cell - prev_devil_cell
+
+## Where it walks (plans/06 P7 fair play): you only while it senses you; else what it heard or the Director's hint;
+## else your scent.
+func _devil_goal() -> Vector2i:
+	return brain.target(devil_cell, player_cell)
+
+## It sees you: ahead of it down a straight corridor (DevilBrain.sees), or your flashlight beam pointed at it from
+## farther (Lantern Heart hides the beam).
+func _devil_sees() -> bool:
+	if DevilBrain.sees(layout, world, devil_cell, devil_facing, player_cell):
+		return true
+	if not flashlight_on or beam_hidden or not DevilBrain.line_of_sight(layout, world, player_cell, devil_cell, DevilBrain.BEAM_TILES):
+		return false
+	var forward := -camera.global_transform.basis.z
+	var to_devil := devil.global_position - camera.global_position
+	return Vector2(forward.x, forward.z).normalized().dot(Vector2(to_devil.x, to_devil.z).normalized()) > cos(deg_to_rad(flashlight.spot_angle))
+
+## A noise at `cell` carrying `radius` path tiles (master plan §7). At your cell it hears you (it knows where you
+## are for a while); elsewhere it goes to look.
+func _noise(cell: Vector2i, radius: int) -> void:
+	if not devil_active:
+		return
+	var from := player_dist if cell == player_cell else layout.distances(world, cell)
+	var reach := from[devil_cell.y * layout.size + devil_cell.x]
+	if reach < 0 or reach > radius:
+		return
+	if cell == player_cell:
+		brain.sense(false, true, 0.0)
+	else:
+		brain.investigate(cell)
+
+## A random open cell `near`..`far` path tiles from you (your own cell if there is none).
+func _cell_near_player(near: int, far: int) -> Vector2i:
+	var spots: Array[Vector2i] = []
+	for i in player_dist.size():
+		if player_dist[i] >= near and player_dist[i] <= far:
+			spots.append(layout.cell_at(i))
+	return spots[rng.randi_range(0, spots.size() - 1)] if not spots.is_empty() else player_cell
 
 ## Same cell or a cross-through starts a 0.35 s lunge; it only kills if it really reaches you.
 func _check_catch(delta: float) -> void:
@@ -974,7 +1050,7 @@ func _seen_by_player(cell: Vector2i) -> bool:
 	return DevilBrain.line_of_sight(layout, world, player_cell, cell) or circles.index_at(cell) >= 0
 
 ## In a safe circle: it backs off (visibly, at its own speed) to the nearest spot far from you.
-func _start_retreat() -> void:
+func _start_retreat(distance := CIRCLE_RETREAT_DISTANCE) -> void:
 	if lunge_left > 0.0:
 		_close_call("CLOSE CALL")  # dove into the circle mid-lunge
 	devil_retreating = true
@@ -983,7 +1059,7 @@ func _start_retreat() -> void:
 	var from_devil := layout.distances(world, devil_cell)
 	var best := -1
 	for i in player_dist.size():
-		if player_dist[i] >= CIRCLE_RETREAT_DISTANCE and from_devil[i] >= 0 and (best < 0 or from_devil[i] < from_devil[best]):
+		if player_dist[i] >= distance and from_devil[i] >= 0 and (best < 0 or from_devil[i] < from_devil[best]):
 			best = i
 	devil_target = layout.cell_at(best) if best >= 0 else devil_cell
 
@@ -1103,6 +1179,7 @@ func _enter_cell(cell: Vector2i) -> void:
 	var holds := traps.holds
 	match traps.step(cell):
 		TrapField.State.CRACKED:
+			_noise(cell, DevilBrain.NOISE_CRACK)
 			_count("cracks")
 			crack_player.play()
 			trap_nodes[traps.index_at(cell)].crack()
@@ -2044,6 +2121,8 @@ func _win_game() -> void:
 	var last_daily := RunState.is_daily() and RunState.daily_floor == Daily.FLOORS
 	if RunState.is_daily() and fixed_seed == 0:
 		RunState.note_daily(Daily.mark(grade, chased_time), elapsed)
+	elif fixed_seed == 0:
+		MetaState.note_clear(rule.floor_number)
 	if last_daily and RunState.mode == "daily":
 		_count("daily_clears")
 		_earn(Daily.CLEAR_SHARDS, "DAILY")
@@ -2268,6 +2347,8 @@ func _lose_game(cause: String = "devil") -> void:
 	_count("deaths_" + cause)
 	if RunState.is_daily() and fixed_seed == 0:
 		RunState.note_daily("died", elapsed)
+	elif fixed_seed == 0:
+		MetaState.note_death(rule.floor_number)  # hidden mercy (plans/06 G3)
 	var news := _bank()  # dying keeps every shard
 	# Death ends the run now (quitting here can't buy a retry of this maze); a revive brings it back.
 	if fixed_seed == 0:
