@@ -120,6 +120,32 @@ const ACT_HUES: Array[float] = [-1.0, 0.42, 0.76, 0.09, -1.0]
 const ACT_SATURATION: Array[float] = [1.0, 1.0, 1.0, 1.0, 0.15]
 ## Light on a chest waiting down a dead end, so it can be found in the dark.
 const DETOUR_CHEST_GLOW := 0.8
+## The flashlight's shadow bias (depth, normal): lower brings back the stripes on far walls (shadow acne).
+const FLASHLIGHT_SHADOW_BIAS := Vector2(0.1, 2.0)
+## Delivered art (Art; prompts in assets/ASSET_PROMPTS.md). Textured surfaces: how bright each world's textures show
+## (WAKE takes the act's hue), ceilings a shade darker; the trim texture repeats every TRIM_TILE.
+const SURFACE_WORLDS: Array[String] = ["wake", "nightmare"]
+const SURFACE_TINTS: Array[Color] = [Color(0.62, 0.66, 0.72), Color(0.9, 0.82, 0.82)]
+const CEILING_DARKEN := 0.4
+const TRIM_TILE := Vector3(CELL_SIZE, 0.6, CELL_SIZE)
+## Ceiling lamps (model): the bulb glows in the world's colour this far below the ceiling, inside the cage.
+const LAMP_BULB_DROP := 0.35
+const LAMP_BULB_RADIUS := 0.06
+## Rune circles and the exit circle (decals): metres across, and the circles' own blue.
+const CIRCLE_DECAL_SIZE := 2.0
+const CIRCLE_COLOR := Color(0.3, 0.65, 1.0)
+const EXIT_DECAL_SIZE := 1.9
+## NIGHTMARE dressing per floor: blood on floors, claw marks on walls.
+const BLOOD_DECALS := 6
+const SCRATCH_DECALS := 8
+## The Sanctuary's altar: its collision box and soft blue light.
+const ALTAR_SIZE := Vector3(1.2, 1.0, 0.85)
+const ALTAR_LIGHT := Color(0.35, 0.6, 1.0)
+## HUD art: the status plate's 9-slice corners, and how strong the NIGHTMARE overlay shows (far, near).
+const PLATE_CORNER := 48
+const NIGHTMARE_OVERLAY_ALPHA := Vector2(0.35, 0.9)
+const HINTS := [["WASD", "MOVE"], ["SHIFT", "SPRINT"], ["SPACE / E", "FLIP"], ["F", "FLASHLIGHT"], ["ESC", "PAUSE"],
+		["R R", "RESTART ACT"]]
 
 const PLAYER_MODEL = preload("res://assets/character/character2withrig.glb")
 const DEVIL_MODEL = preload("res://assets/character/skleton_added_devil.glb")
@@ -218,7 +244,7 @@ var flash_stuns := 0
 var flip_flash := ""
 ## Seconds the Devil stays frozen by a Camera Flash.
 var devil_stun := 0.0
-var omens_label: Label
+var omens_label: RichTextLabel
 ## Chests down dead ends (Vault, Greed) by cell; each opens as you reach it.
 var bonus_chests := {}
 ## This act's look: the per-world arrays with WAKE tinted (_act_tint).
@@ -275,6 +301,16 @@ var nightmare_walls: Node3D
 var trim_material: StandardMaterial3D
 var light_material: StandardMaterial3D
 var accent_material: StandardMaterial3D
+var ceiling_material: StandardMaterial3D
+## Walls both worlds share: they change texture with the world (the others only ever show one).
+var shared_wall_material: StandardMaterial3D
+## The delivered circle and exit decals are lit by their colour, not emission (_refresh_circles, _set_exit_look).
+var circle_decals := false
+var exit_decal := false
+var dressing: Node3D
+var banner: TextureRect
+var nightmare_overlay: TextureRect
+var warning_overlay: TextureRect
 var goal_material: StandardMaterial3D
 var goal_light: OmniLight3D
 var status_label: Label
@@ -380,6 +416,8 @@ func _ready() -> void:
 	_build_circles()
 	_build_traps()
 	_build_detour_chests()
+	_build_altar()
+	_build_dressing()
 	_build_devil()
 	_build_hud()
 	_apply_world(WAKE)
@@ -631,6 +669,8 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 		_count("forced_flips")
 	flip_player.play()
 	warning_label.visible = false
+	if warning_overlay != null:
+		warning_overlay.visible = false
 	var tween := create_tween().set_parallel()
 	camera.rotation.z = 0.0
 	tween.tween_property(camera, "rotation:z", TAU, FLIP_ROLL_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
@@ -657,6 +697,8 @@ func _on_flip_denied() -> void:
 func _on_flipping_time_warning() -> void:
 	warning_player.play()
 	warning_label.visible = true
+	if warning_overlay != null:
+		warning_overlay.visible = true
 
 ## Swap everything that differs between worlds. Called on every flip and once at start.
 func _apply_world(new_world: int) -> void:
@@ -675,6 +717,13 @@ func _apply_world(new_world: int) -> void:
 	trim_material.emission = glow_colors[world] * 0.3
 	light_material.emission = glow_colors[world] if light_energy > 0.0 else Color.BLACK
 	accent_material.emission = glow_colors[world] * 0.2
+	_dress(floor_material, "floor", world)
+	_dress(ceiling_material, "ceiling", world)
+	_dress(shared_wall_material, "wall", world)
+	if dressing != null:
+		dressing.visible = nightmare
+	if nightmare_overlay != null:
+		nightmare_overlay.visible = nightmare
 	for light in world_lights:
 		light.light_color = glow_colors[world]
 	devil.visible = devil_active
@@ -947,7 +996,7 @@ func _pop(text: String) -> void:
 	pop.text = text
 	shard_label.add_sibling(pop)
 	live_pops += 1
-	pop.position.y += SHARD_POP_GAP * live_pops + SHARD_POP_RISE
+	pop.position.y += maxf(SHARD_POP_GAP, shard_label.get_minimum_size().y) * live_pops + SHARD_POP_RISE
 	var tween := pop.create_tween().set_parallel()
 	tween.tween_property(pop, "position:y", pop.position.y - SHARD_POP_RISE, SHARD_POP_TIME).set_trans(Tween.TRANS_QUINT).set_ease(Tween.EASE_OUT)
 	tween.tween_property(pop, "modulate:a", 0.0, SHARD_POP_TIME * 0.5).set_delay(SHARD_POP_TIME * 0.5)
@@ -1067,7 +1116,10 @@ func _enter_circle() -> void:
 func _refresh_circles() -> void:
 	for i in circles.cells.size():
 		var fill := circles.charge[i] / circles.capacity
-		circle_materials[i].emission_energy_multiplier = 0.15 + 3.0 * fill
+		if circle_decals:
+			circle_materials[i].albedo_color = Color(CIRCLE_COLOR * (0.15 + 1.1 * fill), 1.0)
+		else:
+			circle_materials[i].emission_energy_multiplier = 0.15 + 3.0 * fill
 		circle_lights[i].light_energy = 0.1 + 1.2 * fill
 
 func _refresh_traps() -> void:
@@ -1243,13 +1295,16 @@ func _build_maze() -> void:
 	ceiling_mesh.size = Vector3(span, 0.18, span)
 	ceiling.mesh = ceiling_mesh
 	ceiling.position = center + Vector3(0, CEILING_HEIGHT, 0)
-	var ceiling_material := StandardMaterial3D.new()
+	ceiling_material = StandardMaterial3D.new()
 	ceiling_material.albedo_color = Color(0.008, 0.012, 0.02)
 	ceiling_material.roughness = 1.0
 	ceiling.material_override = ceiling_material
 	add_child(ceiling)
 
 	trim_material = _trim_material()
+	if Art.dress(trim_material, "wall_trim", TRIM_TILE):
+		trim_material.albedo_color = Color(0.8, 0.78, 0.76)
+		trim_material.emission_energy_multiplier = 0.35
 	light_material = _light_material()
 	accent_material = _floor_accent_material()
 	var shared: Array[Vector2i] = []
@@ -1273,17 +1328,28 @@ func _build_maze() -> void:
 					light_cells.append(cell)
 				if (x + y) % 2 == 0:
 					accent_cells.append(cell)
-	_build_wall_set("SharedWalls", shared, LAYER_SHARED)
-	wake_walls = _build_wall_set("WakeWalls", wake_only, LAYER_WAKE)
-	nightmare_walls = _build_wall_set("NightmareWalls", nightmare_only, LAYER_NIGHTMARE)
+	shared_wall_material = _wall_material()
+	_build_wall_set("SharedWalls", shared, LAYER_SHARED, shared_wall_material)
+	var wake_material := _wall_material()
+	_dress(wake_material, "wall", WAKE)
+	wake_walls = _build_wall_set("WakeWalls", wake_only, LAYER_WAKE, wake_material)
+	var nightmare_material := _wall_material()
+	_dress(nightmare_material, "wall", NIGHTMARE)
+	nightmare_walls = _build_wall_set("NightmareWalls", nightmare_only, LAYER_NIGHTMARE, nightmare_material)
 	if ghost_sight:
 		ghost_material = StandardMaterial3D.new()
 		ghost_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		ghost_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
-	var fixture_mesh := BoxMesh.new()
-	fixture_mesh.size = Vector3(0.5, 0.05, 0.5)
-	add_child(_multimesh(fixture_mesh, light_material, light_cells, CEILING_HEIGHT - 0.12))
+	var lamp := Art.model("ceiling_lamp")
+	var bulb_y := CEILING_HEIGHT - 0.12
+	if lamp != null:
+		bulb_y = CEILING_HEIGHT - LAMP_BULB_DROP
+		_build_lamps(lamp, light_cells)
+	else:
+		var fixture_mesh := BoxMesh.new()
+		fixture_mesh.size = Vector3(0.5, 0.05, 0.5)
+		add_child(_multimesh(fixture_mesh, light_material, light_cells, CEILING_HEIGHT - 0.12))
 	for cell in light_cells:
 		if light_energy <= 0.0:
 			break  # Blackout: the fixtures hang dead
@@ -1291,16 +1357,37 @@ func _build_maze() -> void:
 		light.light_energy = light_energy
 		light.omni_range = 4.5
 		light.shadow_enabled = world_light_shadows
-		light.position = cell_to_world(cell) + Vector3(0, CEILING_HEIGHT - 0.12, 0)
+		light.position = cell_to_world(cell) + Vector3(0, bulb_y, 0)
 		add_child(light)
 		world_lights.append(light)
 
-	var accent_mesh := BoxMesh.new()
-	accent_mesh.size = Vector3(CELL_SIZE * 0.72, 0.012, 0.04)
-	add_child(_multimesh(accent_mesh, accent_material, accent_cells, 0.015))
+	if Art.tex(Art.WORLD + "wake_floor_albedo.jpg") == null:  # the neon strips belong to the plain floor
+		var accent_mesh := BoxMesh.new()
+		accent_mesh.size = Vector3(CELL_SIZE * 0.72, 0.012, 0.04)
+		add_child(_multimesh(accent_mesh, accent_material, accent_cells, 0.015))
+
+## The delivered ceiling lamp on every light cell (one draw call), with a bulb glowing in the world's colour in each cage.
+func _build_lamps(scene: PackedScene, cells: Array[Vector2i]) -> void:
+	var model := scene.instantiate()
+	var lamp_mesh := (model.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh
+	model.free()
+	var lamps := _multimesh(lamp_mesh, null, cells, CEILING_HEIGHT - 0.09 - lamp_mesh.get_aabb().end.y)
+	lamps.name = "Lamps"
+	add_child(lamps)
+	var bulb := SphereMesh.new()
+	bulb.radius = LAMP_BULB_RADIUS
+	bulb.height = LAMP_BULB_RADIUS * 2.0
+	add_child(_multimesh(bulb, light_material, cells, CEILING_HEIGHT - LAMP_BULB_DROP))
+
+## `material` wears `surface`'s delivered textures for world `look`, tinted for it (Art.dress); without them it keeps
+## its plain colour.
+func _dress(material: StandardMaterial3D, surface: String, look: int) -> void:
+	if Art.dress(material, SURFACE_WORLDS[look] + "_" + surface, Vector3.ONE * CELL_SIZE):
+		var tint := SURFACE_TINTS[look].darkened(CEILING_DARKEN if surface == "ceiling" else 0.0)
+		material.albedo_color = _act_tint(tint) if look == WAKE else tint
 
 ## One world's walls: one static body (shared box shape per cell) + 3 multimeshes = 3 draw calls.
-func _build_wall_set(set_name: String, cells: Array[Vector2i], layer: int) -> Node3D:
+func _build_wall_set(set_name: String, cells: Array[Vector2i], layer: int, material: StandardMaterial3D) -> Node3D:
 	var body := StaticBody3D.new()
 	body.name = set_name
 	body.collision_layer = layer
@@ -1319,7 +1406,7 @@ func _build_wall_set(set_name: String, cells: Array[Vector2i], layer: int) -> No
 	top_mesh.size = Vector3(CELL_SIZE + 0.03, WALL_TRIM_HEIGHT, CELL_SIZE + 0.03)
 	var base_mesh := BoxMesh.new()
 	base_mesh.size = Vector3(CELL_SIZE + 0.04, 0.08, CELL_SIZE + 0.04)
-	body.add_child(_multimesh(wall_mesh, _wall_material(), cells, WALL_HEIGHT * 0.5))
+	body.add_child(_multimesh(wall_mesh, material, cells, WALL_HEIGHT * 0.5))
 	body.add_child(_multimesh(top_mesh, trim_material, cells, WALL_HEIGHT - WALL_TRIM_HEIGHT * 0.5))
 	body.add_child(_multimesh(base_mesh, trim_material, cells, 0.04))
 	return body
@@ -1403,6 +1490,8 @@ func _build_player() -> void:
 	flashlight.spot_range = feel.flashlight_range * beam_range
 	flashlight.spot_angle = feel.flashlight_angle * beam_angle
 	flashlight.shadow_enabled = true
+	flashlight.shadow_bias = FLASHLIGHT_SHADOW_BIAS.x
+	flashlight.shadow_normal_bias = FLASHLIGHT_SHADOW_BIAS.y
 	camera.add_child(flashlight)
 
 	footstep_player = AudioStreamPlayer3D.new()
@@ -1419,19 +1508,26 @@ func _build_goal() -> void:
 	goal.position = cell_to_world(layout.exit)
 	add_child(goal)
 
-	var base := MeshInstance3D.new()
-	var base_mesh := CylinderMesh.new()
-	base_mesh.top_radius = 0.72
-	base_mesh.bottom_radius = 0.72
-	base_mesh.height = 0.08
-	base.mesh = base_mesh
-	base.position.y = 0.06
-	goal.add_child(base)
-
-	goal_material = StandardMaterial3D.new()
-	goal_material.emission_enabled = true
-	goal_material.emission_energy_multiplier = 3.0
-	base.material_override = goal_material
+	var circle := Art.decal(Art.DECALS + "exit_circle.png", EXIT_DECAL_SIZE, Color.WHITE, true)
+	if circle != null:
+		exit_decal = true
+		circle.name = "ExitCircle"
+		circle.position.y = 0.02
+		goal.add_child(circle)
+		goal_material = circle.material_override
+	else:
+		var base := MeshInstance3D.new()
+		var base_mesh := CylinderMesh.new()
+		base_mesh.top_radius = 0.72
+		base_mesh.bottom_radius = 0.72
+		base_mesh.height = 0.08
+		base.mesh = base_mesh
+		base.position.y = 0.06
+		goal.add_child(base)
+		goal_material = StandardMaterial3D.new()
+		goal_material.emission_enabled = true
+		goal_material.emission_energy_multiplier = 3.0
+		base.material_override = goal_material
 
 	# The exit is a treasure chest on the glowing disc, its locks facing the way in.
 	chest = TreasureChest.new()
@@ -1442,6 +1538,15 @@ func _build_goal() -> void:
 		if layout.is_open(FloorLayout.ANY, layout.exit + d):
 			chest.rotation.y = atan2(float(d.x), float(d.y))
 			break
+	var arch := Art.model("gate_arch") if rule.is_gate else null
+	if arch != null:
+		# The Gate itself, closed, at the back of the exit cell behind the chest (floor 10 only).
+		var gate := arch.instantiate() as Node3D
+		gate.name = "GateArch"
+		gate.rotation.y = chest.rotation.y
+		var depth := ModelFit.mesh_bounds(gate).size.z
+		gate.position = -Vector3(sin(chest.rotation.y), 0, cos(chest.rotation.y)) * (CELL_SIZE - depth) * 0.5
+		goal.add_child(gate)
 	chest.key_turned.connect(_on_key_turned)
 	chest.opened.connect(_on_chest_opened)
 
@@ -1453,7 +1558,7 @@ func _build_goal() -> void:
 ## Locked: dim and red. Open (all keys): bright green.
 func _set_exit_look() -> void:
 	var color := Color(0.1, 1.0, 0.45) if exit_open else Color(0.35, 0.05, 0.08)
-	goal_material.albedo_color = color
+	goal_material.albedo_color = Color(color * (1.6 if exit_open else 2.2), 1.0) if exit_decal else color
 	goal_material.emission = color * (0.65 if exit_open else 0.3)
 	goal_light.light_color = color
 	goal_light.light_energy = 2.5 if exit_open else 0.6
@@ -1475,6 +1580,83 @@ func _build_detour_chests() -> void:
 				box.rotation.y = atan2(float(d.x), float(d.y))
 		bonus_chests[cell] = box
 
+## The Sanctuary's altar (delivered model) down a dead end, facing the way in, lit soft blue. Solid: you walk round it.
+func _build_altar() -> void:
+	var altar_scene := Art.model("sanctuary_altar") if rule.is_sanctuary else null
+	if altar_scene == null:
+		return
+	var taken: Array[Vector2i] = [layout.devil_spawn, layout.spawn, layout.exit]
+	taken.append_array(layout.sigils)
+	taken.append_array(circles.cells)
+	taken.append_array(traps.cells)
+	taken.append_array(bonus_chests.keys())
+	var spots := layout.detours(1, taken, traps.cells)
+	if spots.is_empty():
+		return
+	var altar := Node3D.new()
+	altar.name = "Altar"
+	altar.position = cell_to_world(spots[0])
+	add_child(altar)
+	for d in FloorLayout.DIRS:
+		if layout.is_open(FloorLayout.ANY, spots[0] + d):
+			altar.rotation.y = atan2(float(d.x), float(d.y))
+	altar.add_child(altar_scene.instantiate())
+	var body := StaticBody3D.new()
+	body.collision_layer = LAYER_SHARED
+	body.collision_mask = 0
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = ALTAR_SIZE
+	shape.shape = box
+	shape.position.y = ALTAR_SIZE.y * 0.5
+	body.add_child(shape)
+	altar.add_child(body)
+	var light := OmniLight3D.new()
+	light.light_color = ALTAR_LIGHT
+	light.light_energy = 1.2
+	light.omni_range = 3.5
+	light.position = Vector3(0, ALTAR_SIZE.y + 0.4, 0.4)
+	altar.add_child(light)
+
+## NIGHTMARE set dressing (delivered decals): blood on a few floors, claw marks on a few walls, the same for a floor
+## seed. Shown only in NIGHTMARE (_apply_world).
+func _build_dressing() -> void:
+	dressing = Node3D.new()
+	dressing.name = "Dressing"
+	add_child(dressing)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([seed_value, "dressing"])
+	var floors: Array[Vector2i] = []
+	for y in layout.size:
+		for x in layout.size:
+			var cell := Vector2i(x, y)
+			if layout.is_open(NIGHTMARE, cell) and not traps.cells.has(cell) and not circles.cells.has(cell) \
+					and cell != layout.exit and not layout.sigils.has(cell):
+				floors.append(cell)
+	for i in BLOOD_DECALS:
+		var blood := Art.decal(Art.DECALS + "decal_blood.png", rng.randf_range(1.0, 1.7), Color.WHITE, false)
+		if blood == null or floors.is_empty():
+			break
+		blood.position = cell_to_world(floors[rng.randi() % floors.size()]) + Vector3(rng.randf_range(-0.5, 0.5), 0.012, rng.randf_range(-0.5, 0.5))
+		blood.rotation.y = rng.randf() * TAU
+		dressing.add_child(blood)
+	for i in SCRATCH_DECALS:
+		var scratch := Art.decal(Art.DECALS + "decal_scratches.png", rng.randf_range(0.9, 1.4), Color(1, 1, 1, 0.85), false)
+		if scratch == null or floors.is_empty():
+			break
+		var cell := floors[rng.randi() % floors.size()]
+		var walls: Array[Vector2i] = []
+		for d in FloorLayout.DIRS:
+			if not layout.is_open(NIGHTMARE, cell + d):
+				walls.append(d)
+		if walls.is_empty():
+			scratch.free()
+			continue
+		var d: Vector2i = walls[rng.randi() % walls.size()]
+		scratch.rotation = Vector3(PI * 0.5, atan2(-float(d.x), -float(d.y)), 0)
+		scratch.position = cell_to_world(cell) + Vector3(d.x, 0, d.y) * (CELL_SIZE * 0.5 - 0.015) + Vector3(0, rng.randf_range(0.9, 1.6), 0)
+		dressing.add_child(scratch)
+
 ## Keys (the sigils' rules, the key art): one per sigil cell, glowing in the colour of its world.
 func _build_sigils() -> void:
 	for i in layout.sigils.size():
@@ -1492,16 +1674,23 @@ func _build_circles() -> void:
 	ring_mesh.inner_radius = 0.8
 	ring_mesh.outer_radius = 0.95
 	for cell in circles.cells:
-		var material := StandardMaterial3D.new()
-		material.albedo_color = Color(0.2, 0.55, 1.0)
-		material.emission_enabled = true
-		material.emission = Color(0.25, 0.6, 1.0)
-		var ring := MeshInstance3D.new()
-		ring.name = "SafeCircle"
-		ring.mesh = ring_mesh
-		ring.scale = Vector3(1.0, 0.15, 1.0)
-		ring.position = cell_to_world(cell) + Vector3(0, 0.03, 0)
-		ring.material_override = material
+		var ring := Art.decal(Art.DECALS + "safe_circle.png", CIRCLE_DECAL_SIZE, CIRCLE_COLOR, true)
+		var material: StandardMaterial3D
+		if ring != null:
+			circle_decals = true
+			material = ring.material_override
+			ring.position = cell_to_world(cell) + Vector3(0, 0.025, 0)
+		else:
+			material = StandardMaterial3D.new()
+			material.albedo_color = Color(0.2, 0.55, 1.0)
+			material.emission_enabled = true
+			material.emission = Color(0.25, 0.6, 1.0)
+			ring = MeshInstance3D.new()
+			ring.mesh = ring_mesh
+			ring.scale = Vector3(1.0, 0.15, 1.0)
+			ring.position = cell_to_world(cell) + Vector3(0, 0.03, 0)
+			ring.material_override = material
+		ring.name = "SafeCircle%d" % circle_materials.size()
 		add_child(ring)
 		var light := OmniLight3D.new()
 		light.light_color = Color(0.3, 0.6, 1.0)
@@ -1517,11 +1706,18 @@ func _build_traps() -> void:
 	var shaft_material := StandardMaterial3D.new()
 	shaft_material.albedo_color = Color(0.05, 0.04, 0.04)
 	shaft_material.roughness = 1.0
-	var dust_mesh := BoxMesh.new()
-	dust_mesh.size = Vector3.ONE * 0.035
-	var dust_material := StandardMaterial3D.new()
-	dust_material.albedo_color = Color(0.32, 0.28, 0.24)
-	dust_mesh.material = dust_material
+	var dust_mesh: Mesh
+	var puff := Art.fx_material(Art.Fx.SMOKE, Color(0.42, 0.37, 0.33, 0.85), false)
+	if puff != null:
+		dust_mesh = QuadMesh.new()
+		(dust_mesh as QuadMesh).size = Vector2.ONE * 0.45
+		dust_mesh.material = puff
+	else:
+		dust_mesh = BoxMesh.new()
+		(dust_mesh as BoxMesh).size = Vector3.ONE * 0.035
+		var dust_material := StandardMaterial3D.new()
+		dust_material.albedo_color = Color(0.32, 0.28, 0.24)
+		dust_mesh.material = dust_material
 	for cell in traps.cells:
 		var pit := TrapPit.new()
 		pit.name = "CrackedFloor"
@@ -1571,6 +1767,26 @@ func _build_hud() -> void:
 	hud.add_child(minimap)
 	minimap.visible = RunState.mod("minimap", 1.0) > 0.0
 	minimap.crack_reveal = roundi(RunState.mod("crack_reveal", 0.0))
+	var frame := Art.tex(Art.HUD + "minimap_frame.png")
+	if frame != null:
+		var border := _hud_image(hud, "MinimapFrame", frame)
+		border.position = minimap.position - Vector2(10, 10)
+		border.size = minimap.size + Vector2(20, 20)
+		border.visible = minimap.visible
+	var plate_art := Art.tex(Art.HUD + "hud_plate.png")
+	if plate_art != null:
+		# Behind the top-right block (status, keys, shards); sized once the block is laid out below.
+		var plate := NinePatchRect.new()
+		plate.name = "Plate"
+		plate.texture = plate_art
+		plate.patch_margin_left = PLATE_CORNER
+		plate.patch_margin_right = PLATE_CORNER
+		plate.patch_margin_top = PLATE_CORNER
+		plate.patch_margin_bottom = PLATE_CORNER
+		plate.modulate.a = 0.85
+		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		plate.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		hud.add_child(plate)
 
 	status_label = _hud_label(hud, "Status", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	status_label.offset_left = -360
@@ -1592,6 +1808,25 @@ func _build_hud() -> void:
 	shard_label.offset_right = -24
 	shard_label.offset_top = KeyHud.MARGIN_TOP + KeyHud.SLOT_HEIGHT + 8 + below
 	shard_label.add_theme_color_override("font_color", SHARD_COLOR)
+	if hud.has_node("Plate"):
+		var plate: NinePatchRect = hud.get_node("Plate")
+		plate.offset_left = -400
+		plate.offset_right = -8
+		plate.offset_top = 6
+		plate.offset_bottom = shard_label.offset_top + 44
+	var smoke := Art.tex(Art.HUD + "banner.png")
+	if smoke != null:
+		# Smoke behind the centre messages, multiplied in (its white vanishes); shown with a message.
+		banner = _hud_image(hud, "Banner", smoke)
+		var multiply := CanvasItemMaterial.new()
+		multiply.blend_mode = CanvasItemMaterial.BLEND_MODE_MUL
+		banner.material = multiply
+		banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		banner.offset_left = -560
+		banner.offset_right = 560
+		banner.offset_top = 40
+		banner.offset_bottom = 260
+		banner.visible = false
 
 	state_label = _hud_label(hud, "Message", 30, Control.PRESET_CENTER_TOP, HORIZONTAL_ALIGNMENT_CENTER)
 	state_label.offset_left = -560
@@ -1606,21 +1841,36 @@ func _build_hud() -> void:
 	warning_label.add_theme_color_override("font_color", Color(1.0, 0.2, 0.15))
 	warning_label.visible = false
 
-	var hint := _hud_label(hud, "Hint", 16, Control.PRESET_BOTTOM_WIDE, HORIZONTAL_ALIGNMENT_LEFT)
-	hint.offset_left = 24
-	hint.offset_top = -34
-	hint.text = "WASD  MOVE     SHIFT  SPRINT     SPACE / E  FLIP     F  FLASHLIGHT     ESC  PAUSE     R R  RESTART ACT"
-	hint.add_theme_color_override("font_color", Color(0.55, 0.7, 0.82, 0.8))
+	_build_hints(hud)
 
 	# The run's build: its omens, curse and descents (plans/06 P4).
-	omens_label = _hud_label(hud, "Omens", 16, Control.PRESET_BOTTOM_WIDE, HORIZONTAL_ALIGNMENT_LEFT)
+	omens_label = RichTextLabel.new()
+	omens_label.name = "Omens"
+	omens_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	omens_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	omens_label.offset_left = 24
-	omens_label.offset_top = -60
-	omens_label.add_theme_color_override("font_color", OMEN_COLOR)
-	var run_names: Array[String] = []
-	for id in RunState.run_cards:
-		run_names.append(("CURSED: " if Cards.kind(id) == "curse" else "") + Cards.find(id)["name"])
-	omens_label.text = "  ·  ".join(run_names)
+	omens_label.offset_top = -80
+	omens_label.offset_bottom = -46
+	omens_label.add_theme_font_override("normal_font", DeathScreen.ui_font())
+	omens_label.add_theme_font_size_override("normal_font_size", 16)
+	omens_label.add_theme_color_override("default_color", OMEN_COLOR)
+	hud.add_child(omens_label)
+	for i in RunState.run_cards.size():
+		var id := RunState.run_cards[i]
+		if i > 0:
+			omens_label.add_text("   ")
+		var sigil := CardChoice.art(id) if Cards.kind(id) == "omen" else null
+		if sigil != null:
+			omens_label.add_image(sigil, 24, 24, OMEN_COLOR)
+			omens_label.add_text(" ")
+		omens_label.add_text(("CURSED: " if Cards.kind(id) == "curse" else "") + Cards.find(id)["name"])
+
+	var dread := Art.tex(Art.HUD + "nightmare_overlay.png")
+	if dread != null:
+		nightmare_overlay = _hud_overlay(hud, "NightmareOverlay", dread)
+	var warning_art := Art.tex(Art.HUD + "flip_warning_overlay.png")
+	if warning_art != null:
+		warning_overlay = _hud_overlay(hud, "WarningOverlay", warning_art)
 
 	flash_rect = ColorRect.new()
 	flash_rect.name = "FlipFlash"
@@ -1648,9 +1898,72 @@ func _hud_label(hud: CanvasLayer, node_name: String, font_size: int, preset: Con
 	label.name = node_name
 	label.set_anchors_preset(preset)
 	label.horizontal_alignment = align
+	label.add_theme_font_override("font", DeathScreen.ui_font())
 	label.add_theme_font_size_override("font_size", font_size)
 	hud.add_child(label)
 	return label
+
+func _hud_image(hud: CanvasLayer, node_name: String, texture: Texture2D) -> TextureRect:
+	var rect := TextureRect.new()
+	rect.name = node_name
+	rect.texture = texture
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = TextureRect.STRETCH_SCALE
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(rect)
+	return rect
+
+## A full-screen glow painted on black (added, so the black vanishes), hidden until its moment.
+func _hud_overlay(hud: CanvasLayer, node_name: String, texture: Texture2D) -> TextureRect:
+	var overlay := _hud_image(hud, node_name, texture)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var additive := CanvasItemMaterial.new()
+	additive.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	overlay.material = additive
+	overlay.visible = false
+	return overlay
+
+## The controls along the bottom: each key on a keycap (once the art exists), then what it does.
+func _build_hints(hud: CanvasLayer) -> void:
+	var row := HBoxContainer.new()
+	row.name = "Hints"
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	row.offset_left = 24
+	row.offset_top = -42
+	row.offset_bottom = -10
+	row.add_theme_constant_override("separation", 8)
+	hud.add_child(row)
+	var cap := Art.tex(Art.HUD + "keycap.png")
+	var wide_cap := Art.tex(Art.HUD + "keycap_wide.png")
+	for hint: Array in HINTS:
+		var key: String = hint[0]
+		var label := Label.new()
+		label.text = key
+		label.add_theme_font_override("font", DeathScreen.ui_font())
+		label.add_theme_font_size_override("font_size", 14)
+		label.add_theme_color_override("font_color", MainMenu.BONE)
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		if cap != null:
+			var art := TextureRect.new()
+			art.texture = wide_cap if key.length() > 1 else cap
+			art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			art.stretch_mode = TextureRect.STRETCH_SCALE
+			art.custom_minimum_size = Vector2(maxf(32.0, 13.0 * key.length() + 26.0), 32)
+			art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			art.add_child(label)
+			row.add_child(art)
+		else:
+			row.add_child(label)
+		var action := Label.new()
+		action.text = hint[1] + "   "
+		action.add_theme_font_override("font", DeathScreen.ui_font())
+		action.add_theme_font_size_override("font_size", 15)
+		action.add_theme_color_override("font_color", Color(0.55, 0.7, 0.82, 0.85))
+		action.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(action)
 
 func _format_time(seconds: float) -> String:
 	var total := int(seconds)
@@ -1678,6 +1991,8 @@ CONTROLS WILL INVERT" % maxi(ceili(flip.next_forced_in), 0)
 ## Heartbeat inside heartbeat_tiles (louder as it closes), its breath inside DEVIL_NEAR_DISTANCE.
 func _update_devil_audio() -> void:
 	var d := _devil_distance() if devil_active else 999
+	if nightmare_overlay != null:
+		nightmare_overlay.modulate.a = lerpf(NIGHTMARE_OVERLAY_ALPHA.y, NIGHTMARE_OVERLAY_ALPHA.x, clampf(float(d) / heartbeat_tiles, 0.0, 1.0))
 	if d <= heartbeat_tiles:
 		heartbeat_player.volume_db = lerpf(-4.0, -22.0, float(d) / heartbeat_tiles)
 		if not heartbeat_player.playing:
@@ -2006,6 +2321,8 @@ func _show_message(text: String) -> void:
 	if state_label == null:
 		return
 	state_label.text = text
+	if banner != null:
+		banner.visible = text != ""
 
 ## A message that clears itself after 2.5 s (unless the game ended meanwhile).
 func _flash_message(text: String) -> void:

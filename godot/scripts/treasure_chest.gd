@@ -24,6 +24,11 @@ const WOOD := Color(0.2, 0.09, 0.05)
 const IRON := Color(0.75, 0.56, 0.24)
 
 var lid: Node3D
+## Where the locks sit (the front face) and the treasure (under the lid): the box's, or the model's.
+var _front := DEPTH * 0.5
+var _top := BASE_HEIGHT
+## The gold under the lid fills the opening: the box's inside, or the model's.
+var _inside := Vector2(WIDTH - 0.12, DEPTH - 0.12)
 var _locks: Array[StandardMaterial3D] = []
 var _lock_x: Array[float] = []
 var _glow: OmniLight3D
@@ -36,6 +41,60 @@ func build(collision_layer: int, locks := 2, glow := 0.0) -> void:
 	var span := minf(LOCK_SPACING * (locks - 1), LOCK_SPAN)
 	for i in locks:
 		_lock_x.append(0.0 if locks == 1 else lerpf(-span * 0.5, span * 0.5, float(i) / (locks - 1)))
+	var scene := Art.model("chest")
+	if scene != null:
+		_build_model(scene)
+	else:
+		_build_box()
+	# The treasure: hidden under the lid until it opens.
+	_treasure = StandardMaterial3D.new()
+	_treasure.albedo_color = Color(1.0, 0.8, 0.3)
+	_treasure.emission_enabled = true
+	_treasure.emission = Color(1.0, 0.72, 0.25)
+	_treasure.emission_energy_multiplier = 0.3
+	_box(self, Vector3(_inside.x, 0.04, _inside.y), Vector3(0, _top - 0.04, 0), _treasure)
+	_glow = OmniLight3D.new()
+	_glow.light_color = Color(1.0, 0.75, 0.35)
+	_glow.light_energy = glow
+	_glow.omni_range = 5.0
+	_glow.position = Vector3(0, _top + 0.3, 0)
+	add_child(_glow)
+	var body := StaticBody3D.new()
+	body.collision_layer = collision_layer
+	body.collision_mask = 0
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(WIDTH, BASE_HEIGHT + LID_HEIGHT, DEPTH)
+	shape.shape = box
+	shape.position.y = box.size.y * 0.5
+	body.add_child(shape)
+	add_child(body)
+
+
+## The delivered model, WIDTH wide: its "Lid" node already pivots on the back hinge. Its own front carries the
+## keyholes, so a turned key flares there instead of on an iron plate.
+func _build_model(scene: PackedScene) -> void:
+	var model := scene.instantiate() as Node3D
+	model.name = "Model"
+	model.scale = Vector3.ONE * (WIDTH / ModelFit.mesh_bounds(model).size.x)
+	add_child(model)
+	var bounds := ModelFit.mesh_bounds(model)
+	_front = bounds.end.z * model.scale.z
+	_inside = Vector2(bounds.size.x, bounds.size.z) * model.scale.x * 0.92
+	# A scanned hull has no inner walls: once the lid swings up, its underside and the box's inside must still draw.
+	for part: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		var two_sided := part.mesh.surface_get_material(0).duplicate() as BaseMaterial3D
+		two_sided.cull_mode = BaseMaterial3D.CULL_DISABLED
+		part.material_override = two_sided
+	lid = model.find_child("Lid", true, false)
+	_top = lid.position.y * model.scale.y if lid != null else bounds.end.y * model.scale.y
+	if lid == null:
+		lid = Node3D.new()  # fused model: nothing swings, the gold still floods out
+		add_child(lid)
+
+
+## The stand-in: a wooden box with iron bands, a lock plate per key and a lid hinged on the back top edge.
+func _build_box() -> void:
 	var wood := StandardMaterial3D.new()
 	wood.albedo_color = WOOD
 	wood.roughness = 0.85
@@ -63,13 +122,6 @@ func build(collision_layer: int, locks := 2, glow := 0.0) -> void:
 		var hole := StandardMaterial3D.new()
 		hole.albedo_color = Color.BLACK
 		_box(self, Vector3(0.03, 0.07, 0.01), Vector3(_lock_x[i], LOCK_Y - 0.01, DEPTH * 0.5 + 0.032), hole)
-	# The treasure: hidden under the lid until it opens.
-	_treasure = StandardMaterial3D.new()
-	_treasure.albedo_color = Color(1.0, 0.8, 0.3)
-	_treasure.emission_enabled = true
-	_treasure.emission = Color(1.0, 0.72, 0.25)
-	_treasure.emission_energy_multiplier = 0.3
-	_box(self, Vector3(WIDTH - 0.12, 0.04, DEPTH - 0.12), Vector3(0, BASE_HEIGHT - 0.04, 0), _treasure)
 	# Lid hinged on the back top edge.
 	lid = Node3D.new()
 	lid.position = Vector3(0, BASE_HEIGHT, -DEPTH * 0.5)
@@ -78,22 +130,6 @@ func build(collision_layer: int, locks := 2, glow := 0.0) -> void:
 	_box(lid, Vector3(WIDTH + 0.03, 0.05, DEPTH + 0.03), Vector3(0, 0.03, DEPTH * 0.5), iron)
 	for x in [-0.3, 0.3]:
 		_box(lid, Vector3(0.08, LID_HEIGHT + 0.02, DEPTH + 0.03), Vector3(x, LID_HEIGHT * 0.5, DEPTH * 0.5), iron)
-	_glow = OmniLight3D.new()
-	_glow.light_color = Color(1.0, 0.75, 0.35)
-	_glow.light_energy = glow
-	_glow.omni_range = 5.0
-	_glow.position = Vector3(0, BASE_HEIGHT + 0.3, 0)
-	add_child(_glow)
-	var body := StaticBody3D.new()
-	body.collision_layer = collision_layer
-	body.collision_mask = 0
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(WIDTH, BASE_HEIGHT + LID_HEIGHT, DEPTH)
-	shape.shape = box
-	shape.position.y = box.size.y * 0.5
-	body.add_child(shape)
-	add_child(body)
 
 
 ## Fly the keys in from `camera`, turn each in its lock, then open. Emits key_turned per key and
@@ -110,7 +146,7 @@ func unlock(camera: Camera3D) -> void:
 		key.add_child(art)
 		var side := camera.global_transform.basis.x * (i - (_lock_x.size() - 1) * 0.5) * 0.22
 		var start := camera.global_position - camera.global_transform.basis.z * 0.7 - camera.global_transform.basis.y * 0.18 + side
-		var hole := Vector3(_lock_x[i], LOCK_Y - 0.03, DEPTH * 0.5 + 0.04)
+		var hole := Vector3(_lock_x[i], LOCK_Y - 0.03, _front + 0.04)
 		var front := hole + Vector3(0, 0.05, 0.4)
 		tween.tween_callback(func() -> void:
 			key.global_position = start
@@ -153,7 +189,13 @@ func _open(tween: Tween) -> void:
 
 
 func _turned(index: int) -> void:
-	_locks[index].emission_energy_multiplier = 3.0
+	if index < _locks.size():
+		_locks[index].emission_energy_multiplier = 3.0
+	else:
+		var glint := KeyPickup._sparkles(Color(1.0, 0.78, 0.35), true)
+		glint.amount = 16
+		glint.position = Vector3(_lock_x[index], LOCK_Y, _front + 0.05)
+		add_child(glint)
 	_glow.light_energy += 0.6
 	key_turned.emit(index)
 
@@ -161,7 +203,7 @@ func _turned(index: int) -> void:
 func _burst() -> void:
 	var p := KeyPickup._sparkles(Color(1.0, 0.78, 0.35), true)
 	p.amount = 90
-	p.position = Vector3(0, BASE_HEIGHT + 0.1, 0)
+	p.position = Vector3(0, _top + 0.1, 0)
 	p.direction = Vector3.UP
 	p.spread = 35.0
 	p.gravity = Vector3(0, -3.0, 0)

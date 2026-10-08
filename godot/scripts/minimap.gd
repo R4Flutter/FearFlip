@@ -12,7 +12,7 @@ const VIEW_CONE_CELLS := 3.0
 const WALL_RATIO := 0.28
 const NIGHTMARE := FloorLayout.World.NIGHTMARE
 const PLAYER_COLOR := Color(0.92, 0.95, 1.0)
-const KEY_ICON := preload("res://assets/images/key.png")
+var key_icon := Art.key_icon()
 ## Key icon size (px) on the map.
 const KEY_SIZE := 24.0
 
@@ -171,8 +171,8 @@ func _draw_exit(at: Vector2, cell: float) -> void:
 ## The key icon tinted its world's colour, on a dark drop shadow so it reads on the glow lines.
 func _draw_key(at: Vector2, icon: float, color: Color) -> void:
 	var rect := Rect2(at - Vector2(icon, icon) * 0.5, Vector2(icon, icon))
-	draw_texture_rect(KEY_ICON, Rect2(rect.position + Vector2(1, 1), rect.size), false, Color(0, 0, 0, 0.8))
-	draw_texture_rect(KEY_ICON, rect, false, color.lightened(0.3))
+	draw_texture_rect(key_icon, Rect2(rect.position + Vector2(1, 1), rect.size), false, Color(0, 0, 0, 0.8))
+	draw_texture_rect(key_icon, rect, false, color.lightened(0.3))
 
 
 func _draw_readout(font: Font, side: float) -> void:

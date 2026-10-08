@@ -70,3 +70,19 @@ func test_the_cards_sit_in_the_middle_of_the_screen() -> void:
 	assert_eq(choice.size, screen, "the picker covers the screen")
 	var row := choice._row.get_global_rect()
 	assert_true(absf(row.get_center().x - screen.x * 0.5) < 2.0, "centred: %s on %s" % [row, screen])
+
+
+func test_delivered_card_art_frames_every_card() -> void:
+	if not ResourceLoader.exists(CardChoice.ART + "card_frame.png"):
+		return
+	var choice := _choice()
+	choice.offer("CHOOSE AN OMEN", ["quick_veil", "curse_blackout", "vault"])
+	assert_true(choice._backdrop.visible, "the ritual table behind a pick")
+	assert_true(choice._row.get_child(0).get_theme_stylebox("normal") is StyleBoxTexture, "the card frame")
+	var sigil: TextureRect = choice._row.get_child(0).find_child("Art", true, false)
+	assert_eq((sigil.texture as AtlasTexture).region, Rect2(0, 0, 256, 256), "Quick Veil is the first sigil")
+	var curse: TextureRect = choice._row.get_child(1).find_child("Art", true, false)
+	assert_eq(curse.texture.resource_path, CardChoice.ART + "blackout.png", "a curse wears its twin rule's art")
+	choice.flash("", ["vault"])
+	assert_false(choice._backdrop.visible, "a floor's flash plays over the maze")
+

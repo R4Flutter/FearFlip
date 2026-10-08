@@ -1132,7 +1132,7 @@ func _fill_altar(list: VBoxContainer) -> void:
 func _altar_item(list: Control, id: String) -> void:
 	var item := Unlocks.item(id)
 	var owned := MetaState.owns(id)
-	var side := _entry(list, item["name"], item["text"], GOLD if owned else BONE, CardChoice.ART + id + ".png")
+	var side := _entry(list, item["name"], item["text"], GOLD if owned else BONE, CardChoice.art(id))
 	if owned and Unlocks.EQUIP_KINDS.has(item["kind"]) and MetaState.wearing(item["kind"]) != id:
 		_action(side, id, "WEAR", _wear.bind(id))
 	elif owned:
@@ -1188,7 +1188,7 @@ func _fill_bestiary(list: VBoxContainer) -> void:
 		if MetaState.stat(beast["seen"]) == 0:
 			_entry(list, "???", "Not met yet.  " + beast["hint"], DIM)
 			continue
-		var side := _entry(list, beast["name"], beast["rule"] + "\n\n" + beast["lore"], BLOOD, ART + "beast_%s.png" % beast["id"])
+		var side := _entry(list, beast["name"], beast["rule"] + "\n\n" + beast["lore"], BLOOD, Art.tex(ART + "beast_%s.png" % beast["id"]))
 		for count: Array in beast["counts"]:
 			_note(side, "%s  %d" % [count[0], MetaState.stat(count[1])], BONE)
 
@@ -1219,15 +1219,15 @@ func _section(list: Control, title: String, hint: String) -> void:
 
 ## One framed line of a hub list: optional art (once it exists), the title in `tint`, the text, and a right-hand
 ## column for _note / _action (returned).
-func _entry(list: Control, title: String, text: String, tint: Color, art_path := "") -> VBoxContainer:
+func _entry(list: Control, title: String, text: String, tint: Color, art: Texture2D = null) -> VBoxContainer:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", _entry_style(tint))
 	list.add_child(panel)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
 	panel.add_child(row)
-	if not art_path.is_empty() and ResourceLoader.exists(art_path):
-		_image(row, load(art_path), TextureRect.STRETCH_KEEP_ASPECT_COVERED).custom_minimum_size = ENTRY_ART
+	if art != null:
+		_image(row, art, TextureRect.STRETCH_KEEP_ASPECT_COVERED).custom_minimum_size = ENTRY_ART
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(words)

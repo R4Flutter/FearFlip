@@ -43,6 +43,9 @@ var _glow: OmniLight3D
 var _ember: MeshInstance3D
 var _ember_material: StandardMaterial3D
 var _dust: CPUParticles3D
+## Delivered crack decals (Art), when they exist: hairlines on a weak tile (as strong as its cue), molten light once cracked.
+var _hairline: MeshInstance3D
+var _crack_glow: MeshInstance3D
 var _rng := RandomNumberGenerator.new()
 
 
@@ -72,6 +75,16 @@ func build(cell: Vector2i, floor_material: Material, shaft_material: Material, d
 			_delay.append(0.0)
 	_build_shaft(shaft_material)
 	_build_dust(dust_mesh)
+	_hairline = Art.decal(Art.DECALS + "crack_hairline.png", cell_size * 0.96, Color(1, 1, 1, cue), false)
+	if _hairline != null:
+		_hairline.name = "Hairline"
+		_hairline.position.y = FLOOR_TOP + 0.004
+		add_child(_hairline)
+	_crack_glow = Art.decal(Art.DECALS + "crack_glow.png", cell_size * 0.96, GLOW_COLOR, true)
+	if _crack_glow != null:
+		_crack_glow.name = "CrackGlow"
+		_crack_glow.position.y = FLOOR_TOP + 0.006
+		add_child(_crack_glow)
 	show_state(TrapField.State.HIDDEN)
 
 
@@ -85,6 +98,10 @@ func show_state(new_state: int) -> void:
 		plates[i].transform = _sag[i] if state == TrapField.State.CRACKED else _rest[i]
 		plates[i].visible = state != TrapField.State.COLLAPSED
 	_ember.visible = state != TrapField.State.COLLAPSED
+	if _hairline != null:
+		_hairline.visible = state == TrapField.State.HIDDEN
+	if _crack_glow != null:
+		_crack_glow.visible = state == TrapField.State.CRACKED
 	_set_ember(HIDDEN_EMBER * cue if state == TrapField.State.HIDDEN else 0.8)
 	_glow.visible = state == TrapField.State.CRACKED
 
@@ -159,6 +176,8 @@ func _kill_crack_tween() -> void:
 
 func _set_ember(alpha: float) -> void:
 	_ember_material.albedo_color = Color(GLOW_COLOR, clampf(alpha, 0.0, 1.0))
+	if _crack_glow != null:
+		(_crack_glow.material_override as StandardMaterial3D).albedo_color = Color(GLOW_COLOR * clampf(alpha, 0.0, 1.5), 1.0)
 
 
 func _burst(amount: int) -> void:

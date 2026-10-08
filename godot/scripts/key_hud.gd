@@ -84,7 +84,7 @@ func _light(slot: TextureRect) -> void:
 
 func _key_rect(rect_size: Vector2) -> TextureRect:
 	var rect := TextureRect.new()
-	rect.texture = KeyPickup.TEXTURE
+	rect.texture = Art.key_icon()
 	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	rect.mouse_filter = MOUSE_FILTER_IGNORE
@@ -94,5 +94,5 @@ func _key_rect(rect_size: Vector2) -> TextureRect:
 
 
 static func _slot_size() -> Vector2:
-	var texture := KeyPickup.TEXTURE
+	var texture := Art.key_icon()
 	return Vector2(SLOT_HEIGHT * texture.get_width() / texture.get_height(), SLOT_HEIGHT)

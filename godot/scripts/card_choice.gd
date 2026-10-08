@@ -8,6 +8,11 @@ extends Control
 signal picked(id: String)
 
 const ART := "res://assets/images/cards/"
+## Delivered picker art: the card body, the table behind a pick, and the 4x4 omen sigil sheet (Cards.OMENS order).
+const FRAME := ART + "card_frame.png"
+const BACKDROP := ART + "pick_backdrop.png"
+const SIGILS := ART + "omen_sigils.png"
+const SIGIL_CELL := 256
 const CARD_SIZE := Vector2(250, 340)
 const CARD_GAP := 28
 const ART_HEIGHT := 130.0
@@ -20,6 +25,7 @@ const KIND_COLORS := {"rule": MainMenu.EMBER, "door": MainMenu.GOLD, "gate": Mai
 const KIND_TAGS := {"rule": "RULE", "door": "DOOR", "gate": "THE GATE", "sanctuary": "SANCTUARY", "omen": "OMEN",
 		"curse": "CURSE", "choice": "THE WAY ON"}
 
+var _backdrop: TextureRect
 var _title: Label
 var _row: HBoxContainer
 var _ids: Array[String] = []
@@ -33,6 +39,13 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	mouse_filter = MOUSE_FILTER_IGNORE
 	_font = DeathScreen.ui_font()
+	_backdrop = TextureRect.new()
+	_backdrop.texture = Art.tex(BACKDROP)
+	_backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_backdrop.mouse_filter = MOUSE_FILTER_IGNORE
+	_backdrop.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	add_child(_backdrop)
 	var column := VBoxContainer.new()
 	column.mouse_filter = MOUSE_FILTER_IGNORE
 	column.set_anchors_preset(PRESET_CENTER)
@@ -82,6 +95,7 @@ func _show(title: String, ids: Array, pickable: bool) -> void:
 	mouse_filter = MOUSE_FILTER_STOP if pickable else MOUSE_FILTER_IGNORE
 	_title.text = title
 	_title.visible = title != ""
+	_backdrop.visible = pickable and _backdrop.texture != null
 	for child in _row.get_children():
 		_row.remove_child(child)
 		child.queue_free()
@@ -111,11 +125,20 @@ func _card(id: String, index: int) -> Button:
 	button.pivot_offset = CARD_SIZE * 0.5
 	button.focus_mode = FOCUS_ALL if _pickable else FOCUS_NONE
 	button.mouse_filter = MOUSE_FILTER_STOP if _pickable else MOUSE_FILTER_IGNORE
-	var style := StyleBoxFlat.new()
-	style.bg_color = MainMenu.PANEL_FILL
-	style.border_color = color
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(6)
+	var frame := Art.tex(FRAME)
+	var style: StyleBox
+	if frame != null:
+		var framed := StyleBoxTexture.new()
+		framed.texture = frame
+		framed.modulate_color = Color.WHITE.lerp(color, 0.3)
+		style = framed
+	else:
+		var flat := StyleBoxFlat.new()
+		flat.bg_color = MainMenu.PANEL_FILL
+		flat.border_color = color
+		flat.set_border_width_all(2)
+		flat.set_corner_radius_all(6)
+		style = flat
 	for state: String in ["normal", "hover", "pressed", "focus", "disabled"]:
 		button.add_theme_stylebox_override(state, style)
 	var body := VBoxContainer.new()
@@ -128,14 +151,23 @@ func _card(id: String, index: int) -> Button:
 	body.add_theme_constant_override("separation", 10)
 	button.add_child(body)
 	_label(body, 13, color).text = KIND_TAGS.get(kind, "")
-	if ResourceLoader.exists(ART + id + ".png"):
-		var art := TextureRect.new()
-		art.mouse_filter = MOUSE_FILTER_IGNORE
-		art.texture = load(ART + id + ".png")
-		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		art.custom_minimum_size = Vector2(0, ART_HEIGHT)
-		body.add_child(art)
+	var picture := art(id)
+	if picture != null:
+		var band := TextureRect.new()
+		band.name = "Art"
+		band.mouse_filter = MOUSE_FILTER_IGNORE
+		band.texture = picture
+		band.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		band.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		band.custom_minimum_size = Vector2(0, ART_HEIGHT)
+		if kind == "omen":
+			# A sigil is drawn on black: added in the omen's violet, so only the glowing lines show.
+			band.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			band.modulate = color.lightened(0.2)
+			var additive := CanvasItemMaterial.new()
+			additive.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+			band.material = additive
+		body.add_child(band)
 	var title := _label(body, 26, Color.WHITE)
 	title.text = card.get("name", id)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -150,6 +182,21 @@ func _card(id: String, index: int) -> Button:
 		button.focus_entered.connect(_grow.bind(button, true))
 		button.focus_exited.connect(_grow.bind(button, false))
 	return button
+
+
+## A card's picture: its own (ART/<id>.png), a curse its twin rule's, an omen its cell of the sigil sheet. Null
+## until the art exists.
+static func art(id: String) -> Texture2D:
+	if Cards.kind(id) == "omen":
+		var sheet := Art.tex(SIGILS)
+		var index := Cards.OMENS.map(func(omen: Dictionary) -> String: return omen["id"]).find(id)
+		if sheet == null or index < 0:
+			return null
+		var cell := AtlasTexture.new()
+		cell.atlas = sheet
+		cell.region = Rect2((index % 4) * SIGIL_CELL, (index / 4) * SIGIL_CELL, SIGIL_CELL, SIGIL_CELL)
+		return cell
+	return Art.tex(ART + String(Cards.find(id).get("rule", id)) + ".png")
 
 
 func _grow(node: Control, on: bool) -> void:

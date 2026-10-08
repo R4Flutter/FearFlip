@@ -4,9 +4,8 @@ extends Node3D
 ## bobs and glows in its world's colour inside a soft halo, with sparkles drifting off it.
 ## collect() pops it: a flash, a burst, gone.
 
-## 2D art, still used by the HUD and minimap.
-const TEXTURE := preload("res://assets/images/key.png")
-const MODEL := preload("res://assets/assets/key.glb")
+## The old key model, until the delivered one (Art.model("key")) exists. The HUD and minimap use Art.key_icon().
+const OLD_MODEL := "res://assets/assets/key.glb"
 ## Key length (metres).
 const LENGTH := 0.95
 const SPIN_SPEED := 2.4
@@ -67,7 +66,8 @@ func collect() -> void:
 
 ## The key model, `length` m from blade tip to bow, tip at local `tip_y`, face toward +Z.
 static func model(length: float, tip_y: float) -> Node3D:
-	var key: Node3D = MODEL.instantiate()
+	var scene := Art.model("key")
+	var key: Node3D = (scene if scene != null else load(OLD_MODEL) as PackedScene).instantiate()
 	ModelFit.fit_height(key, length, tip_y)
 	key.rotation.y = PI * 0.5
 	return key
@@ -76,14 +76,16 @@ static func model(length: float, tip_y: float) -> Node3D:
 ## Idle: a few motes drifting up. Burst: one shot of sparks flying out.
 static func _sparkles(color: Color, burst: bool) -> CPUParticles3D:
 	var mesh := QuadMesh.new()
-	mesh.size = Vector2.ONE * (0.12 if burst else 0.08)
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.albedo_color = color.lightened(0.4)
-	material.albedo_texture = _halo_texture()
+	var material := Art.fx_material(Art.Fx.SPARKLE, color.lightened(0.4), true)
+	mesh.size = Vector2.ONE * ((0.12 if burst else 0.08) * (2.0 if material != null else 1.0))
+	if material == null:
+		material = StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		material.albedo_color = color.lightened(0.4)
+		material.albedo_texture = _halo_texture()
 	mesh.material = material
 	var p := CPUParticles3D.new()
 	p.mesh = mesh

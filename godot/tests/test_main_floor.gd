@@ -545,3 +545,80 @@ func test_the_camera_flash_freezes_it_once_a_floor() -> void:
 	assert_gt(main.lunge_left, 0.0, "and then it moves again")
 	main._unhandled_input(press)
 	assert_false(main.flashlight_on, "spent: F is the light switch again")
+
+
+# --- Delivered art (assets/ASSET_PROMPTS.md): checked wherever the file exists (art is git-ignored) ---------------
+
+func test_delivered_art_dresses_the_maze_in_each_world() -> void:
+	if not ResourceLoader.exists(Art.WORLD + "wake_wall_albedo.jpg"):
+		return
+	var main := _spawn_floor()
+	assert_ne(main.floor_material.albedo_texture, null, "a stone floor")
+	assert_true(main.shared_wall_material.albedo_texture.resource_path.contains("wake_wall"))
+	var wake_floor: Texture2D = main.floor_material.albedo_texture
+	main._apply_world(NIGHTMARE)
+	assert_ne(main.floor_material.albedo_texture, wake_floor, "NIGHTMARE has its own floor")
+	assert_true(main.shared_wall_material.albedo_texture.resource_path.contains("nightmare_wall"), "walls both worlds share change too")
+	assert_true(main.ceiling_material.albedo_texture.resource_path.contains("nightmare_ceiling"))
+
+
+func test_delivered_decals_replace_the_neon() -> void:
+	if not ResourceLoader.exists(Art.DECALS + "safe_circle.png"):
+		return
+	var main := _spawn_floor()
+	var circle: MeshInstance3D = main.find_children("SafeCircle*", "MeshInstance3D", true, false)[0]
+	assert_true(circle.mesh is PlaneMesh, "the rune circle, not the neon torus")
+	var full: Color = main.circle_materials[0].albedo_color
+	main.circles.charge[0] = 0.0
+	main._refresh_circles()
+	assert_true(main.circle_materials[0].albedo_color.v < full.v, "a drained circle dims")
+	assert_ne(main.find_child("ExitCircle", true, false), null)
+	var dressing: Node3D = main.find_child("Dressing", true, false)
+	assert_false(dressing.visible, "blood and scratches only in NIGHTMARE")
+	main._apply_world(NIGHTMARE)
+	assert_true(dressing.visible)
+
+
+func test_delivered_models_furnish_the_floor() -> void:
+	if Art.model("chest") == null:
+		return
+	var main := _spawn_floor()
+	assert_true(main.has_node("Lamps"), "lamps hang where the light boxes were")
+	assert_true(main.chest.has_node("Model"), "the chest model")
+	assert_eq(main.chest.lid.name, "Lid", "its own lid swings open")
+	assert_eq(main.sigil_nodes[0]._key.get_child(0).scene_file_path, Art.MODELS + "key.glb")
+	var gate := _spawn_floor([], StageRule.GATE_FLOOR)
+	assert_true(gate.has_node("ExitPortal/GateArch"), "the Gate stands behind the chest on floor 10")
+	var sanctuary := _spawn_floor([], StageRule.SANCTUARY_FLOOR)
+	assert_true(sanctuary.has_node("Altar"), "the Sanctuary keeps an altar down a dead end")
+
+
+func test_delivered_cracks_and_fx_show_on_the_traps() -> void:
+	if not ResourceLoader.exists(Art.DECALS + "crack_glow.png"):
+		return
+	var main := _spawn_floor(["cracked_earth"], 12)
+	var pit: TrapPit = main.trap_nodes[0]
+	assert_true(pit.get_node("Hairline").visible, "a weak tile shows hairline cracks")
+	assert_false(pit.get_node("CrackGlow").visible)
+	pit.show_state(TrapField.State.CRACKED)
+	assert_true(pit.get_node("CrackGlow").visible, "cracked: molten light in the seams")
+	assert_false(pit.get_node("Hairline").visible)
+	assert_true((pit._dust.mesh as QuadMesh) != null, "dust puffs, not cubes")
+
+
+func test_delivered_hud_art_frames_the_screen() -> void:
+	if not ResourceLoader.exists(Art.HUD + "hud_plate.png"):
+		return
+	var main := _spawn_floor()
+	assert_true(main.has_node("HUD/Plate") and main.has_node("HUD/MinimapFrame"))
+	assert_true(main.status_label.get_theme_font("font").resource_path.ends_with("ui.ttf"), "the HUD speaks Oswald")
+	main._show_message("FLOOR 1")
+	assert_true(main.get_node("HUD/Banner").visible, "smoke behind a message")
+	main._show_message("")
+	assert_false(main.get_node("HUD/Banner").visible)
+	assert_false(main.get_node("HUD/NightmareOverlay").visible)
+	main._apply_world(NIGHTMARE)
+	assert_true(main.get_node("HUD/NightmareOverlay").visible)
+	main._on_flipping_time_warning()
+	assert_true(main.get_node("HUD/WarningOverlay").visible)
+	assert_gt(main.get_node("HUD/Hints").get_child_count(), 5, "keycaps for the controls")
