@@ -153,12 +153,17 @@ static func omen_pool() -> Array[String]:
 	return Cards.omen_pool(omen_tokens, unlocked)
 
 
-## Spends shards on an Altar item. Refused when owned, short, or what comes before it isn't owned yet.
-static func buy(id: String) -> bool:
+## Not owned yet, what comes before it is owned, and the shards are there.
+static func can_buy(id: String) -> bool:
 	var item := Unlocks.item(id)
-	if item.is_empty() or owns(id) or not _reachable(item) or shards < item["cost"]:
+	return not item.is_empty() and not owns(id) and _reachable(item) and shards >= item["cost"]
+
+
+## Spends shards on an Altar item (refused unless can_buy).
+static func buy(id: String) -> bool:
+	if not can_buy(id):
 		return false
-	shards -= item["cost"]
+	shards -= Unlocks.item(id)["cost"]
 	unlocked.append(id)
 	save()
 	return true

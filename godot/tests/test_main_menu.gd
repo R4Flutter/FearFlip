@@ -27,6 +27,11 @@ func teardown() -> void:
 	RunState.best_floor = 1
 	MetaState.acts_unlocked = 1
 	MetaState.shards = MetaState.STARTER_SHARDS
+	MetaState.unlocked.clear()
+	MetaState.equipped = {}
+	MetaState.stats = {}
+	MetaState.stars = {}
+	MetaState.notes_found = 0
 
 
 func test_fresh_run_offers_play_only() -> void:
@@ -69,6 +74,79 @@ func test_one_shard_pill_and_the_unfinished_business_cards() -> void:
 	assert_true(cards.has("35/%d" % MetaState.FIRST_UNLOCK_COST), str(cards))
 	assert_true(cards.has("ACT 2 SHORTCUT"), str(cards))
 	assert_true(cards.has("4 FLOORS TO GO"), "floor 7 reached: 7, 8, 9 and the Gate are left")
+
+
+func test_the_hub_replaces_every_coming_soon() -> void:
+	var menu := _spawn_menu(1)
+	for row: String in ["Altar", "Mirror", "Bestiary", "Archive", "HowToPlay"]:
+		assert_true(menu._menu.has_node(row), row)
+	for gone: String in ["Character", "Progression", "Settings", "Shop"]:
+		assert_false(menu._menu.has_node(gone), gone)
+	assert_false(menu.has_method("_soon"), "nothing answers COMING SOON any more")
+	for act in range(1, StageRule.ACT_COUNT + 1):
+		assert_true(menu._right.has_node("Stars%d" % act), "act %d's stars sit where the mode cards were" % act)
+
+
+func test_the_altar_sells_and_the_dashboard_follows() -> void:
+	MetaState.shards = 100
+	var menu := _spawn_menu(1)
+	menu._open_altar()
+	(menu._screen.find_child("twin_flip", true, false) as Button).pressed.emit()
+	assert_true(MetaState.owns("twin_flip"))
+	assert_eq(MetaState.shards, 30)
+	assert_true(_texts(menu._top_bar).has("30"), "the pill follows")
+	assert_true(_texts(menu._right).has(Unlocks.item(MetaState.next_unlock())["name"]), "NEXT UNLOCK names what's next")
+	assert_true((menu._screen.find_child("lantern", true, false) as Button).disabled, "30 shards: the Lantern is out of reach")
+
+
+func test_gear_is_bought_then_worn_at_the_altar() -> void:
+	MetaState.shards = 999
+	var menu := _spawn_menu(1)
+	menu._open_altar()
+	(menu._screen.find_child("lantern", true, false) as Button).pressed.emit()
+	assert_eq(MetaState.wearing("torch"), "old_torch", "bought, not yet worn")
+	(menu._screen.find_child("lantern", true, false) as Button).pressed.emit()
+	assert_eq(MetaState.wearing("torch"), "lantern")
+	assert_false(menu._screen.find_child("uv_light", true, false).disabled, "the Lantern opens the UV Light")
+
+
+func test_the_mirror_shows_stars_and_challenges() -> void:
+	MetaState.stars = {1: [true, false, true]}
+	MetaState.stats = {"chests": 7}
+	var menu := _spawn_menu(1)
+	var tile: Control = menu._right.get_node("Stars1")
+	assert_eq((tile.find_child("Star0", true, false) as CanvasItem).modulate, MainMenu.GOLD)
+	assert_ne((tile.find_child("Star1", true, false) as CanvasItem).modulate, MainMenu.GOLD)
+	menu._open_mirror()
+	var texts := _texts(menu._screen)
+	assert_true(texts.has(Unlocks.challenge("finders_keepers")["name"]), str(texts))
+	assert_true(texts.has("7 / 10"), "its progress")
+	menu._close_screen()
+	assert_eq(menu._screen, null)
+
+
+func test_the_bestiary_keeps_what_you_have_not_met_hidden() -> void:
+	MetaState.stats = {"devil_wakes": 2, "deaths_devil": 3}
+	var menu := _spawn_menu(1)
+	menu._open_bestiary()
+	var texts := _texts(menu._screen)
+	assert_true(texts.has("THE DEVIL"))
+	assert_false(texts.has("THE PHANTOM"), "not met yet")
+	assert_true(texts.has("???"))
+	assert_true(texts.any(func(text: String) -> bool: return text.contains("CAUGHT YOU  3")), str(texts))
+
+
+func test_the_archive_keeps_found_notes_and_seen_endings() -> void:
+	MetaState.notes_found = 2
+	MetaState.stats = {"clears_act_1": 1}
+	var menu := _spawn_menu(1)
+	var inbox: Button = menu._top_bar.get_node("Inbox")
+	inbox.pressed.emit()
+	var texts := _texts(menu._screen)
+	assert_true(texts.has(Lore.NOTES[0]) and texts.has(Lore.NOTES[1]), "the mail is the archive")
+	assert_false(texts.has(Lore.NOTES[2]))
+	assert_true(texts.has(Lore.ACT_ENDINGS[0]))
+	assert_false(texts.has(Lore.ACT_ENDINGS[1]))
 
 
 func _texts(root: Node) -> Array:

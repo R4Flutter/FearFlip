@@ -1,8 +1,9 @@
 class_name MainMenu
 extends Control
 ## Title dashboard. Key art (hellscape + additive demon apparition + flickering braziers) under fog,
-## embers and lightning, with the hero on his own parallax layer. The left column is the real menu;
-## the right side previews the planned meta game, and anything not built yet answers "coming soon".
+## embers and lightning, with the hero on his own parallax layer. The left column is the menu and the hub
+## (plans/06 P5: Altar, Mirror, Bestiary, Archive); the right side is the unfinished business: shards, the
+## next unlock, the next shortcut, PLAY and each act's mastery stars.
 ## Focusing a play control wakes the demon, reddens the fog and turns the word FLIP upside down.
 ## Art lives in assets/images/menu/ (originals in src/, ignored by Godot); see PROMPTS.md there.
 
@@ -90,11 +91,24 @@ const FOG_AWAKE := Color(0.7, 0.08, 0.05, 0.26)
 const DEMON_AWAKE := Color(1.6, 1.4, 1.4)
 const DEMON_STRUCK := Color(2.4, 2.2, 2.4)
 const LIGHTNING := Color(0.55, 0.45, 1.0, 0.22)
-const CARDS := [
-	["CLASSIC", "STANDARD MAZE", "card_classic", Color(1.0, 0.75, 0.3)],
-	["TIME TRIAL", "BEAT THE CLOCK", "card_time_trial", Color(0.35, 0.7, 1.0)],
-	["MULTIPLAYER", "PLAY WITH FRIENDS", "card_multiplayer", Color(0.75, 0.4, 1.0)],
+## Act mastery stars (plans/06 D6) in the row under PLAY.
+const STAR_SIZE := 22.0
+const UNEARNED := Color(0.3, 0.3, 0.32, 0.7)
+
+# The hub screens (plans/06 P5): full-screen lists rebuilt from the profile each time they open. Art is optional:
+# hub_<screen>.png behind a list and beast_<id>.png beside a bestiary entry (ART), card art from CardChoice.ART.
+const SCREEN_SIZE := Vector2(960, 470)
+const SIDE_W := 170.0
+const ENTRY_ART := Vector2(120, 72)
+const HUB_ART_ALPHA := 0.3
+const ALTAR_SECTIONS := [
+	["omen", "OMENS", "Each one joins the pool your omen picks draw from."],
+	["slot", "OMEN SLOTS", "More omen picks at the start of every run."],
+	["torch", "FLASHLIGHTS", "Carry one into every run. Trade-offs, not upgrades."],
+	["light", "LIGHT COLOUR", "How your beam looks, nothing more."],
+	["flash", "FLIP FLASH", "The colour of every flip."],
 ]
+const STAR_RULES := "Three stars an act: clear it with no revives, with an S-grade average, and under a curse."
 
 # The act picker (plans/06 P1). Art is optional: act_N.png / act_locked.png in ART, see PROMPTS.md.
 const ACT_CARD_SIZE := Vector2(200, 290)
@@ -178,7 +192,10 @@ var _top_bar: HBoxContainer
 var _quests: Array[Control] = []
 var _play: Button
 var _cards: Array[Button] = []
-var _toast: Label
+var _shard_count: Label
+## The open hub screen (null when none) and the row focus returns to when it closes.
+var _screen: Control
+var _screen_row: Control
 var _how_to: Control
 var _how_box: Control
 var _how_back: Button
@@ -206,7 +223,6 @@ func _ready() -> void:
 	_build_stage()
 	_build_column()
 	_build_right()
-	_build_toast()
 	_build_how_to()
 	_build_acts()
 	_fade = ColorRect.new()
@@ -232,6 +248,11 @@ func _process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _leaving:
+		return
+	if _screen != null:
+		if event.is_action_pressed("ui_cancel") or event.is_action_pressed("pause"):
+			_close_screen()
+			accept_event()
 		return
 	if _how_to.visible or _acts.visible:
 		if event.is_action_pressed("ui_cancel") or event.is_action_pressed("pause"):
@@ -302,14 +323,6 @@ func _close_acts() -> void:
 	tween.tween_property(_acts, "modulate:a", 0.0, 0.14)
 	tween.chain().tween_callback(_acts.hide)
 	(_menu.get_node("NewRun") as Control).grab_focus()
-
-
-func _soon(what: String) -> void:
-	_toast.text = "%s  ·  COMING SOON" % what
-	var tween := _retarget(_toast).set_parallel(false)
-	tween.tween_property(_toast, "modulate:a", 1.0, 0.15)
-	tween.tween_interval(1.4)
-	tween.tween_property(_toast, "modulate:a", 0.0, 0.4)
 
 
 func _open_how_to() -> void:
@@ -602,12 +615,20 @@ func _build_column() -> void:
 		_row("PLAY", "ACT %d  ·  %s" % [top, StageRule.ACT_NAMES[top - 1].to_upper()], Icon.MAZE, _play_now, true)
 	if RunState.has_progress() or MetaState.acts_unlocked > 1:
 		_row("NEW RUN", "CHOOSE YOUR ACT", Icon.TARGET, _open_acts)
-	_row("CHARACTER", "SKINS & GEAR", Icon.HELMET, _soon.bind("CHARACTER"))
-	_how_row = _row("THE DEVIL", "HOW TO SURVIVE", Icon.DEMON, _open_how_to)
-	_row("PROGRESSION", "BEST FLOOR %d / %d" % [RunState.best_floor, StageRule.LAST_FLOOR], Icon.CHART,
-			_soon.bind("ACHIEVEMENTS"))
-	_row("SETTINGS", "AUDIO, CONTROLS", Icon.GEAR, _soon.bind("SETTINGS"))
-	_row("SHOP", "SKINS, EFFECTS", Icon.CHEST, _soon.bind("SHOP"))
+	_row("ALTAR", _altar_sub(), Icon.GEM, _open_altar)
+	var stars := 0
+	for act in range(1, StageRule.ACT_COUNT + 1):
+		stars += MetaState.stars_of(act).count(true)
+	var done := Unlocks.CHALLENGES.filter(func(challenge: Dictionary) -> bool:
+		return MetaState.stat(challenge["stat"]) >= challenge["goal"]).size()
+	_row("MIRROR", "%d/%d STARS  ·  %d/%d DONE" % [stars, StageRule.ACT_COUNT * 3, done, Unlocks.CHALLENGES.size()],
+			Icon.STAR, _open_mirror)
+	var met := Lore.BESTIARY.filter(func(beast: Dictionary) -> bool: return MetaState.stat(beast["seen"]) > 0).size()
+	_row("BESTIARY", "%d / %d MET" % [met, Lore.BESTIARY.size()], Icon.DEMON, _open_bestiary)
+	_row("ARCHIVE", "%d / %d NOTES" % [mini(MetaState.notes_found, Lore.NOTES.size()), Lore.NOTES.size()], Icon.MAIL,
+			_open_archive)
+	_how_row = _row("HOW TO PLAY", "BEST FLOOR %d / %d" % [RunState.best_floor, StageRule.LAST_FLOOR], Icon.HELMET,
+			_open_how_to)
 	if not OS.has_feature("web"):
 		_quit = _text_button(self, "QUIT", 14)
 		_quit.position = Vector2(MARGIN + 4, VIEW.y - 40)
@@ -694,21 +715,37 @@ func _build_right() -> void:
 	_top_bar.size = Vector2(RIGHT_W, 46)
 	_right.add_child(_top_bar)
 	_pill(Icon.GEM, MetaState.shards)
-	_icon_button(Icon.CROWN, "PREMIUM")
-	_icon_button(Icon.MAIL, "INBOX")
-	_icon_button(Icon.GEAR, "SETTINGS")
+	_icon_button(Icon.MAIL, "Inbox", _open_archive)
 
 	# Unfinished business (plans/06 E5): the next unlock, and how far the next act's shortcut is.
-	_quest(QUEST_TOP, "NEXT UNLOCK", "UNLOCK READY" if MetaState.unlock_progress() >= 1.0 else "FEAR SHARDS",
-			MetaState.shards, MetaState.FIRST_UNLOCK_COST, Icon.STAR)
+	_quests.append(_next_unlock_quest())
 	var act := MetaState.acts_unlocked
 	var reached := clampi(RunState.best_floor, StageRule.act_start(act), StageRule.act_start(act) + StageRule.GATE_FLOOR - 1)
 	var left := StageRule.floors_to_gate(reached)
-	_quest(QUEST_TOP + QUEST_SIZE.y + 10, "ACT %d SHORTCUT" % (act + 1) if act < StageRule.ACT_COUNT else "THE ESCAPE",
-			"%d FLOOR%s TO GO" % [left, "" if left == 1 else "S"], StageRule.FLOORS_PER_ACT - left, StageRule.FLOORS_PER_ACT, Icon.TARGET)
+	_quests.append(_quest(QUEST_TOP + QUEST_SIZE.y + 10, "ACT %d SHORTCUT" % (act + 1) if act < StageRule.ACT_COUNT else "THE ESCAPE",
+			"%d FLOOR%s TO GO" % [left, "" if left == 1 else "S"], StageRule.FLOORS_PER_ACT - left, StageRule.FLOORS_PER_ACT, Icon.TARGET))
 	_build_play()
-	for i in CARDS.size():
-		_card(i)
+	for act_number in range(1, StageRule.ACT_COUNT + 1):
+		_star_tile(act_number)
+
+
+## NEXT UNLOCK: the cheapest Altar item you can't have yet, and how far your shards are from it.
+func _next_unlock_quest() -> Control:
+	var next := MetaState.next_unlock()
+	if next.is_empty():
+		return _quest(QUEST_TOP, "NEXT UNLOCK", "THE ALTAR IS EMPTY", 1, 1, Icon.STAR)
+	var item := Unlocks.item(next)
+	var hint: String = ("READY: " if MetaState.can_buy(next) else "") + item["name"]
+	return _quest(QUEST_TOP, "NEXT UNLOCK", hint, MetaState.shards, item["cost"], Icon.STAR)
+
+
+func _altar_sub() -> String:
+	var next := MetaState.next_unlock()
+	if next.is_empty():
+		return "EVERYTHING IS YOURS"
+	if MetaState.can_buy(next):
+		return "UNLOCK READY"
+	return "NEXT: " + Unlocks.item(next)["name"]
 
 
 ## The one currency, earned only by playing: no "+", shards are never sold.
@@ -723,13 +760,14 @@ func _pill(icon: Icon, amount: int) -> void:
 	row.add_theme_constant_override("separation", 6)
 	pill.add_child(row)
 	_image(row, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED).custom_minimum_size = Vector2(30, 30)
-	var count := _label(row, str(amount), 18, BONE)
-	count.custom_minimum_size.x = 44
-	count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_shard_count = _label(row, str(amount), 18, BONE)
+	_shard_count.custom_minimum_size.x = 44
+	_shard_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 
-func _icon_button(icon: Icon, what: String) -> void:
+func _icon_button(icon: Icon, button_name: String, action: Callable) -> void:
 	var button := Button.new()
+	button.name = button_name
 	button.icon = _icon(icon)
 	button.expand_icon = true
 	button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -737,20 +775,19 @@ func _icon_button(icon: Icon, what: String) -> void:
 	button.add_theme_stylebox_override("normal", _panel_style(PANEL_BORDER, 1))
 	button.add_theme_stylebox_override("hover", _panel_style(PANEL_BORDER, 1))
 	button.add_theme_stylebox_override("pressed", _panel_style(BLOOD, 2, PANEL_FILL.darkened(0.5)))
-	button.pressed.connect(_soon.bind(what))
+	button.pressed.connect(action)
 	_top_bar.add_child(button)
 	_hoverable(button)
 	button.add_theme_stylebox_override("focus", _panel_style(BLOOD, 2, Color.TRANSPARENT))
 
 
 ## A goal card: title, hint, and a bar of `done` out of `goal`.
-func _quest(y: float, title: String, hint: String, done: int, goal: int, icon: Icon) -> void:
+func _quest(y: float, title: String, hint: String, done: int, goal: int, icon: Icon) -> Control:
 	var panel := Control.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.position = Vector2(RIGHT_W - QUEST_SIZE.x, y)
 	panel.size = QUEST_SIZE
 	_right.add_child(panel)
-	_quests.append(panel)
 	_image(panel, _frame, TextureRect.STRETCH_SCALE, true)
 	_place(_image(panel, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2(22, 15), Vector2(52, 52))
 	_label(panel, title, 17, BONE).position = Vector2(86, 11)
@@ -772,6 +809,7 @@ func _quest(y: float, title: String, hint: String, done: int, goal: int, icon: I
 	_place(bar, Vector2(87, 56), Vector2(166, 7))
 	_label(panel, "%d/%d" % [done, goal], 11, BONE).position = Vector2(260, 50)
 	_place(_image(panel, _icon(Icon.CHEST), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2(304, 15), Vector2(52, 52))
+	return panel
 
 
 func _build_play() -> void:
@@ -828,61 +866,43 @@ func _build_play() -> void:
 	_play.button_up.connect(_grow.bind(_play, true))
 
 
-func _card(index: int) -> void:
-	var info: Array = CARDS[index]
-	var title: String = info[0]
-	var tint: Color = info[3]
-	var card := Button.new()
-	card.name = title.to_pascal_case()
-	card.flat = true
-	_right.add_child(card)
-	_place(card, Vector2(index * (CARD_SIZE.x + CARD_GAP), CARD_TOP), CARD_SIZE)
-	_cards.append(card)
-	var content := _holder(card, "Content")
+## An act's mastery stars (plans/06 D6) in the row under PLAY, gold once earned. Opens the Mirror.
+func _star_tile(act: int) -> void:
+	var extent := Vector2((RIGHT_W - CARD_GAP * (StageRule.ACT_COUNT - 1)) / StageRule.ACT_COUNT, CARD_SIZE.y)
+	var tile := Button.new()
+	tile.name = "Stars%d" % act
+	tile.flat = true
+	_right.add_child(tile)
+	_place(tile, Vector2((act - 1) * (extent.x + CARD_GAP), CARD_TOP), extent)
+	_cards.append(tile)
+	var content := _holder(tile, "Content")
 	content.clip_contents = true
-	var art := _image(content, load(ART + info[2] + ".png"), TextureRect.STRETCH_KEEP_ASPECT_COVERED, true)
-	art.name = "Art"
-	art.pivot_offset = CARD_SIZE * 0.5
-	var shade_texture := _gradient(Color(0, 0, 0, 0), Color(0, 0, 0, 0.92), Vector2(0, 1))
-	shade_texture.gradient.set_offset(0, 0.35)
-	_image(content, shade_texture, TextureRect.STRETCH_SCALE, true)
-	var border := Panel.new()
-	border.name = "Border"
-	border.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var outline := _panel_style(tint.darkened(0.25), 2, Color.TRANSPARENT)
-	outline.set_corner_radius_all(6)
-	border.add_theme_stylebox_override("panel", outline)
-	border.set_anchors_preset(Control.PRESET_FULL_RECT)
-	content.add_child(border)
-	for text: Array in [[title, 17, Color.WHITE, CARD_SIZE.y - 46], [info[1], 10, BONE, CARD_SIZE.y - 24]]:
-		var label := _label(content, text[0], text[1], text[2])
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_place(label, Vector2(0, text[3]), Vector2(CARD_SIZE.x, 0))
-	if index == 0:
-		card.pressed.connect(_play_now)
-		card.focus_entered.connect(_set_nightmare.bind(true))
-		card.focus_exited.connect(_set_nightmare.bind(false))
-	else:
-		card.pressed.connect(_soon.bind(title))
-		var tag := _label(content, "SOON", 10, Color.WHITE)
-		var badge := _panel_style(BLOOD, 0, BLOOD)
-		badge.set_content_margin_all(2)
-		badge.content_margin_left = 6
-		badge.content_margin_right = 6
-		tag.add_theme_stylebox_override("normal", badge)
-		tag.position = Vector2(CARD_SIZE.x - 46, 8)
-	_hoverable(card)
-	card.focus_entered.connect(_card_highlight.bind(content, true))
-	card.focus_exited.connect(_card_highlight.bind(content, false))
+	var art := _act_face(content, act, extent)
+	if not MetaState.is_act_unlocked(act):
+		art.modulate = LOCKED_TINT
+	var numeral := _label(content, ROMAN[act - 1], 34, ACT_TINTS[act - 1].lightened(0.35))
+	numeral.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(numeral, Vector2(0, 18), Vector2(extent.x, 0))
+	var stars := HBoxContainer.new()
+	stars.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stars.alignment = BoxContainer.ALIGNMENT_CENTER
+	stars.add_theme_constant_override("separation", 2)
+	content.add_child(stars)
+	_place(stars, Vector2(0, extent.y - STAR_SIZE - 16), Vector2(extent.x, STAR_SIZE))
+	_stars(stars, MetaState.stars_of(act))
+	tile.pressed.connect(_open_mirror)
+	_hoverable(tile)
+	tile.focus_entered.connect(_card_highlight.bind(content, true))
+	tile.focus_exited.connect(_card_highlight.bind(content, false))
 
 
-func _build_toast() -> void:
-	_toast = _label(self, "", 16, BLOOD)
-	_toast.modulate.a = 0.0
-	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 30)
-	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
+## Three star icons, gold where earned.
+func _stars(parent: Control, earned: Array) -> void:
+	for i in earned.size():
+		var star := _image(parent, _icon(Icon.STAR), TextureRect.STRETCH_KEEP_ASPECT_CENTERED)
+		star.name = "Star%d" % i
+		star.custom_minimum_size = Vector2(STAR_SIZE, STAR_SIZE)
+		star.modulate = GOLD if earned[i] else UNEARNED
 
 
 func _build_how_to() -> void:
@@ -939,23 +959,7 @@ func _act_card(parent: Control, act: int) -> void:
 	parent.add_child(card)
 	var content := _holder(card, "Content")
 	content.clip_contents = true
-	var art_path := ART + "act_%d.png" % act
-	var art_texture: Texture2D = load(art_path) if ResourceLoader.exists(art_path) \
-			else _gradient(tint.darkened(0.55), Color.BLACK, Vector2(0, 1))
-	var art := _image(content, art_texture, TextureRect.STRETCH_KEEP_ASPECT_COVERED, true)
-	art.name = "Art"
-	art.pivot_offset = ACT_CARD_SIZE * 0.5
-	var shade := _gradient(Color(0, 0, 0, 0), Color(0, 0, 0, 0.92), Vector2(0, 1))
-	shade.gradient.set_offset(0, 0.45)
-	_image(content, shade, TextureRect.STRETCH_SCALE, true)
-	var border := Panel.new()
-	border.name = "Border"
-	border.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var outline := _panel_style(tint.darkened(0.25), 2, Color.TRANSPARENT)
-	outline.set_corner_radius_all(6)
-	border.add_theme_stylebox_override("panel", outline)
-	border.set_anchors_preset(Control.PRESET_FULL_RECT)
-	content.add_child(border)
+	var art := _act_face(content, act, ACT_CARD_SIZE)
 	var first := StageRule.act_start(act)
 	var sub := "FLOORS %d-%d" % [first, first + StageRule.FLOORS_PER_ACT - 1] if unlocked \
 			else "CLEAR ACT %d TO OPEN" % (act - 1)
@@ -981,6 +985,30 @@ func _act_card(parent: Control, act: int) -> void:
 	card.focus_exited.connect(_card_highlight.bind(content, false))
 
 
+## An act card's face in `content`: its art (a tinted gradient until act_N.png lands), a dark fade under the
+## words and a border in the act's colour. Returns the art.
+func _act_face(content: Control, act: int, extent: Vector2) -> TextureRect:
+	var tint := ACT_TINTS[act - 1]
+	var art_path := ART + "act_%d.png" % act
+	var art_texture: Texture2D = load(art_path) if ResourceLoader.exists(art_path) \
+			else _gradient(tint.darkened(0.55), Color.BLACK, Vector2(0, 1))
+	var art := _image(content, art_texture, TextureRect.STRETCH_KEEP_ASPECT_COVERED, true)
+	art.name = "Art"
+	art.pivot_offset = extent * 0.5
+	var shade := _gradient(Color(0, 0, 0, 0), Color(0, 0, 0, 0.92), Vector2(0, 1))
+	shade.gradient.set_offset(0, 0.45)
+	_image(content, shade, TextureRect.STRETCH_SCALE, true)
+	var border := Panel.new()
+	border.name = "Border"
+	border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var outline := _panel_style(tint.darkened(0.25), 2, Color.TRANSPARENT)
+	outline.set_corner_radius_all(6)
+	border.add_theme_stylebox_override("panel", outline)
+	border.set_anchors_preset(Control.PRESET_FULL_RECT)
+	content.add_child(border)
+	return art
+
+
 ## A full-screen dim with a titled, centred column, hidden until opened. Returns the column; its parent
 ## is the modal itself.
 func _modal(title: String) -> VBoxContainer:
@@ -1000,6 +1028,208 @@ func _modal(title: String) -> VBoxContainer:
 	modal.add_child(box)
 	_label(box, title, 32, BONE)
 	return box
+
+
+# --- The hub (plans/06 P5) --------------------------------------------------------------------
+
+func _open_altar() -> void:
+	_open_screen("THE ALTAR", _fill_altar, _menu.get_node("Altar"), "altar")
+
+
+func _open_mirror() -> void:
+	_open_screen("THE MIRROR", _fill_mirror, _menu.get_node("Mirror"), "mirror")
+
+
+func _open_bestiary() -> void:
+	_open_screen("THE BESTIARY", _fill_bestiary, _menu.get_node("Bestiary"), "bestiary")
+
+
+func _open_archive() -> void:
+	_open_screen("THE ARCHIVE", _fill_archive, _menu.get_node("Archive"), "archive")
+
+
+## A hub screen: a modal with a scrolling list that `fill` builds from the profile. It's rebuilt on every
+## open (a purchase reopens the Altar), keeping focus on the same button when it's still there.
+func _open_screen(title: String, fill: Callable, row: Control, art: String) -> void:
+	var focus := get_viewport().gui_get_focus_owner()
+	var keep := String(focus.name) if focus != null and _screen != null and _screen.is_ancestor_of(focus) else ""
+	var reopening := _screen != null
+	if reopening:
+		_screen.queue_free()
+	var box := _modal(title)
+	_screen = box.get_parent()
+	_screen_row = row
+	var art_path := ART + "hub_%s.png" % art
+	if ResourceLoader.exists(art_path):
+		var backdrop := _image(_screen, load(art_path), TextureRect.STRETCH_KEEP_ASPECT_COVERED, true)
+		backdrop.modulate.a = HUB_ART_ALPHA
+		_screen.move_child(backdrop, 1)  # over the dim, under the list
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = SCREEN_SIZE
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	box.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 8)
+	scroll.add_child(list)
+	fill.call(list)
+	var back := _text_button(box, "BACK   [ESC]", 20)
+	back.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	back.pressed.connect(_close_screen)
+	_screen.visible = true
+	if not reopening:
+		_screen.modulate.a = 0.0
+		_retarget(_screen).tween_property(_screen, "modulate:a", 1.0, 0.2)
+	var again: Button = list.find_child(keep, true, false) as Button if not keep.is_empty() else null
+	(again if again != null and not again.disabled else back).grab_focus()
+
+
+func _close_screen() -> void:
+	if _screen == null:
+		return
+	_screen.queue_free()
+	_screen = null
+	if is_instance_valid(_screen_row):
+		_screen_row.grab_focus()
+
+
+func _fill_altar(list: VBoxContainer) -> void:
+	_label(list, "%d FEAR SHARDS  ·  SPENT HERE FOR GOOD" % MetaState.shards, 18, GOLD)
+	for section: Array in ALTAR_SECTIONS:
+		_section(list, section[1], section[2])
+		for entry: Dictionary in Unlocks.ALTAR:
+			if entry["kind"] == section[0]:
+				_altar_item(list, entry["id"])
+
+
+## An Altar item: BUY (greyed until you can), WEAR for gear you own, else OWNED / WORN.
+func _altar_item(list: Control, id: String) -> void:
+	var item := Unlocks.item(id)
+	var owned := MetaState.owns(id)
+	var side := _entry(list, item["name"], item["text"], GOLD if owned else BONE, CardChoice.ART + id + ".png")
+	if owned and Unlocks.EQUIP_KINDS.has(item["kind"]) and MetaState.wearing(item["kind"]) != id:
+		_action(side, id, "WEAR", _wear.bind(id))
+	elif owned:
+		_note(side, "WORN" if Unlocks.EQUIP_KINDS.has(item["kind"]) else "OWNED", GOLD)
+	elif item.has("after") and not MetaState.owns(item["after"]):
+		_action(side, id, "AFTER " + Unlocks.item(item["after"])["name"], _buy.bind(id)).disabled = true
+	else:
+		_action(side, id, "BUY  ·  %d" % item["cost"], _buy.bind(id)).disabled = not MetaState.can_buy(id)
+
+
+func _buy(id: String) -> void:
+	if not MetaState.buy(id):
+		return
+	_shard_count.text = str(MetaState.shards)
+	(_menu.get_node("Altar/Content/Sub") as Label).text = _altar_sub()
+	var fresh := _next_unlock_quest()
+	_quests[0].queue_free()
+	_quests[0] = fresh
+	_open_altar()
+
+
+func _wear(id: String) -> void:
+	MetaState.equip(id)
+	_open_altar()
+
+
+func _fill_mirror(list: VBoxContainer) -> void:
+	_label(list, "FLOORS %d  ·  DEATHS %d  ·  FLIPS %d  ·  CHESTS %d  ·  CLOSE CALLS %d" % [MetaState.stat("floors"),
+			MetaState.stat("deaths"), MetaState.stat("flips"), MetaState.stat("chests"), MetaState.stat("close_calls")], 16, BONE)
+	_section(list, "ACT MASTERY", STAR_RULES)
+	for act in range(1, StageRule.ACT_COUNT + 1):
+		var side := _entry(list, "ACT %s  ·  %s" % [ROMAN[act - 1], StageRule.ACT_NAMES[act - 1].to_upper()],
+				"" if MetaState.is_act_unlocked(act) else "Locked.", ACT_TINTS[act - 1].lightened(0.35))
+		var stars := HBoxContainer.new()
+		stars.alignment = BoxContainer.ALIGNMENT_END
+		side.add_child(stars)
+		_stars(stars, MetaState.stars_of(act))
+	var done := Unlocks.CHALLENGES.filter(func(challenge: Dictionary) -> bool:
+		return MetaState.stat(challenge["stat"]) >= challenge["goal"]).size()
+	_section(list, "CHALLENGES  ·  %d / %d" % [done, Unlocks.CHALLENGES.size()], "Each one pays out the moment its count gets there.")
+	for challenge: Dictionary in Unlocks.CHALLENGES:
+		var count := MetaState.stat(challenge["stat"])
+		var finished: bool = count >= challenge["goal"]
+		var side := _entry(list, challenge["name"], challenge["text"], GOLD if finished else BONE)
+		_note(side, "DONE" if finished else "%d / %d" % [count, challenge["goal"]], GOLD if finished else BONE)
+		var reward: String = Unlocks.item(challenge["item"])["name"] if challenge.has("item") else "+%d SHARDS" % challenge["shards"]
+		_note(side, reward, DIM)
+
+
+func _fill_bestiary(list: VBoxContainer) -> void:
+	for beast: Dictionary in Lore.BESTIARY:
+		if MetaState.stat(beast["seen"]) == 0:
+			_entry(list, "???", "Not met yet.  " + beast["hint"], DIM)
+			continue
+		var side := _entry(list, beast["name"], beast["rule"] + "\n\n" + beast["lore"], BLOOD, ART + "beast_%s.png" % beast["id"])
+		for count: Array in beast["counts"]:
+			_note(side, "%s  %d" % [count[0], MetaState.stat(count[1])], BONE)
+
+
+func _fill_archive(list: VBoxContainer) -> void:
+	_section(list, "ENDINGS", "Each act's ending plays the first time its Gate falls.")
+	for act in range(1, StageRule.ACT_COUNT + 1):
+		var title := "ACT %s  ·  %s" % [ROMAN[act - 1], StageRule.ACT_NAMES[act - 1].to_upper()]
+		if MetaState.stat("clears_act_%d" % act) > 0:
+			_entry(list, title, Lore.ACT_ENDINGS[act - 1], GOLD)
+		else:
+			_entry(list, title, "Unread. Clear this act's Gate.", DIM)
+	if MetaState.stat("deep_runs") > 0:
+		_entry(list, "THE TRUE ENDING", Lore.TRUE_ENDING, GOLD)
+	else:
+		_entry(list, "???", "Floor 1 to floor 50 in one night, without waking.", DIM)
+	var found := mini(MetaState.notes_found, Lore.NOTES.size())
+	_section(list, "NOTES  ·  %d / %d" % [found, Lore.NOTES.size()], "Left by the others. Found in chests and on each act's quiet fifth floor.")
+	for i in found:
+		_entry(list, "NOTE %d" % (i + 1), Lore.NOTES[i], BONE)
+
+
+func _section(list: Control, title: String, hint: String) -> void:
+	_gap(list, 8)
+	_label(list, title, 20, BLOOD)
+	_label(list, hint, 14, DIM, _body).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+
+## One framed line of a hub list: optional art (once it exists), the title in `tint`, the text, and a right-hand
+## column for _note / _action (returned).
+func _entry(list: Control, title: String, text: String, tint: Color, art_path := "") -> VBoxContainer:
+	var panel := PanelContainer.new()
+	var style := _panel_style(tint.darkened(0.45), 1)
+	style.set_content_margin_all(12)
+	panel.add_theme_stylebox_override("panel", style)
+	list.add_child(panel)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	panel.add_child(row)
+	if not art_path.is_empty() and ResourceLoader.exists(art_path):
+		_image(row, load(art_path), TextureRect.STRETCH_KEEP_ASPECT_COVERED).custom_minimum_size = ENTRY_ART
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(words)
+	_label(words, title, 18, tint)
+	if not text.is_empty():
+		_label(words, text, 15, BONE, _body).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var side := VBoxContainer.new()
+	side.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_child(side)
+	return side
+
+
+func _note(side: VBoxContainer, text: String, color: Color) -> void:
+	side.custom_minimum_size.x = SIDE_W
+	_label(side, text, 15, color).horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+
+
+## A button in an entry's side column, named after what it acts on (focus survives a rebuild).
+func _action(side: VBoxContainer, id: String, text: String, action: Callable) -> Button:
+	side.custom_minimum_size.x = SIDE_W
+	var button := _text_button(side, text, 17)
+	button.name = id
+	button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	button.add_theme_color_override("font_disabled_color", DIM)
+	button.pressed.connect(action)
+	return button
 
 
 func _build_audio() -> void:
