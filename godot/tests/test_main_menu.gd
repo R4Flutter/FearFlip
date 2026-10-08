@@ -32,6 +32,10 @@ func teardown() -> void:
 	MetaState.stats = {}
 	MetaState.stars = {}
 	MetaState.notes_found = 0
+	RunState.mode = "campaign"
+	Daily.played = ""
+	Daily.result.clear()
+	Daily.quest_day = ""
 
 
 func test_fresh_run_offers_play_only() -> void:
@@ -78,8 +82,9 @@ func test_one_shard_pill_and_the_unfinished_business_cards() -> void:
 
 func test_the_hub_replaces_every_coming_soon() -> void:
 	var menu := _spawn_menu(1)
-	for row: String in ["Altar", "Mirror", "Bestiary", "Archive", "HowToPlay"]:
+	for row: String in ["Daily", "Altar", "Mirror", "Bestiary", "Archive"]:
 		assert_true(menu._menu.has_node(row), row)
+	assert_true(menu._top_bar.has_node("Guide"), "how to play sits up top, by the shards")
 	for gone: String in ["Character", "Progression", "Settings", "Shop"]:
 		assert_false(menu._menu.has_node(gone), gone)
 	assert_false(menu.has_method("_soon"), "nothing answers COMING SOON any more")
@@ -167,9 +172,51 @@ func test_an_open_screen_keeps_focus_inside_it() -> void:
 func test_best_floor_lives_in_the_mirror() -> void:
 	RunState.best_floor = 7
 	var menu := _spawn_menu(1)
-	assert_eq((menu._menu.get_node("HowToPlay/Content/Sub") as Label).text, "CONTROLS & RULES")
 	menu._open_mirror()
 	assert_true(_texts(menu._screen).any(func(text: String) -> bool: return text.contains("BEST FLOOR 7 / 50")))
+
+
+func test_back_from_the_daily_the_campaign_returns() -> void:
+	RunState.mode = "practice"
+	var menu := _spawn_menu(1)
+	assert_eq(RunState.mode, "campaign", "the menu always shows the campaign")
+	assert_true(menu._menu.has_node("Play"))
+
+
+func test_the_daily_screen_shows_today() -> void:
+	var menu := _spawn_menu(1)
+	assert_true(_texts(menu._right).has("DAILY #%d" % Daily.number(Daily.today())), "its status on the dashboard")
+	menu._open_daily()
+	var texts := _texts(menu._screen)
+	assert_true(texts.any(func(text: String) -> bool: return text.begins_with("DAILY NIGHTMARE #%d" % Daily.number(Daily.today()))), str(texts))
+	assert_true(texts.any(func(text: String) -> bool: return text.contains(Cards.find(Daily.omen(Daily.today()))["name"])), "the day's omen")
+	for id in Daily.quest_ids:
+		assert_true(texts.has(Daily.quest(id)["text"].to_upper()), "quest %s" % id)
+	assert_ne(menu._screen.find_child("PlayRanked", true, false), null, "the ranked try is open")
+	assert_eq(menu._screen.find_child("CopyResult", true, false), null, "nothing to copy yet")
+
+
+func test_after_the_ranked_try_the_daily_offers_practice_and_its_result() -> void:
+	Daily.played = Daily.today()
+	Daily.result.assign(["clean", "s", "died"])
+	Daily.result_time = 200.0
+	var menu := _spawn_menu(1)
+	menu._open_daily()
+	assert_eq(menu._screen.find_child("PlayRanked", true, false), null)
+	assert_ne(menu._screen.find_child("Practice", true, false), null)
+	assert_eq(menu._screen.find_child("Squares", true, false).get_child_count(), 3, "a square per floor played")
+	var copy: Button = menu._screen.find_child("CopyResult", true, false)
+	copy.pressed.emit()
+	assert_eq(copy.text, "COPIED")
+
+
+func test_one_reroll_from_the_daily_screen() -> void:
+	var menu := _spawn_menu(1)
+	menu._open_daily()
+	var first := Daily.quest_ids[0]
+	(menu._screen.find_child("Reroll_" + first, true, false) as Button).pressed.emit()
+	assert_false(Daily.quest_ids.has(first), "swapped for another")
+	assert_eq(menu._screen.find_children("Reroll_*", "Button", true, false).size(), 0, "one free reroll a day")
 
 
 func _texts(root: Node) -> Array:

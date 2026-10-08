@@ -111,6 +111,9 @@ const ALTAR_SECTIONS := [
 	["flash", "FLIP FLASH", "The colour of every flip."],
 ]
 const STAR_RULES := "Three stars an act: clear it with no revives, with an S-grade average, and under a curse."
+## The Daily's squares (plans/06 E2), drawn as tiles: the screen font has no emoji.
+const SQUARE_COLORS := {"clean": Color(0.25, 0.5, 1.0), "chased": BLOOD, "s": GOLD, "died": Color(0.2, 0.2, 0.22)}
+const SQUARE_SIZE := 20.0
 
 # The act picker (plans/06 P1). Art is optional: act_N.png / act_locked.png in ART, see PROMPTS.md.
 const ACT_CARD_SIZE := Vector2(200, 290)
@@ -216,6 +219,8 @@ var _leaving := false
 
 func _ready() -> void:
 	RunState.load_save()
+	if RunState.is_daily():
+		RunState.leave_daily()  # the menu always shows the campaign
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_body = _base_font()
 	_display = _tracked(_body, 1)
@@ -639,6 +644,7 @@ func _build_column() -> void:
 		_row("PLAY", "ACT %d  ·  %s" % [top, StageRule.ACT_NAMES[top - 1].to_upper()], Icon.MAZE, _play_now, true)
 	if RunState.has_progress() or MetaState.acts_unlocked > 1:
 		_row("NEW RUN", "CHOOSE YOUR ACT", Icon.TARGET, _open_acts)
+	_row("DAILY", _daily_sub(), Icon.CROWN, _open_daily)
 	_row("ALTAR", _altar_sub(), Icon.GEM, _open_altar)
 	var stars := 0
 	for act in range(1, StageRule.ACT_COUNT + 1):
@@ -651,7 +657,6 @@ func _build_column() -> void:
 	_row("BESTIARY", "%d / %d MET" % [met, Lore.BESTIARY.size()], Icon.DEMON, _open_bestiary)
 	_row("ARCHIVE", "%d / %d NOTES" % [mini(MetaState.notes_found, Lore.NOTES.size()), Lore.NOTES.size()], Icon.MAIL,
 			_open_archive)
-	_how_row = _row("HOW TO PLAY", "CONTROLS & RULES", Icon.HELMET, _open_how_to)
 	if not OS.has_feature("web"):
 		_quit = _text_button(self, "QUIT", 14)
 		_quit.position = Vector2(MARGIN + 4, VIEW.y - 40)
@@ -738,6 +743,7 @@ func _build_right() -> void:
 	_top_bar.size = Vector2(RIGHT_W, 46)
 	_right.add_child(_top_bar)
 	_pill(Icon.GEM, MetaState.shards)
+	_how_row = _icon_button(Icon.HELMET, "Guide", _open_how_to)
 	_icon_button(Icon.MAIL, "Inbox", _open_archive)
 
 	# Unfinished business (plans/06 E5): the next unlock, and how far the next act's shortcut is.
@@ -747,6 +753,7 @@ func _build_right() -> void:
 	var left := StageRule.floors_to_gate(reached)
 	_quests.append(_quest(QUEST_TOP + QUEST_SIZE.y + 10, "ACT %d SHORTCUT" % (act + 1) if act < StageRule.ACT_COUNT else "THE ESCAPE",
 			"%d FLOOR%s TO GO" % [left, "" if left == 1 else "S"], StageRule.FLOORS_PER_ACT - left, StageRule.FLOORS_PER_ACT, Icon.TARGET))
+	_quests.append(_daily_quest())
 	_build_play()
 	for act_number in range(1, StageRule.ACT_COUNT + 1):
 		_star_tile(act_number)
@@ -760,6 +767,26 @@ func _next_unlock_quest() -> Control:
 	var item := Unlocks.item(next)
 	var hint: String = ("READY: " if MetaState.can_buy(next) else "") + item["name"]
 	return _quest(QUEST_TOP, "NEXT UNLOCK", hint, MetaState.shards, item["cost"], Icon.STAR)
+
+
+## The Daily on the dashboard (plans/06 E5): today's number, how the ranked try went, the quests done.
+func _daily_quest() -> Control:
+	var date := Daily.today()
+	Daily.refresh_quests(date)
+	var hint := "PLAY TODAY'S MAZE" if Daily.ranked_open(date) else _daily_score()
+	return _quest(QUEST_TOP + 2 * (QUEST_SIZE.y + 10), "DAILY #%d" % Daily.number(date), hint + "  ·  QUESTS",
+			Daily.quests_done.size(), Daily.QUEST_COUNT, Icon.CROWN)
+
+
+func _daily_sub() -> String:
+	var date := Daily.today()
+	return "#%d  ·  %s" % [Daily.number(date), "PLAY TODAY'S MAZE" if Daily.ranked_open(date) else "STREAK %d" % Daily.streak]
+
+
+## The ranked try's floors and time: "4 / 5  ·  6:41".
+func _daily_score() -> String:
+	var cleared := Daily.result.filter(func(square: String) -> bool: return square != "died").size()
+	return "%d / %d  ·  %d:%02d" % [cleared, Daily.FLOORS, floori(Daily.result_time / 60.0), floori(Daily.result_time) % 60]
 
 
 func _altar_sub() -> String:
@@ -788,7 +815,7 @@ func _pill(icon: Icon, amount: int) -> void:
 	_shard_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 
-func _icon_button(icon: Icon, button_name: String, action: Callable) -> void:
+func _icon_button(icon: Icon, button_name: String, action: Callable) -> Button:
 	var button := Button.new()
 	button.name = button_name
 	button.icon = _icon(icon)
@@ -802,6 +829,7 @@ func _icon_button(icon: Icon, button_name: String, action: Callable) -> void:
 	_top_bar.add_child(button)
 	_hoverable(button)
 	button.add_theme_stylebox_override("focus", _panel_style(BLOOD, 2, Color.TRANSPARENT))
+	return button
 
 
 ## A goal card: title, hint, and a bar of `done` out of `goal`.
@@ -1055,6 +1083,10 @@ func _modal(title: String) -> VBoxContainer:
 
 # --- The hub (plans/06 P5) --------------------------------------------------------------------
 
+func _open_daily() -> void:
+	_open_screen("THE DAILY", _fill_daily, _menu.get_node("Daily"), "daily")
+
+
 func _open_altar() -> void:
 	_open_screen("THE ALTAR", _fill_altar, _menu.get_node("Altar"), "altar")
 
@@ -1117,6 +1149,76 @@ func _close_screen() -> void:
 	_unfence()
 	if is_instance_valid(_screen_row):
 		_screen_row.grab_focus()
+
+
+## Today's Daily (plans/06 P6): the maze everyone plays, the ranked try or practice, the result to copy, the day's
+## quests with their one free reroll, and the streak.
+func _fill_daily(list: VBoxContainer) -> void:
+	var date := Daily.today()
+	Daily.refresh_quests(date)
+	_label(list, "DAILY NIGHTMARE #%d  ·  %d FLOORS  ·  A NEW MAZE IN %s" % [Daily.number(date), Daily.FLOORS, _until_midnight()], 18, GOLD)
+	var floors: Array[String] = []
+	for daily_floor in range(1, Daily.FLOORS + 1):
+		floors.append(" + ".join(PackedStringArray(Daily.cards(date, daily_floor).map(func(id: String) -> String: return Cards.find(id)["name"]))))
+	var omen := Daily.omen(date)
+	var maze := _entry(list, "TODAY'S MAZE", "The same for everyone, all day. Your omen: %s.\nFloors: %s." % [Cards.find(omen)["name"],
+			"  ·  ".join(PackedStringArray(floors))], BLOOD, CardChoice.art(omen))
+	if Daily.ranked_open(date):
+		_action(maze, "PlayRanked", "PLAY RANKED", _play_daily.bind(false))
+		_note(maze, "ONE TRY", DIM)
+	else:
+		_action(maze, "Practice", "PRACTICE", _play_daily.bind(true))
+		_note(maze, "NOTHING BANKED", DIM)
+		var mine := _entry(list, "YOUR RESULT", _daily_score() + "  ·  " + ("FINISHED" if not Daily.result.has("died") and Daily.result.size() == Daily.FLOORS else "TODAY'S TRY"), GOLD)
+		var squares := HBoxContainer.new()
+		squares.name = "Squares"
+		squares.alignment = BoxContainer.ALIGNMENT_END
+		mine.add_child(squares)
+		for square in Daily.result:
+			var tile := ColorRect.new()
+			tile.color = SQUARE_COLORS[square]
+			tile.custom_minimum_size = Vector2(SQUARE_SIZE, SQUARE_SIZE)
+			squares.add_child(tile)
+		_action(mine, "CopyResult", "COPY RESULT", _copy_daily)
+	_section(list, "QUESTS  ·  %d / %d" % [Daily.quests_done.size(), Daily.QUEST_COUNT], "New ones every day; one free reroll.")
+	for id in Daily.quest_ids:
+		var quest := Daily.quest(id)
+		var finished := Daily.quests_done.has(id)
+		var side := _entry(list, String(quest["text"]).to_upper(), "+%d SHARDS" % quest["shards"], GOLD if finished else BONE)
+		_note(side, "DONE" if finished else "%d / %d" % [Daily.progress(id), quest["goal"]], GOLD if finished else BONE)
+		if Daily.rerolled.is_empty() and not finished:
+			_action(side, "Reroll_" + id, "REROLL", _reroll.bind(id))
+	_section(list, "STREAK", "Play the ranked Daily on following days. A missed day just starts it again.")
+	var next := 0
+	for milestone: int in Daily.STREAK_REWARDS:
+		if milestone > Daily.best_streak and (next == 0 or milestone < next):
+			next = milestone
+	var reward := "Next reward at %d days: %s." % [next, Unlocks.item(Daily.STREAK_REWARDS[next])["name"]] if next > 0 else "Every streak reward is yours."
+	_entry(list, "%d DAY%s IN A ROW" % [Daily.streak, "" if Daily.streak == 1 else "S"], "Best %d. Freezes %d: each covers a missed day, one more every %d days in a row (%d at most). %s" % [
+			Daily.best_streak, Daily.freezes, Daily.FREEZE_EVERY, Daily.MAX_FREEZES, reward], EMBER)
+
+
+func _play_daily(practice: bool) -> void:
+	if _leaving:
+		return
+	RunState.start_daily(practice)
+	_start()
+
+
+func _copy_daily() -> void:
+	DisplayServer.clipboard_set(Daily.share_text(Daily.played, Daily.result, Daily.result_time))
+	(_screen.find_child("CopyResult", true, false) as Button).text = "COPIED"
+
+
+func _reroll(id: String) -> void:
+	if Daily.reroll(id):
+		_open_daily()
+
+
+## Until the next UTC midnight, when the next Daily starts: "7H 12M".
+func _until_midnight() -> String:
+	var left := 86400 - int(Time.get_unix_time_from_system()) % 86400
+	return "%dH %02dM" % [floori(left / 3600.0), floori((left % 3600) / 60.0)]
 
 
 func _fill_altar(list: VBoxContainer) -> void:
