@@ -7,7 +7,7 @@ extends RefCounted
 
 ## Mods that count (neutral 0) add up across cards; every other mod is a factor (neutral 1).
 const ADDED: Array[String] = ["keys", "chests", "mirror", "follow_flips", "devil_awake", "rare_chest", "omen_pick",
-		"flip_charges", "heartbeat", "time_bonus", "devil_early", "creak_range", "feather", "crack_reveal", "ghost_sight", "last_breath"]
+		"flip_charges", "heartbeat", "time_bonus", "devil_early", "creak_range", "feather", "crack_reveal", "ghost_sight", "last_breath", "flash_stun"]
 const MAX_KEYS := 5
 const MAX_TRAPS := 16
 const MIN_FLIP_INTERVAL := 12.0
@@ -100,6 +100,13 @@ const CURSES: Array[Dictionary] = [
 	{"id": "curse_short_fuse", "rule": "short_fuse", "name": "SHORT FUSE", "text": "Flipping Time twice as often all run. +40% shards.", "mods": {"flip_interval": 0.5, "shards": 1.4}},
 	{"id": "curse_deaf_night", "rule": "deaf_night", "name": "DEAF NIGHT", "text": "No music all run, only your heartbeat. +25% shards.", "mods": {"music": 0.0, "shards": 1.25}},
 ]
+## Flashlights (plans/06 D2): bought at the Altar (Unlocks), one carried into every run. Side-grades, not raw power.
+const TORCHES: Array[Dictionary] = [
+	{"id": "old_torch", "name": "OLD TORCH", "text": "A steady cold beam. It has never let you down.", "mods": {}},
+	{"id": "lantern", "name": "LANTERN", "text": "A wide warm glow: more of the corridor, less of the distance.", "mods": {"beam_angle": 1.6, "beam_range": 0.7}},
+	{"id": "uv_light", "name": "UV LIGHT", "text": "A dim violet beam. Your map marks hidden cracks within 3 cells.", "mods": {"beam_energy": 0.7, "crack_reveal": 3}},
+	{"id": "camera_flash", "name": "CAMERA FLASH", "text": "Once a floor, F fires a flash: if it's close and in sight, it freezes for 3 seconds.", "mods": {"flash_stun": 1}},
+]
 ## After a Gate (not the last): bank and leave, or push your luck into the next act (plans/06 §2).
 const GATE_CHOICES: Array[Dictionary] = [
 	{"id": "return", "name": "RETURN", "text": "Bank your shards and climb back out. The next act stays open.", "mods": {}},
@@ -111,7 +118,7 @@ static func find(id: String) -> Dictionary:
 	return _lookup(id)[0]
 
 
-## "rule", "door", "gate", "sanctuary", "omen", "curse" or "choice" ("" for an unknown id).
+## "rule", "door", "gate", "sanctuary", "omen", "curse", "choice" or "torch" ("" for an unknown id).
 static func kind(id: String) -> String:
 	return _lookup(id)[1]
 
@@ -180,12 +187,19 @@ static func doors(seed_value: int, rule: StageRule, last_door: String) -> Array[
 	return picks
 
 
-## The omens a profile with `tokens` omen tokens can be offered (P5's Altar adds more ways in).
-static func omen_pool(tokens: int) -> Array[String]:
+## The omens a profile can be offered: the starters, the ones it bought at the Altar (`unlocked`), and one more
+## per omen token (the first it doesn't own yet, in OMENS order).
+static func omen_pool(tokens: int, unlocked: Array = []) -> Array[String]:
 	var ids: Array[String] = []
-	for omen: Dictionary in OMENS:
-		if not omen.has("needs") and ids.size() < STARTER_OMENS + tokens:
-			ids.append(omen["id"])
+	for i in OMENS.size():
+		var id: String = OMENS[i]["id"]
+		if OMENS[i].has("needs"):
+			continue
+		if i < STARTER_OMENS or unlocked.has(id):
+			ids.append(id)
+		elif tokens > 0:
+			ids.append(id)
+			tokens -= 1
 	return ids
 
 
@@ -231,7 +245,7 @@ static var _by_id := {}
 static func _lookup(id: String) -> Array:
 	if _by_id.is_empty():
 		for entry: Array in [[RULES, "rule"], [DOORS, "door"], [GATES, "gate"], [[SANCTUARY], "sanctuary"],
-				[OMENS, "omen"], [CURSES, "curse"], [GATE_CHOICES, "choice"]]:
+				[OMENS, "omen"], [CURSES, "curse"], [GATE_CHOICES, "choice"], [TORCHES, "torch"]]:
 			for card: Dictionary in entry[0]:
 				_by_id[card["id"]] = [card, entry[1]]
 	return _by_id.get(id, [{}, ""])

@@ -1,8 +1,8 @@
 class_name MetaState
 extends RefCounted
-## The permanent profile (plans/06 §6): what survives every run. The acts unlocked (P1) and the Fear
-## Shards every run banks, dead or alive (P2); unlocks and stats join it later. Its own file, because
-## RunState.save() rewrites all of save.cfg.
+## The permanent profile (plans/06 §6): what survives every run. The acts unlocked (P1), the Fear Shards
+## every run banks, dead or alive (P2), and the meta hub (P5): Altar items owned and worn (Unlocks). Its own
+## file, because RunState.save() rewrites all of save.cfg.
 
 ## What pays, in Fear Shards (plans/06 D1). A floor has 2 keys, so a key pays 4 (the plan's 3 keys x 3).
 const SIGIL_SHARDS := 4
@@ -29,6 +29,10 @@ static var shards := STARTER_SHARDS
 ## Chest finds kept for the systems that spend them: omen tokens (P4 omens), lore notes (P5 archive).
 static var omen_tokens := 0
 static var notes_found := 0
+## Altar items bought or won (P5). Free gear and the starter omens are owned without being listed here.
+static var unlocked: Array[String] = []
+## Worn gear, kind -> id (Unlocks.EQUIP_KINDS); a kind not in it wears its free default.
+static var equipped := {}
 static var _loaded := false
 
 
@@ -43,6 +47,8 @@ static func load_profile() -> void:
 	shards = cfg.get_value("meta", "shards", STARTER_SHARDS)
 	omen_tokens = cfg.get_value("meta", "omen_tokens", 0)
 	notes_found = cfg.get_value("meta", "notes_found", 0)
+	unlocked.assign(cfg.get_value("meta", "unlocked", []))
+	equipped = cfg.get_value("meta", "equipped", {})
 
 
 static func save() -> void:
@@ -51,6 +57,8 @@ static func save() -> void:
 	cfg.set_value("meta", "shards", shards)
 	cfg.set_value("meta", "omen_tokens", omen_tokens)
 	cfg.set_value("meta", "notes_found", notes_found)
+	cfg.set_value("meta", "unlocked", unlocked)
+	cfg.set_value("meta", "equipped", equipped)
 	cfg.save(profile_path)
 
 
@@ -68,9 +76,86 @@ static func keep_find(kind: String) -> void:
 	save()
 
 
-## 0..1 toward the next unlock (the Altar spends shards from plans/06 P5).
+## 0..1 toward the next unlock (full once the Altar has nothing left).
 static func unlock_progress() -> float:
-	return clampf(float(shards) / FIRST_UNLOCK_COST, 0.0, 1.0)
+	var next := next_unlock()
+	if next == "":
+		return 1.0
+	return clampf(float(shards) / Unlocks.item(next)["cost"], 0.0, 1.0)
+
+
+## The cheapest Altar item not owned yet whose "after" is owned ("" once there is nothing left to buy).
+static func next_unlock() -> String:
+	var best := ""
+	var best_cost := 0
+	for entry: Dictionary in Unlocks.ALTAR:
+		if not owns(entry["id"]) and _reachable(entry) and (best == "" or entry["cost"] < best_cost):
+			best = entry["id"]
+			best_cost = entry["cost"]
+	return best
+
+
+static func owns(id: String) -> bool:
+	var item := Unlocks.item(id)
+	if item.is_empty():
+		return false
+	return item["cost"] == 0 or unlocked.has(id) or (item["kind"] == "omen" and omen_pool().has(id))
+
+
+## The omens a pick can offer: the starters, the Altar's and one per omen token (Cards.omen_pool).
+static func omen_pool() -> Array[String]:
+	return Cards.omen_pool(omen_tokens, unlocked)
+
+
+## Spends shards on an Altar item. Refused when owned, short, or what comes before it isn't owned yet.
+static func buy(id: String) -> bool:
+	var item := Unlocks.item(id)
+	if item.is_empty() or owns(id) or not _reachable(item) or shards < item["cost"]:
+		return false
+	shards -= item["cost"]
+	unlocked.append(id)
+	save()
+	return true
+
+
+## Wears owned gear, one per kind. Omens and slots aren't worn.
+static func equip(id: String) -> bool:
+	var item := Unlocks.item(id)
+	if item.is_empty() or not Unlocks.EQUIP_KINDS.has(item["kind"]) or not owns(id):
+		return false
+	equipped[item["kind"]] = id
+	save()
+	return true
+
+
+## The gear worn of `kind` (a save naming something not owned wears the default).
+static func wearing(kind: String) -> String:
+	var id: String = equipped.get(kind, "")
+	return id if owns(id) else Unlocks.default_gear(kind)
+
+
+## What RunState.mod() folds into every floor on top of the run's cards: the torch (only torches carry mods).
+static func gear() -> Array[String]:
+	var ids: Array[String] = [wearing("torch")]
+	return ids
+
+
+static func light_color() -> Color:
+	return Unlocks.item(wearing("light"))["color"]
+
+
+## The flip's flash: the worn flash colour, else `world_color` (the world you land in).
+static func flash_color(world_color: Color) -> Color:
+	return Unlocks.item(wearing("flash")).get("color", world_color)
+
+
+## Omen picks every run opens with (the Altar's omen slots).
+static func slots() -> int:
+	return unlocked.filter(func(id: String) -> bool: return Unlocks.item(id).get("kind") == "slot").size()
+
+
+static func _reachable(item: Dictionary) -> bool:
+	return not item.has("after") or owns(item["after"])
 
 
 static func floor_clear_shards(floor_in_act: int, grade: String) -> int:

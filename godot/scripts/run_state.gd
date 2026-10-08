@@ -83,7 +83,7 @@ static func save() -> void:
 
 ## A fresh run from the first floor of `act_number`: new maze, full revives. Locked acts refuse. Once
 ## Act 1 is cleared it opens on a curse offer, and a later act's start owes one omen pick per act skipped
-## (the shortcut start kit).
+## (the shortcut start kit) plus one per Altar omen slot.
 static func start_run(act_number: int) -> bool:
 	if not MetaState.is_act_unlocked(act_number):
 		return false
@@ -101,7 +101,7 @@ static func start_run(act_number: int) -> bool:
 	picks.clear()
 	if MetaState.acts_unlocked > 1:
 		picks.append("curse")
-	for _i in act_number - 1:
+	for _i in act_number - 1 + MetaState.slots():
 		picks.append("omen")
 	_deal()
 	save()
@@ -205,7 +205,7 @@ static func pick_options() -> Array[String]:
 		"curse":
 			ids = Cards.curses(draw_seed)
 		"omen":
-			ids = Cards.omens(draw_seed, Cards.omen_pool(MetaState.omen_tokens), run_cards)
+			ids = Cards.omens(draw_seed, MetaState.omen_pool(), run_cards)
 		"door":
 			ids = Cards.doors(floor_seed(), StageRule.for_floor(current_floor), last_door)
 		"gate":
@@ -233,10 +233,10 @@ static func take(id: String) -> void:
 	save()
 
 
-## One mod for this floor: `base` folded through its cards and the run's, held inside the fairness
-## limits (Cards.fold).
+## One mod for this floor: `base` folded through its cards, the run's and the gear worn (MetaState.gear),
+## held inside the fairness limits (Cards.fold).
 static func mod(key: String, base: float) -> float:
-	return Cards.fold(floor_cards + run_cards, key, base)
+	return Cards.fold(floor_cards + run_cards + MetaState.gear(), key, base)
 
 
 static func _deal() -> void:
