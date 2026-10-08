@@ -92,6 +92,15 @@ The four curses reuse their twin rule card's art (`blackout.png`, `hungry_dark.p
 | `return.png` | the way on | a worn stone stairway climbing up out of the maze toward a pale grey dawn, a lantern left on the steps |
 | `descend.png` | the way on | a spiral stairway plunging down into red glowing depths, embers rising, maze walls continuing far below |
 
+## Flashlights from P5 (same 880x520 card art; shown beside each torch in the Altar)
+
+| File | Card | Subject |
+|---|---|---|
+| `old_torch.png` | torch | a battered metal flashlight lying on stone, its cold blue beam cutting across a maze corridor |
+| `lantern.png` | torch | an old brass oil lantern held up in a corridor, a wide warm glow filling the walls but fading fast |
+| `uv_light.png` | torch | a violet UV torch beam sweeping a corridor floor, hidden cracks lighting up bright under it |
+| `camera_flash.png` | torch | an old instant camera mid-flash, a horned silhouette frozen white at the far end of the corridor |
+
 ## Priority
 
 1. `card_frame.png` + `pick_backdrop.png`: these fix the picker on their own.

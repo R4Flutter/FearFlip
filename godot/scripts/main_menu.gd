@@ -100,6 +100,8 @@ const UNEARNED := Color(0.3, 0.3, 0.32, 0.7)
 const SCREEN_SIZE := Vector2(960, 470)
 const SIDE_W := 170.0
 const ENTRY_ART := Vector2(120, 72)
+## hub_entry.png, once it lands, frames every entry as a 9-slice with corners this wide.
+const ENTRY_SLICE := 24.0
 const HUB_ART_ALPHA := 0.3
 const ALTAR_SECTIONS := [
 	["omen", "OMENS", "Each one joins the pool your omen picks draw from."],
@@ -1195,9 +1197,7 @@ func _section(list: Control, title: String, hint: String) -> void:
 ## column for _note / _action (returned).
 func _entry(list: Control, title: String, text: String, tint: Color, art_path := "") -> VBoxContainer:
 	var panel := PanelContainer.new()
-	var style := _panel_style(tint.darkened(0.45), 1)
-	style.set_content_margin_all(12)
-	panel.add_theme_stylebox_override("panel", style)
+	panel.add_theme_stylebox_override("panel", _entry_style(tint))
 	list.add_child(panel)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
@@ -1214,6 +1214,20 @@ func _entry(list: Control, title: String, text: String, tint: Color, art_path :=
 	side.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_child(side)
 	return side
+
+
+## An entry's frame: hub_entry.png as a tinted 9-slice once it exists, else a flat panel edged in `tint`.
+func _entry_style(tint: Color) -> StyleBox:
+	if ResourceLoader.exists(ART + "hub_entry.png"):
+		var frame := StyleBoxTexture.new()
+		frame.texture = load(ART + "hub_entry.png")
+		frame.set_texture_margin_all(ENTRY_SLICE)
+		frame.set_content_margin_all(14)
+		frame.modulate_color = tint.lerp(Color.WHITE, 0.5)
+		return frame
+	var style := _panel_style(tint.darkened(0.45), 1)
+	style.set_content_margin_all(12)
+	return style
 
 
 func _note(side: VBoxContainer, text: String, color: Color) -> void:

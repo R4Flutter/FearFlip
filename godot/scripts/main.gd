@@ -1789,6 +1789,9 @@ func _show_ending(title: String, text: String) -> void:
 	carry_on.text = "CARRY ON   [ENTER]"
 	carry_on.flat = true
 	carry_on.add_theme_font_size_override("font_size", 20)
+	carry_on.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	carry_on.add_theme_color_override("font_focus_color", GOLD)
+	carry_on.add_theme_color_override("font_hover_color", GOLD)
 	carry_on.pressed.connect(func() -> void:
 		page.queue_free()
 		_offer_picks())

@@ -83,3 +83,71 @@ under a dark gradient with the act name. The sides may be cropped. No text, lett
 > invisible). Gold, crimson and ember orange glow, painterly, high detail, no text, no letters, no watermark.
 
 No 3D models are needed for Phase 1. Phase 3 (Sanctuary altar, Gate arch) will come with its own model prompts.
+
+## Meta hub (plans/06 Phase 5)
+
+All optional, same rules as above: drop the PNG here with the exact name and it shows up on the next import; until
+then the screens use flat panels and plain dark backgrounds. No 3D models are needed for Phase 5.
+
+| File | Used as | Generate at | Ship here at |
+|---|---|---|---|
+| `hub_entry.png` | the frame of every line in the four hub screens (9-slice, 24 px corners, tinted per line) | 600x120, transparent | as generated |
+| `hub_altar.png`, `hub_mirror.png`, `hub_bestiary.png`, `hub_archive.png` | behind each hub list at 30% opacity, cover-fit | 16:9, 1920x1080 | 1280x720 |
+| `beast_<id>.png` (8, ids below) | beside a bestiary entry once you've met it, cover-fit 120x72 | 5:3, 1000x600 | 240x144 |
+| `ending_bg.png` | behind an act's ending text at 35% opacity (in the maze, after a Gate) | 16:9, 1920x1080 | 1280x720 |
+
+Backgrounds: keep the centre 70% dark and empty (text sits there), light only at the edges.
+
+**hub_entry.png**
+> A horizontal UI panel frame for a dark fantasy horror game, 600x120 PNG with transparency: a thin aged-iron
+> border with small rivets and faint engraved runes in the four corners, a very dark translucent black-violet
+> interior (about 60% opaque), a faint ember-red glow along the inner edge. Symmetrical; all the detail sits in the
+> 24 px corners and the straight edges between them are plain so it stretches cleanly as a 9-slice. No text, no
+> icons, no watermark.
+
+**hub_altar.png: THE ALTAR**
+> Dark fantasy horror game background, semi-realistic painterly anime style, 16:9: a black stone altar in a ruined
+> chapel at the bottom of a maze, a cracked offering bowl heaped with glowing violet crystal shards, melted red
+> candles, iron chains hanging out of the dark above, faint occult sigils carved into the floor. The centre stays dark
+> and empty; light comes only from the shards and candles at the edges. Crimson, deep violet and ember orange,
+> volumetric haze, no text, no UI, no watermark.
+
+**hub_mirror.png: THE MIRROR**
+> Dark fantasy horror game background, semi-realistic painterly anime style, 16:9: a tall cracked antique mirror at
+> the end of an abandoned hospital ward corridor. The reflection shows the same corridor bathed in red, wet walls and
+> a faint horned silhouette standing far back in it. Five small star-shaped candle holders on the ornate frame, two of
+> them lit. The centre stays dark; cold blue on the near side, blood red inside the glass, no text, no UI, no
+> watermark.
+
+**hub_bestiary.png: THE BESTIARY**
+> Dark fantasy horror game background, semi-realistic painterly anime style, 16:9: a rotting corkboard wall in a
+> forgotten doctor's study, covered in pinned sketches and torn pages of monsters, a tall horned figure drawn in red
+> chalk at its heart, red string between the pages, specimen jars on a shelf, one flickering desk lamp. The centre
+> stays dark; ember and violet light at the edges, no readable text, no UI, no watermark.
+
+**hub_archive.png: THE ARCHIVE**
+> Dark fantasy horror game background, semi-realistic painterly anime style, 16:9: a dusty hospital records room,
+> tall steel filing cabinets, one drawer pulled open and spilling yellowed patient files and handwritten notes, a
+> desk lamp with a weak warm bulb, a 1987 wall calendar half in shadow. The centre stays dark; warm lamp light and
+> deep violet shadow, no readable text, no UI, no watermark.
+
+**ending_bg.png**
+> Dark fantasy horror game background, semi-realistic painterly anime style, 16:9: looking down a stone stairwell
+> that spirals into darkness, lit from far below by a faint red glow; hundreds of tally marks scratched into the wall
+> beside the first steps. The centre stays very dark and empty for text. Crimson and charcoal, volumetric haze, no
+> text, no UI, no watermark.
+
+**Bestiary portraits** (one prompt each; start every one with "Dark fantasy horror game illustration, semi-realistic
+painterly anime style, 5:3, the subject centred so a small crop still reads, volumetric fog, no text, no UI, no
+watermark:")
+
+| File | Subject |
+|---|---|
+| `beast_devil.png` | a tall patient horned figure standing in a dim red maze corridor, long arms, face in shadow except two burning eyes |
+| `beast_nightmare.png` | one corridor split down the middle: a cold blue clean half and a red, wet, veined half |
+| `beast_flipping_time.png` | a corridor twisting like a wrung cloth around a cracked clock face, red light pulling at the edges |
+| `beast_cracked_floor.png` | stone floor tiles split by glowing orange cracks, one tile gone and embers glowing far below |
+| `beast_the_clock.png` | an old hospital wall clock with its hands melting, pale morning light leaking under a closed door |
+| `beast_phantom.png` | a pale translucent figure in an old nurse's uniform at the end of a blue corridor, a flashlight beam flickering on it |
+| `beast_sentinel.png` | a mechanical searchlight eye in the ceiling sweeping a corridor, a heavy iron eyelid half closed |
+| `beast_ripper.png` | ceiling lights dying one by one toward the viewer, a long clawed shape rushing out of the dark |

@@ -37,6 +37,23 @@
 > RETURN/DESCEND) is an owed pick saved in `RunState.picks`; a quit at a picker offers the same cards again on
 > relaunch (`main.gd::_choose_before_floor`). **P3 fixes** in this phase: quitting at the door picker used to skip
 > the choice; a floor's card line pushed FLIP READY into the key slots; a long Hunt/Mystery card line ran off-screen.
+>
+> **P5 (Meta hub) done** on `feature/godot-3d-meta-hub`. Differences from §3/§6: the Altar (`scripts/unlocks.gd`) sells
+> the 7 omens that aren't starters (an omen token still adds the first one you don't own), 2 starting omen slots,
+> Old Torch → Lantern → UV Light → Camera Flash, 5 light colours and 3 flip flashes; gear is worn from the Altar
+> itself. The cheapest item costs `FIRST_UNLOCK_COST` (70). With no Phantoms yet, the UV Light is a dim beam that
+> marks hidden cracks within 3 cells on the map. The Camera Flash rides F (it fires instead of switching the light
+> while charged) and freezes the Devil for 3 s within 6 cells in sight, once a floor. No skins or characters (B5,
+> later). 40 challenges are lifetime counters banked with the floor like its shards (a quit mid-floor counts nothing).
+> Their pop-ups show when the floor is banked (and on the death screen). Each pays shards or an Altar item, or that
+> item's price if you own it. Soft Soles and Echo Step are P7 omens, so those two examples pay Feather Step and
+> Twin Flip instead. MIRROR = act stars + challenges + lifetime stats. A star average counts S=3, A=2, B=1, C=0 and
+> needs 2.5. The bestiary has 8 entries; Phantom, Sentinel and Ripper show as locked hints until they exist, and a
+> first sighting pays 5 shards. The Archive holds the 30 notes (found in order; the Sanctuary now leaves one), 5 act
+> endings and the true ending. An ending plays the first time its Gate falls, before RETURN / DESCEND. The Voice
+> (`Lore.voice`, 93 lines) replaces the death screen's comeback line. Menu: CHARACTER, PROGRESSION, SETTINGS, SHOP,
+> PREMIUM and the mode cards are gone. INBOX opens the Archive, the mode cards became the act-stars strip, and DAILY
+> waits for P6. The gate is a test: 15 runs of dying on floor 3 never leave the next unlock more than 2 runs away.
 
 ## Context
 
