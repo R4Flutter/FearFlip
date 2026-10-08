@@ -90,7 +90,7 @@ static func load_save() -> void:
 		act_sprinted = cfg.get_value("run", "act_sprinted", false)
 		rank = cfg.get_value("run", "rank", 0)
 	if run_seed == 0 or not MetaState.is_act_unlocked(act()):
-		start_run(1)
+		start_run(1, false)
 
 
 static func save() -> void:
@@ -122,8 +122,9 @@ static func save() -> void:
 
 ## A fresh run from the first floor of `act_number` (StageRule.ABYSS_ACT: the Abyss) at the rank the act picker
 ## holds: new maze, full revives. Locked acts refuse. Once Act 1 is cleared it opens on a curse offer, and a later
-## act's start owes one omen pick per act skipped (the shortcut start kit) plus one per Altar omen slot.
-static func start_run(act_number: int) -> bool:
+## act's start owes one omen pick per act skipped (the shortcut start kit) plus one per Altar omen slot. `played` =
+## false for the run a fresh profile is handed at load: nobody's run yet, so the playtest log doesn't count it.
+static func start_run(act_number: int, played := true) -> bool:
 	if not MetaState.is_act_unlocked(act_number):
 		return false
 	run_seed = randi() | 1
@@ -146,7 +147,8 @@ static func start_run(act_number: int) -> bool:
 		picks.append("omen")
 	_deal()
 	save()
-	log_event("run", {"act": act_number, "mode": mode})
+	if played:
+		log_event("run", {"act": act_number, "mode": mode})
 	return true
 
 

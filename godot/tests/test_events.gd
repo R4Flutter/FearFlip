@@ -74,6 +74,17 @@ func test_a_session_starts_once_per_launch() -> void:
 	assert_eq(_events().filter(func(event: Dictionary) -> bool: return event["e"] == "session").size(), 1)
 
 
+func test_a_fresh_profiles_first_run_counts_only_once_played() -> void:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE))
+	RunState._loaded = false
+	RunState.run_seed = 0  # a new process: no run in memory, none saved
+	RunState.load_save()
+	assert_eq(_events().filter(func(event: Dictionary) -> bool: return event["e"] == "run").size(), 0,
+			"the run a new profile is handed at load is nobody's run yet")
+	RunState.start_run(1)
+	assert_eq(_events().filter(func(event: Dictionary) -> bool: return event["e"] == "run").size(), 1)
+
+
 func test_runs_picks_and_run_ends_are_logged() -> void:
 	RunState.start_run(1)
 	assert_eq(_last("run").get("act"), 1.0)

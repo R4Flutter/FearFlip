@@ -201,3 +201,20 @@ func test_the_web_export_loads_the_sdk_the_bridge_expects() -> void:
 	var head: String = presets.get_value("preset.0.options", "html/head_include", "")
 	for needed: String in ["crazygames-sdk-v3.js", "window.fearflipSdk", "window.fearflipSubmitDepth", "submitScore"]:
 		assert_true(head.contains(needed), needed)
+
+
+## The SDK holds writes back about a second: a tab closed right after a save leaves the cloud a save behind. The newer
+## copy wins, so that never rolls a player back.
+func test_a_cloud_copy_only_wins_when_it_is_newer() -> void:
+	assert_true(Portal.cloud_wins({"t": 200.0, "text": "[run]"}, 100.0), "saved on another device since")
+	assert_false(Portal.cloud_wins({"t": 100.0, "text": "[run]"}, 200.0), "this device is ahead of the cloud")
+	assert_false(Portal.cloud_wins(null, 0.0), "nothing in the cloud yet")
+	assert_false(Portal.cloud_wins("[run]", 0.0), "not a stamped copy")
+
+
+## Act 1 is tuned easy (GEMINI): its deck never speeds the Devil up or wakes it sooner, and an event never changes that.
+func test_no_event_makes_act_1_harder_on_the_devil() -> void:
+	for event: Dictionary in Cards.EVENTS:
+		for id in Cards.deck(1, event["id"]):
+			assert_true(Cards.fold([id], "devil_speed", 1.0) <= 1.0, "%s speeds it up in Act 1" % id)
+			assert_true(Cards.fold([id], "devil_delay", 1.0) >= 1.0, "%s wakes it sooner in Act 1" % id)
