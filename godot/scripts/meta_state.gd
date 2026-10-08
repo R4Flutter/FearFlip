@@ -190,11 +190,6 @@ static func light_color() -> Color:
 	return Unlocks.item(wearing("light"))["color"]
 
 
-## The flip's flash: the worn flash colour, else `world_color` (the world you land in).
-static func flash_color(world_color: Color) -> Color:
-	return Unlocks.item(wearing("flash")).get("color", world_color)
-
-
 ## Omen picks every run opens with (the Altar's omen slots).
 static func slots() -> int:
 	return unlocked.filter(func(id: String) -> bool: return Unlocks.item(id).get("kind") == "slot").size()

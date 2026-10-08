@@ -431,3 +431,115 @@ func test_a_chest_find_waits_to_be_banked_with_the_floor() -> void:
 	var main := _spawn_floor()
 	main._pay_chest({"kind": "omen", "shards": 0})
 	assert_eq(main.floor_finds, ["omen"], "kept with the floor's shards: a quit before the floor ends replays it")
+
+
+# --- plans/06 P5: the meta hub reaches the floor ------------------------------------------------
+
+func test_a_floor_counts_what_you_did_for_the_challenges() -> void:
+	var main := _spawn_floor()
+	main._wake_devil()
+	for i in main.layout.sigils.size():
+		main._apply_world(main.layout.sigil_worlds[i])
+		main.player_cell = main.layout.sigils[i]
+		main._collect_sigils()
+	main._pay_chest({"kind": "shards", "shards": 5})
+	main._close_call("CLOSE CALL")
+	main._close_call("PHASE DODGE")
+	Engine.time_scale = 1.0
+	main._on_flipped(NIGHTMARE, true)
+	main._enter_cell(main.circles.cells[0])
+	main._lose_game("trap")
+	var counts: Dictionary = main.floor_stats
+	assert_eq(counts.get("devil_wakes"), 1)
+	assert_eq(counts.get("sigils"), main.layout.sigils.size())
+	assert_eq(counts.get("chests"), 1)
+	assert_eq(counts.get("close_calls"), 1)
+	assert_eq(counts.get("phase_dodges"), 1)
+	assert_eq(counts.get("devil_escapes"), 2, "the bestiary's 'you got away'")
+	assert_eq(counts.get("flips"), 1)
+	assert_eq(counts.get("forced_flips"), 1)
+	assert_eq(counts.get("circles"), 1)
+	assert_eq(counts.get("deaths"), 1)
+	assert_eq(counts.get("deaths_trap"), 1)
+
+
+func test_clearing_the_sanctuary_counts_the_floor_and_leaves_a_note() -> void:
+	var main := _spawn_floor([], 5)
+	assert_true(main.rule.is_sanctuary)
+	main._win_game()
+	assert_eq(main.floor_stats.get("floors"), 1)
+	assert_true(main.floor_finds.has("note"), "its lore note, banked with the floor")
+
+
+func test_a_gate_plays_its_ending_the_first_time_only() -> void:
+	var stats: Dictionary = MetaState.stats
+	var start := RunState.start_floor
+	MetaState.stats = {}
+	var gate := _spawn_floor([], 10)
+	assert_eq(gate._gate_ending(), Lore.ACT_ENDINGS[0], "first clear of Act 1")
+	MetaState.stats = {"clears_act_1": 1}
+	assert_eq(gate._gate_ending(), "", "seen it")
+	RunState.start_floor = 1
+	var last := _spawn_floor([], StageRule.LAST_FLOOR)
+	assert_eq(last._gate_ending(), Lore.TRUE_ENDING, "floor 1 to 50 in one run")
+	RunState.start_floor = 41
+	assert_eq(last._gate_ending(), Lore.ACT_ENDINGS[4])
+	MetaState.stats = stats
+	RunState.start_floor = start
+
+
+func test_an_ending_waits_for_you_to_carry_on() -> void:
+	var main := _spawn_floor([], 10)
+	main._show_ending("THE END OF ACT I", Lore.ACT_ENDINGS[0])
+	var ending: Control = main.get_node("Overlays/Ending")
+	var texts := ending.find_children("*", "Label", true, false).map(func(label: Label) -> String: return label.text)
+	assert_true(texts.has(Lore.ACT_ENDINGS[0]), str(texts))
+	assert_true(texts.has("THE END OF ACT I"))
+	assert_true(ending.find_child("CarryOn", true, false) is Button)
+
+
+func test_the_voice_speaks_on_the_death_screen() -> void:
+	var main := _spawn_floor([], 3)
+	main._lose_game("devil")
+	var line := Lore.voice("devil", MetaState.stat("deaths"), clampf(main._progress(), 0.0, 1.0), main.rule.floor_in_act)
+	assert_true(main.death_screen._detail.text.ends_with(line), main.death_screen._detail.text)
+
+
+func test_worn_gear_shapes_the_flashlight_and_the_flip() -> void:
+	MetaState.unlocked.assign(["lantern", "ember_light", "gold_flash"])
+	MetaState.equipped = {"torch": "lantern", "light": "ember_light", "flash": "gold_flash"}
+	var main := _spawn_floor()
+	MetaState.unlocked.clear()
+	MetaState.equipped = {}
+	assert_eq(main.flashlight.light_color, Unlocks.item("ember_light")["color"])
+	assert_true(is_equal_approx(main.flashlight.spot_angle, main.feel.flashlight_angle * Cards.find("lantern")["mods"]["beam_angle"]))
+	assert_true(main.flashlight.spot_range < main.feel.flashlight_range, "the Lantern trades reach for width")
+	main._on_flipped(NIGHTMARE, false)
+	var flash: Color = main.flash_rect.color
+	assert_eq(Color(flash, 1.0), Color(Unlocks.item("gold_flash")["color"], 1.0), "the flip flashes gold")
+
+
+func test_the_camera_flash_freezes_it_once_a_floor() -> void:
+	MetaState.unlocked.assign(["camera_flash"])
+	MetaState.equipped = {"torch": "camera_flash"}
+	var main := _spawn_floor()
+	MetaState.unlocked.clear()
+	MetaState.equipped = {}
+	main._wake_devil()
+	main._apply_world(NIGHTMARE)
+	main.catch_grace = 0.0
+	main.devil_cell = main.player_cell
+	main.devil.position = main._devil_world_position()
+	var press := InputEventAction.new()
+	press.action = "flashlight"
+	press.pressed = true
+	main._unhandled_input(press)
+	assert_eq(main.flash_stuns, 0, "once a floor")
+	assert_true(main.flashlight_on, "the flash isn't the light switch")
+	main._process(0.05)
+	assert_eq(main.lunge_left, 0.0, "frozen: no grab")
+	main.devil_stun = 0.0
+	main._process(0.05)
+	assert_gt(main.lunge_left, 0.0, "and then it moves again")
+	main._unhandled_input(press)
+	assert_false(main.flashlight_on, "spent: F is the light switch again")

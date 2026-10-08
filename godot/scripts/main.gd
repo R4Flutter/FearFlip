@@ -41,6 +41,12 @@ const CLOSE_CALL_HEART_PITCH := 1.5
 const CLOSE_CALL_HEART_TIME := 1.5
 ## Your own flip with the Devil this close (path tiles), or mid-lunge, is a Phase Dodge.
 const PHASE_DODGE_TILES := 1
+## Camera Flash (Altar torch, plans/06 P5): it freezes the Devil this long when it's this close (path tiles) and in sight.
+const FLASH_STUN_TIME := 3.0
+const FLASH_STUN_TILES := 6
+## An act's ending (Lore) the first time its Gate falls; the art is optional (prompt in assets/images/menu/PROMPTS.md).
+const ENDING_ART := "res://assets/images/menu/ending_bg.png"
+const ENDING_WIDTH := 720.0
 ## Fear Shards on the HUD: a counter under the keys; every "+3" pops in a line below it (stacking when
 ## several land at once), drifts up and fades.
 const SHARD_COLOR := Color(0.78, 0.62, 1.0)
@@ -173,6 +179,10 @@ var tour_m := 0.0
 var floor_shards := 0
 ## Chest finds (omen tokens, lore notes) on this floor: banked with its shards, never before.
 var floor_finds: Array[String] = []
+## Counters for the challenges and the bestiary (MetaState.record): banked with the floor, like its shards.
+var floor_stats := {}
+## You sprinted on this floor (Act 1's no-sprint challenge).
+var sprinted := false
 var floor_revives := 0
 ## Seconds with the Devil inside heartbeat range: being hunted costs a grade.
 var chased_time := 0.0
@@ -199,6 +209,15 @@ var ghost_sight := false
 var ghost_material: StandardMaterial3D
 ## Catches the Last Breath omen still turns into a trip back to your last circle this floor.
 var last_breath := 0
+## The torch worn (Altar gear, folded like a card): the beam's shape, and Camera Flashes left this floor.
+var beam_energy := 1.0
+var beam_range := 1.0
+var beam_angle := 1.0
+var flash_stuns := 0
+## The flip flash worn (Altar gear): its colour, or the world's you land in.
+var flip_flash := ""
+## Seconds the Devil stays frozen by a Camera Flash.
+var devil_stun := 0.0
 var omens_label: Label
 ## Chests down dead ends (Vault, Greed) by cell; each opens as you reach it.
 var bonus_chests := {}
@@ -389,6 +408,11 @@ func _fold_cards() -> void:
 	night_fog = RunState.mod("nightmare_fog", 1.0)
 	ghost_sight = RunState.mod("ghost_sight", 0.0) > 0.0
 	last_breath = roundi(RunState.mod("last_breath", 0.0))
+	beam_energy = RunState.mod("beam_energy", 1.0)
+	beam_range = RunState.mod("beam_range", 1.0)
+	beam_angle = RunState.mod("beam_angle", 1.0)
+	flash_stuns = roundi(RunState.mod("flash_stun", 0.0))
+	flip_flash = MetaState.wearing("flash")
 	var names: Array[String] = []
 	for id in RunState.floor_cards:
 		names.append(Cards.find(id)["name"])
@@ -460,6 +484,7 @@ func _physics_process(delta: float) -> void:
 	var move_input := _move_input()
 	var direction := player.transform.basis * Vector3(move_input.x, 0.0, move_input.y)
 	var sprinting := Input.is_action_pressed("sprint") and move_input != Vector2.ZERO
+	sprinted = sprinted or sprinting
 	var target_speed := feel.walk_speed * (feel.sprint_multiplier if sprinting else 1.0)
 	var horizontal_velocity := Vector3(player.velocity.x, 0.0, player.velocity.z)
 	var rate := feel.acceleration if move_input != Vector2.ZERO else feel.friction
@@ -506,6 +531,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event.is_action_pressed("flashlight"):
+		if flash_stuns > 0:
+			_camera_flash()
+			return
 		flashlight_on = not flashlight_on
 		flashlight.visible = flashlight_on
 	elif event.is_action_pressed("flip"):
@@ -568,7 +596,7 @@ func _update_flashlight(delta: float) -> void:
 		if stutter_left <= 0.0 and rng.randf() < feel.stutter_chance * interval:
 			stutter_left = feel.stutter_duration
 	flicker_value = lerpf(flicker_value, flicker_target, clampf(12.0 * delta, 0.0, 1.0))
-	var energy := feel.flashlight_energy * (1.0 + flicker_value)
+	var energy := feel.flashlight_energy * beam_energy * (1.0 + flicker_value)
 	if stutter_left > 0.0:
 		stutter_left -= delta
 		energy *= feel.stutter_energy_ratio
@@ -598,12 +626,15 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 	var dodged := not forced and devil_active and (lunge_left > 0.0 or
 			(_devil_distance() <= PHASE_DODGE_TILES and not devil_retreating and not circles.protects(player_cell)))
 	_apply_world(new_world)
+	_count("flips")
+	if forced:
+		_count("forced_flips")
 	flip_player.play()
 	warning_label.visible = false
 	var tween := create_tween().set_parallel()
 	camera.rotation.z = 0.0
 	tween.tween_property(camera, "rotation:z", TAU, FLIP_ROLL_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	flash_rect.color = Color(SIGIL_COLORS[new_world], 0.6)
+	flash_rect.color = Color(Unlocks.item(flip_flash).get("color", SIGIL_COLORS[new_world]), 0.6)
 	tween.tween_property(flash_rect, "color:a", 0.0, 0.3)
 	tween.chain().tween_callback(func() -> void: camera.rotation.z = 0.0)
 	# It follows you across worlds: re-path on the new walls, never a catch on the flip itself.
@@ -714,6 +745,7 @@ func _collect_sigils() -> void:
 		(sigil_nodes[i] as KeyPickup).collect()
 		key_hud.fly_in(sigils_collected, _screen_point(sigil_nodes[i].global_position))
 		sigils_collected += 1
+		_count("sigils")
 		_earn(MetaState.SIGIL_SHARDS)
 		sigil_player.pitch_scale = 1.0
 		sigil_player.play()
@@ -813,6 +845,9 @@ func _tick_devil(delta: float) -> void:
 		if not devil_spawning and DevilBrain.can_spawn(elapsed, devil_delay, _progress(), circles.protects(player_cell)):
 			_try_spawn_devil()
 		return
+	if devil_stun > 0.0:
+		devil_stun -= delta  # a Camera Flash: it neither walks nor grabs
+		return
 	devil_timer += delta
 	# Next cell only once the body is on its current cell centre: it walks corridors, never cuts a wall corner.
 	if devil_timer >= _devil_step_interval() and devil.position.distance_to(_devil_world_position()) < 0.05:
@@ -875,6 +910,7 @@ func _try_spawn_devil() -> void:
 func _wake_devil() -> void:
 	devil_spawning = false
 	devil_active = true
+	_count("devil_wakes")
 	devil.position = _devil_world_position()
 	devil.visible = true
 
@@ -921,6 +957,8 @@ func _pop(text: String) -> void:
 ## and the heart jumps.
 func _close_call(what: String) -> void:
 	_earn(MetaState.CLOSE_CALL_SHARDS, what)
+	_count("phase_dodges" if what == "PHASE DODGE" else "close_calls")
+	_count("devil_escapes")
 	Engine.time_scale = CLOSE_CALL_TIME_SCALE
 	get_tree().create_timer(CLOSE_CALL_SLOWMO, true, false, true).timeout.connect(Engine.set.bind("time_scale", 1.0))
 	heartbeat_player.pitch_scale = CLOSE_CALL_HEART_PITCH
@@ -928,6 +966,7 @@ func _close_call(what: String) -> void:
 
 ## A chest's roll: shards pop and count; a find (omen token, lore note) waits to be banked with them.
 func _pay_chest(roll: Dictionary) -> void:
+	_count("chests")
 	var find: String = MetaState.CHEST_TEXT[roll["kind"]]
 	if roll["shards"] > 0:
 		_earn(roll["shards"], find)
@@ -942,15 +981,39 @@ func _open_detour_chest(cell: Vector2i) -> void:
 	box.open_now()
 	_pay_chest(MetaState.chest_roll(hash([seed_value, cell])))
 
-## This floor's shards and finds go to the profile for good. Quitting mid-floor banks nothing: the floor replays.
-func _bank() -> void:
-	if fixed_seed != 0 or (floor_shards == 0 and floor_finds.is_empty()):
-		return  # a debug floor never touches the save
+## This floor's shards, finds and counters go to the profile for good, and what they complete (challenges, bestiary
+## entries) pops and is returned. Quitting mid-floor banks nothing: the floor replays.
+func _bank() -> Array[String]:
+	var news: Array[String] = []
+	if fixed_seed != 0 or (floor_shards == 0 and floor_finds.is_empty() and floor_stats.is_empty()):
+		return news  # a debug floor never touches the save
 	RunState.bank(floor_shards)
 	for find in floor_finds:
 		MetaState.keep_find(find)
+		if find == "note":
+			_count("notes")
+	news = MetaState.record(floor_stats)
 	floor_shards = 0
 	floor_finds.clear()
+	floor_stats.clear()
+	for line in news:
+		_pop(line)
+	return news
+
+## One more of `stat` this floor (plans/06 P5 challenges and bestiary), banked by _bank().
+func _count(stat: String, amount := 1) -> void:
+	floor_stats[stat] = floor_stats.get(stat, 0) + amount
+
+## Camera Flash (Altar torch): F fires it once a floor. It freezes the Devil for FLASH_STUN_TIME if it's within
+## FLASH_STUN_TILES and in sight; fired at nothing, it's spent all the same.
+func _camera_flash() -> void:
+	flash_stuns -= 1
+	flash_rect.color = Color(1, 1, 1, 0.85)
+	create_tween().tween_property(flash_rect, "color:a", 0.0, 0.5)
+	if devil_active and _devil_distance() <= FLASH_STUN_TILES and DevilBrain.line_of_sight(layout, world, player_cell, devil_cell):
+		devil_stun = FLASH_STUN_TIME
+		lunge_left = 0.0
+		_flash_message("CAMERA FLASH  ·  it froze")
 
 # --- Cells, circles, traps ------------------------------------------------------
 
@@ -982,6 +1045,7 @@ func _enter_cell(cell: Vector2i) -> void:
 	var holds := traps.holds
 	match traps.step(cell):
 		TrapField.State.CRACKED:
+			_count("cracks")
 			crack_player.play()
 			trap_nodes[traps.index_at(cell)].crack()
 			create_tween().tween_method(_shake, 0.035, 0.0, 0.3)
@@ -992,6 +1056,7 @@ func _enter_cell(cell: Vector2i) -> void:
 		_enter_circle()
 
 func _enter_circle() -> void:
+	_count("circles")
 	circle_player.play()
 	snapshot = {"cell": player_cell, "time_left": time_left, "traps": traps.states.duplicate()}
 	if devil_active and not devil_retreating:
@@ -1331,10 +1396,10 @@ func _build_player() -> void:
 	camera_pivot.add_child(camera)
 	flashlight = SpotLight3D.new()
 	flashlight.name = "Flashlight"
-	flashlight.light_color = Color(0.68, 0.82, 1.0)
-	flashlight.light_energy = feel.flashlight_energy
-	flashlight.spot_range = feel.flashlight_range
-	flashlight.spot_angle = feel.flashlight_angle
+	flashlight.light_color = MetaState.light_color()
+	flashlight.light_energy = feel.flashlight_energy * beam_energy
+	flashlight.spot_range = feel.flashlight_range * beam_range
+	flashlight.spot_angle = feel.flashlight_angle * beam_angle
 	flashlight.shadow_enabled = true
 	camera.add_child(flashlight)
 
@@ -1644,7 +1709,17 @@ func _win_game() -> void:
 	if rule.is_gate:
 		pay += MetaState.act_clear_shards(rule.act)
 	_earn(pay, "GRADE " + grade)
+	_count("floors")
+	if grade == "S":
+		_count("grade_s")
+	if rule.is_sanctuary:
+		floor_finds.append("note")  # the Sanctuary's lore note (plans/06 A4)
+		_pop("+1  " + MetaState.CHEST_TEXT["note"])
 	var earned := "GRADE %s   ·   +%d SHARDS" % [grade, floor_shards]
+	# Read before this clear is banked: an ending plays the first time only.
+	var ending := _gate_ending() if rule.is_gate and fixed_seed == 0 else ""
+	if fixed_seed == 0:
+		RunState.note_floor(grade, sprinted)
 	_bank()
 	# Save progress now (with the picks it owes), so quitting during the overlay still lands past this floor.
 	if not rule.is_gate:
@@ -1654,13 +1729,73 @@ func _win_game() -> void:
 		get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_offer_picks)
 		return
 	if fixed_seed == 0:
+		for line in RunState.master_act(grade):
+			_pop(line)
 		RunState.clear_gate()
 	if rule.act == StageRule.ACT_COUNT:
 		_show_message("YOU ESCAPED THE DESCENT\n" + earned)
 	else:
 		_show_message("ACT %d CLEARED\nACT %d  ·  %s  UNLOCKED\n%s" % [rule.act, rule.act + 1, StageRule.ACT_NAMES[rule.act].to_upper(), earned])
 	_show_act_cleared()
-	get_tree().create_timer(ACT_CLEAR_TIME).timeout.connect(_offer_picks)
+	var title := "THE TRUE ENDING" if ending == Lore.TRUE_ENDING else "ACT %s  ·  %s" % [MainMenu.ROMAN[rule.act - 1], rule.act_name.to_upper()]
+	get_tree().create_timer(ACT_CLEAR_TIME).timeout.connect(_offer_picks if ending.is_empty() else _show_ending.bind(title, ending))
+
+## The ending this Gate plays (plans/06 §2): the true one on a first run from floor 1 through the last Gate, else
+## the act's own the first time it falls ("" once seen).
+func _gate_ending() -> String:
+	if rule.act == StageRule.ACT_COUNT and RunState.start_floor == 1 and MetaState.stat("deep_runs") == 0:
+		return Lore.TRUE_ENDING
+	return Lore.ACT_ENDINGS[rule.act - 1] if MetaState.stat("clears_act_%d" % rule.act) == 0 else ""
+
+## An ending on a dark page (its art behind, once it exists): read it, then carry on to the Gate's choice.
+func _show_ending(title: String, text: String) -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_show_message("")
+	var page := ColorRect.new()
+	page.name = "Ending"
+	page.color = Color(0.0, 0.0, 0.0, 0.94)
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	get_node("Overlays").add_child(page)
+	if ResourceLoader.exists(ENDING_ART):
+		var art := TextureRect.new()
+		art.texture = load(ENDING_ART)
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		art.modulate.a = 0.35
+		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		art.set_anchors_preset(Control.PRESET_FULL_RECT)
+		page.add_child(art)
+	var column := VBoxContainer.new()
+	column.set_anchors_preset(Control.PRESET_CENTER)
+	column.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	column.grow_vertical = Control.GROW_DIRECTION_BOTH
+	column.add_theme_constant_override("separation", 24)
+	page.add_child(column)
+	var heading := Label.new()
+	heading.text = title
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.add_theme_font_size_override("font_size", 30)
+	heading.add_theme_color_override("font_color", GOLD)
+	column.add_child(heading)
+	var words := Label.new()
+	words.text = text
+	words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.custom_minimum_size.x = ENDING_WIDTH
+	words.add_theme_font_size_override("font_size", 19)
+	words.add_theme_color_override("font_color", MainMenu.BONE)
+	column.add_child(words)
+	var carry_on := Button.new()
+	carry_on.name = "CarryOn"
+	carry_on.text = "CARRY ON   [ENTER]"
+	carry_on.flat = true
+	carry_on.add_theme_font_size_override("font_size", 20)
+	carry_on.pressed.connect(func() -> void:
+		page.queue_free()
+		_offer_picks())
+	column.add_child(carry_on)
+	carry_on.grab_focus()
+	page.modulate.a = 0.0
+	page.create_tween().tween_property(page, "modulate:a", 1.0, 0.6)
 
 ## What the run owes before the next floor, one card picker at a time (plans/06 P4): an omen after a
 ## Shrine or the Sanctuary, the next floor's door (A2), RETURN or DESCEND after a Gate, a run's curse and
@@ -1765,13 +1900,15 @@ func _lose_game(cause: String = "devil") -> void:
 	_stop_tension_audio()
 	_show_message("")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	_bank()  # dying keeps every shard
+	_count("deaths")
+	_count("deaths_" + cause)
+	var news := _bank()  # dying keeps every shard
 	# Death ends the run now (quitting here can't buy a retry of this maze); a revive brings it back.
 	if fixed_seed == 0:
 		RunState.end_run()
 	var steps := maxi(exit_dist[world][player_cell.y * layout.size + player_cell.x], 0)
 	var floor_progress := clampf(_progress(), 0.0, 1.0)
-	var comeback := "Inches away. Lock in." if floor_progress >= 0.9 else ("Strong run. Try again." if floor_progress >= 0.7 else "Momentum is building.")
+	var comeback := Lore.voice(cause, MetaState.stat("deaths"), floor_progress, rule.floor_in_act)
 	var detail := "%d m from the exit   ·   Act %d, floor %d / %d   ·   best floor %d / %d\n%s" % [
 		roundi(steps * CELL_SIZE), rule.act, rule.floor_in_act, StageRule.FLOORS_PER_ACT,
 		RunState.best_floor, StageRule.LAST_FLOOR, comeback]
@@ -1780,6 +1917,8 @@ func _lose_game(cause: String = "devil") -> void:
 	var progress := MetaState.unlock_progress()
 	var business := "+%d SHARDS THIS RUN   ·   %s   ·   %s" % [RunState.run_shards + floor_shards,
 			"UNLOCK READY" if progress >= 1.0 else "NEXT UNLOCK %d%%" % floori(progress * 100.0), _shortcut_line()]
+	if not news.is_empty():
+		business += "\n" + "   ·   ".join(news)
 	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive,
 			"NEW RUN  ·  ACT %d  ·  [R]" % rule.act, business)
 
