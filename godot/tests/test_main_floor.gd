@@ -9,6 +9,10 @@ func suite_name() -> String:
 	return "main_floor"
 
 
+func teardown() -> void:
+	RunState.mode = "campaign"
+
+
 ## A debug floor (fixed seed) built from `cards` on `floor_number`; RunState goes back to Act 1 F1 after.
 func _spawn_floor(cards: Array = [], floor_number := 1) -> Node3D:
 	RunState.floor_cards.assign(cards)
@@ -622,3 +626,60 @@ func test_delivered_hud_art_frames_the_screen() -> void:
 	main._on_flipping_time_warning()
 	assert_true(main.get_node("HUD/WarningOverlay").visible)
 	assert_gt(main.get_node("HUD/Hints").get_child_count(), 5, "keycaps for the controls")
+
+
+# --- plans/06 P6: the Daily on the floor -----------------------------------------------------------------------
+
+## A Daily floor in practice (nothing banked, nothing saved), `daily_floor` of today's five.
+func _spawn_daily(daily_floor := 1) -> Node3D:
+	MetaState.profile_path = "user://test_profile.cfg"
+	RunState.save_path = "user://test_run_state.cfg"
+	RunState.mode = "practice"
+	RunState.daily_date = Daily.today()
+	RunState.daily_floor = daily_floor
+	return _spawn_floor(Daily.cards(Daily.today(), daily_floor), Daily.STAGE_FLOORS[daily_floor - 1])
+
+
+func test_a_daily_floor_names_itself() -> void:
+	var main := _spawn_daily(2)
+	var daily := "DAILY #%d" % Daily.number(Daily.today())
+	assert_true(main._floor_title().begins_with(daily + "  ·  FLOOR 2 / %d" % Daily.FLOORS), main._floor_title())
+	assert_true(main._floor_title().contains("PRACTICE"), "practice says so")
+	main._update_hud()
+	assert_true(main.status_label.text.begins_with(daily), main.status_label.text)
+
+
+func test_practice_banks_nothing() -> void:
+	var main := _spawn_daily()
+	main.fixed_seed = 0
+	main._earn(10, "CLOSE CALL")
+	assert_eq(main.floor_shards, 0, "practice pays nothing: the same maze again would be a farm")
+	main._count("floors")
+	main._bank()
+	assert_eq(main.floor_stats.get("floors"), 1, "and banks nothing")
+
+
+func test_dying_in_the_daily_offers_its_result_and_practice() -> void:
+	Daily.result.assign(["s"])
+	Daily.result_time = 60.0
+	var main := _spawn_daily(2)
+	RunState.mode = "daily"
+	main._lose_game("devil")
+	assert_true(main.death_screen._retry_sub.text.begins_with("PRACTICE"), main.death_screen._retry_sub.text)
+	assert_true(main.death_screen._revive.disabled, "one life in the Daily")
+	assert_true(main.death_screen._share.visible, "the ranked result, ready to copy")
+	assert_eq(main.death_screen._share_text, Daily.share_text(Daily.today(), Daily.result, Daily.result_time))
+	Daily.result.clear()
+	Daily.result_time = 0.0
+
+
+func test_the_last_daily_floor_ends_on_its_result() -> void:
+	var main := _spawn_daily(Daily.FLOORS)
+	RunState.mode = "daily"
+	main._finish_daily()
+	var page: Node = main.get_node("Overlays/Ending")
+	var copy: Button = page.find_child("CopyResult", true, false)
+	assert_ne(copy, null, "a ranked Daily ends with its result to copy")
+	copy.pressed.emit()
+	assert_eq(copy.text, "COPIED", "pasted anywhere: Discord, X, a group chat")
+

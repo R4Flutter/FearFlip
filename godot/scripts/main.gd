@@ -353,7 +353,9 @@ func _ready() -> void:
 	if fixed_seed == 0:
 		RunState.load_save()
 		# A run that already ended (died, then quit) never resumes: its act starts over on a new maze.
-		if RunState.run_over:
+		if RunState.run_over and RunState.is_daily():
+			RunState.start_daily(true)
+		elif RunState.run_over:
 			RunState.start_run(RunState.act())
 		if not RunState.picks.is_empty():
 			_choose_before_floor()
@@ -470,6 +472,9 @@ func _act_tint(color: Color) -> Color:
 
 ## Shown as a floor starts: where you are in the act, and what kind of floor this is.
 func _floor_title() -> String:
+	if RunState.is_daily():
+		return "%s  ·  FLOOR %d / %d\n%s" % [_daily_name(), RunState.daily_floor, Daily.FLOORS,
+				"PRACTICE  ·  NOTHING IS BANKED" if RunState.mode == "practice" else "ONE TRY  ·  MAKE IT COUNT"]
 	var title := "%s  ·  FLOOR %d / %d" % [rule.act_name.to_upper(), rule.floor_in_act, StageRule.FLOORS_PER_ACT]
 	if rule.is_sanctuary:
 		return title + "\nSANCTUARY  ·  NOTHING HUNTS YOU HERE"
@@ -986,6 +991,8 @@ func _start_retreat() -> void:
 
 ## Shards for something you did: counted now, popped on the HUD, banked by _bank().
 func _earn(amount: int, why := "") -> void:
+	if RunState.mode == "practice":
+		return  # the same maze again would be a farm
 	amount = roundi(amount * shard_factor)
 	floor_shards += amount
 	_pop(("+%d  %s" % [amount, why]).strip_edges())
@@ -1036,8 +1043,8 @@ func _open_detour_chest(cell: Vector2i) -> void:
 ## entries) pops and is returned. Quitting mid-floor banks nothing: the floor replays.
 func _bank() -> Array[String]:
 	var news: Array[String] = []
-	if fixed_seed != 0 or (floor_shards == 0 and floor_finds.is_empty() and floor_stats.is_empty()):
-		return news  # a debug floor never touches the save
+	if fixed_seed != 0 or RunState.mode == "practice" or (floor_shards == 0 and floor_finds.is_empty() and floor_stats.is_empty()):
+		return news  # a debug floor never touches the save, and practice banks nothing
 	RunState.bank(floor_shards)
 	for find in floor_finds:
 		MetaState.keep_find(find)
@@ -1978,6 +1985,8 @@ func _update_hud() -> void:
 		flip_line = "FLIP  %.1fs" % flip.cooldown_left
 	var goal_line := "OPEN THE CHEST" if exit_open else "KEYS  %d / %d" % [sigils_collected, layout.sigils.size()]
 	var where := "ACT %d  ·  FLOOR %d / %d" % [rule.act, rule.floor_in_act, StageRule.FLOORS_PER_ACT]
+	if RunState.is_daily():
+		where = "%s  ·  FLOOR %d / %d" % [_daily_name(), RunState.daily_floor, Daily.FLOORS]
 	if card_names != "":
 		where += "\n" + ("THE GATE  ·  " if rule.is_gate else "") + card_names
 	status_label.text = "%s\n%s   %s\n%s\n%s" % [where, WORLD_NAMES[world], _format_time(maxf(time_left, 0.0)), goal_line, flip_line]
@@ -2032,12 +2041,24 @@ func _win_game() -> void:
 	if rule.is_sanctuary:
 		floor_finds.append("note")  # the Sanctuary's lore note (plans/06 A4)
 		_pop("+1  " + MetaState.CHEST_TEXT["note"])
+	var last_daily := RunState.is_daily() and RunState.daily_floor == Daily.FLOORS
+	if RunState.is_daily() and fixed_seed == 0:
+		RunState.note_daily(Daily.mark(grade, chased_time), elapsed)
+	if last_daily and RunState.mode == "daily":
+		_count("daily_clears")
+		_earn(Daily.CLEAR_SHARDS, "DAILY")
 	var earned := "GRADE %s   ·   +%d SHARDS" % [grade, floor_shards]
 	# Read before this clear is banked: an ending plays the first time only.
 	var ending := _gate_ending() if rule.is_gate and fixed_seed == 0 else ""
 	if fixed_seed == 0:
 		RunState.note_floor(grade, sprinted)
 	_bank()
+	if last_daily:
+		if fixed_seed == 0:
+			RunState.end_run()
+		_show_message("%s  CLEARED\n%s" % [_daily_name(), earned])
+		get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_finish_daily)
+		return
 	# Save progress now (with the picks it owes), so quitting during the overlay still lands past this floor.
 	if not rule.is_gate:
 		if fixed_seed == 0:
@@ -2065,7 +2086,19 @@ func _gate_ending() -> String:
 	return Lore.ACT_ENDINGS[rule.act - 1] if MetaState.stat("clears_act_%d" % rule.act) == 0 else ""
 
 ## An ending on a dark page (its art behind, once it exists): read it, then carry on to the Gate's choice.
-func _show_ending(title: String, text: String) -> void:
+func _daily_name() -> String:
+	return "DAILY #%d" % Daily.number(RunState.daily_date)
+
+## The Daily's last floor is cleared: a ranked run ends on its result, ready to copy and paste anywhere.
+func _finish_daily() -> void:
+	if RunState.mode != "daily":
+		_show_ending(_daily_name() + "  ·  PRACTICE", "Practice cleared. Today's ranked result stands, and tomorrow brings a new maze.")
+		return
+	var cleared := Daily.result.filter(func(square: String) -> bool: return square != "died").size()
+	_show_ending(_daily_name() + "  ·  CLEARED", "All %d floors in %s. Copy your result and paste it anywhere: Discord, X, a group chat. Tomorrow brings a new maze." % [
+			cleared, _format_time(Daily.result_time)], Daily.share_text(RunState.daily_date, Daily.result, Daily.result_time))
+
+func _show_ending(title: String, text: String, share := "") -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_show_message("")
 	var page := ColorRect.new()
@@ -2112,6 +2145,17 @@ func _show_ending(title: String, text: String) -> void:
 	carry_on.pressed.connect(func() -> void:
 		page.queue_free()
 		_offer_picks())
+	if not share.is_empty():
+		var copy := Button.new()
+		copy.name = "CopyResult"
+		copy.text = "COPY RESULT"
+		copy.flat = true
+		copy.add_theme_font_size_override("font_size", 20)
+		copy.add_theme_color_override("font_color", GOLD)
+		copy.pressed.connect(func() -> void:
+			DisplayServer.clipboard_set(share)
+			copy.text = "COPIED")
+		column.add_child(copy)
 	column.add_child(carry_on)
 	carry_on.grab_focus()
 	page.modulate.a = 0.0
@@ -2222,6 +2266,8 @@ func _lose_game(cause: String = "devil") -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_count("deaths")
 	_count("deaths_" + cause)
+	if RunState.is_daily() and fixed_seed == 0:
+		RunState.note_daily("died", elapsed)
 	var news := _bank()  # dying keeps every shard
 	# Death ends the run now (quitting here can't buy a retry of this maze); a revive brings it back.
 	if fixed_seed == 0:
@@ -2237,10 +2283,17 @@ func _lose_game(cause: String = "devil") -> void:
 	var progress := MetaState.unlock_progress()
 	var business := "+%d SHARDS THIS RUN   ·   %s   ·   %s" % [RunState.run_shards + floor_shards,
 			"UNLOCK READY" if progress >= 1.0 else "NEXT UNLOCK %d%%" % floori(progress * 100.0), _shortcut_line()]
+	var retry := "NEW RUN  ·  ACT %d  ·  [R]" % rule.act
+	var share := ""
+	if RunState.is_daily():
+		retry = "PRACTICE  ·  [R]"
+		revive_text = "ONE LIFE IN THE DAILY"
+		business = "%s  ·  FLOOR %d / %d" % [_daily_name(), RunState.daily_floor, Daily.FLOORS]
+		if RunState.mode == "daily":
+			share = Daily.share_text(RunState.daily_date, Daily.result, Daily.result_time)
 	if not news.is_empty():
 		business += "\n" + "   ·   ".join(news)
-	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive,
-			"NEW RUN  ·  ACT %d  ·  [R]" % rule.act, business)
+	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive, retry, business, share)
 
 ## How far the next act's shortcut is (just the Gate once that act is open; the escape in the last act).
 func _shortcut_line() -> String:
@@ -2297,7 +2350,9 @@ func _return_to_circle() -> void:
 ## TRY AGAIN: a new run from this act's first floor, on a new maze (a debug seed just reloads).
 func _restart_game() -> void:
 	_bank()
-	if fixed_seed == 0:
+	if fixed_seed == 0 and RunState.is_daily():
+		RunState.start_daily(true)
+	elif fixed_seed == 0:
 		RunState.start_run(rule.act)
 	get_tree().reload_current_scene()
 

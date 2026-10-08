@@ -52,6 +52,9 @@ var _revive: Button
 var _revive_sub: Label
 var _heart: TextureRect
 var _menu: Button
+## A Daily's result line (plans/06 F1), copied to the clipboard for pasting anywhere.
+var _share: Button
+var _share_text := ""
 var _business_box: VBoxContainer
 var _business: Label
 var _unlock_bar: ProgressBar
@@ -102,6 +105,10 @@ func _ready() -> void:
 	_revive.pressed.connect(_leave.bind(true))
 	_menu = _text_link("MAIN MENU   [ESC]")
 	_menu.pressed.connect(_to_menu)
+	_share = _text_link("COPY RESULT   [C]")
+	_share.position.x = VIEW.x * 0.5 + 30
+	_share.pressed.connect(_copy_result)
+	_share.visible = false
 	_build_business()
 	_flash = _rect(Color(1, 0.1, 0.05, 0.0))
 	_glass = _sound(GLASS_SFX, -4.0)
@@ -120,10 +127,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.keycode == KEY_ESCAPE:
 			_to_menu()
 			accept_event()
+		elif event.keycode == KEY_C and _share.visible:
+			_copy_result()
+			accept_event()
 
 
 func show_death(title: String, rule: String, detail: String, revive_text: String, can_revive: bool,
-		retry_text := "NEW RUN  ·  [R]", business := "") -> void:
+		retry_text := "NEW RUN  ·  [R]", business := "", share := "") -> void:
+	_share_text = share
+	_share.visible = not share.is_empty()
+	_share.text = "COPY RESULT   [C]"
+	_menu.position.x = VIEW.x * 0.5 - (210.0 if _share.visible else 90.0)
 	_cause.text = title
 	_rule.text = rule
 	_detail.text = detail
@@ -140,6 +154,11 @@ func show_death(title: String, rule: String, detail: String, revive_text: String
 
 
 # --- Motion -----------------------------------------------------------------------------------
+
+func _copy_result() -> void:
+	DisplayServer.clipboard_set(_share_text)
+	_share.text = "COPIED"
+
 
 ## The hit, then the verdict, then the way back. Seen every death, so it's over in ~1.5 s.
 func _impact() -> void:
