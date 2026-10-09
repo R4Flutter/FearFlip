@@ -70,6 +70,15 @@ func test_cleared_act_plays_the_next_one() -> void:
 	assert_true(menu._menu.has_node("NewRun"), "two acts open: the picker is offered")
 
 
+func test_locked_acts_wear_the_padlock_until_the_act_before_is_cleared() -> void:
+	var menu := _spawn_menu(10, 2, true)
+	for act in range(1, StageRule.ACT_COUNT + 1):
+		var locked := act > 2
+		assert_eq(menu._right.get_node("Stars%d" % act).find_child("Lock", true, false) != null, locked, "tile %d" % act)
+		assert_eq(menu._acts.find_child("Act%d" % act, true, false).find_child("Lock", true, false) != null, locked,
+				"card %d" % act)
+
+
 func test_one_shard_pill_and_the_unfinished_business_cards() -> void:
 	MetaState.shards = 35
 	RunState.best_floor = 7

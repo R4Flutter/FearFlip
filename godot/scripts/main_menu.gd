@@ -120,6 +120,8 @@ const SQUARE_SIZE := 20.0
 const ACT_CARD_SIZE := Vector2(180, 290)
 const ACT_CARD_GAP := 14
 const LOCK_SIZE := Vector2(110, 110)
+## The same padlock on a locked act's star tile, the row under PLAY.
+const TILE_LOCK_SIZE := Vector2(46, 46)
 const LOCKED_TINT := Color(0.35, 0.33, 0.38)
 ## One numeral per act, the Abyss last.
 const ROMAN: Array[String] = ["I", "II", "III", "IV", "V", "∞"]
@@ -941,8 +943,11 @@ func _star_tile(act: int) -> void:
 	var content := _holder(tile, "Content")
 	content.clip_contents = true
 	var art := _act_face(content, act, extent)
+	var stars_top := extent.y - STAR_SIZE - 16
 	if not MetaState.is_act_unlocked(act):
 		art.modulate = LOCKED_TINT
+		# Just above the stars, clear of the numeral.
+		_padlock(content, Rect2(Vector2((extent.x - TILE_LOCK_SIZE.x) * 0.5, stars_top - TILE_LOCK_SIZE.y - 4), TILE_LOCK_SIZE))
 	var numeral := _label(content, ROMAN[act - 1], 34, ACT_TINTS[act - 1].lightened(0.35))
 	numeral.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_place(numeral, Vector2(0, 18), Vector2(extent.x, 0))
@@ -951,7 +956,7 @@ func _star_tile(act: int) -> void:
 	stars.alignment = BoxContainer.ALIGNMENT_CENTER
 	stars.add_theme_constant_override("separation", 2)
 	content.add_child(stars)
-	_place(stars, Vector2(0, extent.y - STAR_SIZE - 16), Vector2(extent.x, STAR_SIZE))
+	_place(stars, Vector2(0, stars_top), Vector2(extent.x, STAR_SIZE))
 	_stars(stars, MetaState.stars_of(act))
 	tile.pressed.connect(_open_mirror)
 	_hoverable(tile)
@@ -1041,18 +1046,26 @@ func _act_card(parent: Control, act: int) -> void:
 		_place(label, Vector2(0, line[3]), Vector2(ACT_CARD_SIZE.x, 0))
 	if not unlocked:
 		art.modulate = LOCKED_TINT
-		var lock_path := ART + "act_locked.png"
-		if ResourceLoader.exists(lock_path):
-			_place(_image(content, load(lock_path), TextureRect.STRETCH_KEEP_ASPECT_CENTERED),
-					(ACT_CARD_SIZE - LOCK_SIZE) * 0.5, LOCK_SIZE)
-		else:
-			var lock := _label(content, "LOCKED", 18, DIM)
-			lock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			_place(lock, Vector2(0, ACT_CARD_SIZE.y * 0.5 - 12), Vector2(ACT_CARD_SIZE.x, 0))
+		_padlock(content, Rect2((ACT_CARD_SIZE - LOCK_SIZE) * 0.5, LOCK_SIZE))
 	card.pressed.connect(_pick_act.bind(act))
 	_hoverable(card)
 	card.focus_entered.connect(_card_highlight.bind(content, true))
 	card.focus_exited.connect(_card_highlight.bind(content, false))
+
+
+## A locked act's padlock fitted to `rect`: act_locked.png, or the word until it lands. It's gone once the act
+## before is cleared, since the menu is rebuilt each time it opens.
+func _padlock(parent: Control, rect: Rect2) -> void:
+	var lock_path := ART + "act_locked.png"
+	if ResourceLoader.exists(lock_path):
+		var lock := _image(parent, load(lock_path), TextureRect.STRETCH_KEEP_ASPECT_CENTERED)
+		lock.name = "Lock"
+		_place(lock, rect.position, rect.size)
+	else:
+		var word := _label(parent, "LOCKED", 18, DIM)
+		word.name = "Lock"
+		word.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_place(word, rect.position + Vector2(0, rect.size.y * 0.5 - 12), Vector2(rect.size.x, 0))
 
 
 ## The Nightmare Rank the next run plays (plans/06 P8): ‹ › within the ranks open, its newest rule and what it pays.
