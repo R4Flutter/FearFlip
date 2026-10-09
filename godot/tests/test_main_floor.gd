@@ -9,6 +9,12 @@ func suite_name() -> String:
 	return "main_floor"
 
 
+## Floors bank, unlock acts and save as they play: never into the player's own profile and run.
+func suite_setup(_ctx: Dictionary) -> void:
+	MetaState.profile_path = "user://test_profile.cfg"
+	RunState.save_path = "user://test_run_state.cfg"
+
+
 func teardown() -> void:
 	RunState.mode = "campaign"
 	RunState.rank = 0
@@ -131,7 +137,6 @@ func test_safe_circle_blocks_catch_and_revive_returns_there() -> void:
 	main.devil_cell = circle
 	_run(main, 0.5)
 	assert_eq(main.game_state, "playing", "no catch inside a circle")
-	RunState.save_path = "user://test_run_state.cfg"
 	main._lose_game("time")
 	var revives: int = RunState.revives_left()
 	main._revive()
@@ -638,8 +643,6 @@ func test_delivered_hud_art_frames_the_screen() -> void:
 
 ## A Daily floor in practice (nothing banked, nothing saved), `daily_floor` of today's five.
 func _spawn_daily(daily_floor := 1) -> Node3D:
-	MetaState.profile_path = "user://test_profile.cfg"
-	RunState.save_path = "user://test_run_state.cfg"
 	RunState.mode = "practice"
 	RunState.daily_date = Daily.today()
 	RunState.daily_floor = daily_floor
