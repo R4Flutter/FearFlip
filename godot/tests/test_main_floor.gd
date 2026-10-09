@@ -356,7 +356,7 @@ func test_shrine_pays_less() -> void:
 func test_omens_reach_the_systems_they_change() -> void:
 	var plain := _spawn_floor([], 12)
 	var main := _spawn_floor(["quick_veil", "twin_flip", "cold_blood", "borrowed_time", "night_owl", "feather_step",
-			"keen_eye", "cartographer", "locksmith"], 12)
+			"keen_eye", "cartographer", "locksmith", "circle_keeper", "blood_pact"], 12)
 	assert_true(main.flip.cooldown < plain.flip.cooldown, "Quick Veil")
 	assert_eq(main.flip.charges_left, 2, "Twin Flip")
 	assert_eq(main.heartbeat_tiles, plain.heartbeat_tiles + 3, "Cold Blood")
@@ -370,6 +370,9 @@ func test_omens_reach_the_systems_they_change() -> void:
 	assert_gt(main.trap_nodes[0].cue, plain.trap_nodes[0].cue, "Keen Eye: brighter cracks")
 	assert_eq(main.paper_map.sheet.crack_reveal, 6, "Cartographer")
 	assert_eq(main.bonus_chests.size(), plain.bonus_chests.size() + 1, "Locksmith")
+	assert_true(is_equal_approx(main.circles.capacity, plain.circles.capacity * 2.0), "Circle Keeper")
+	assert_true(is_equal_approx(main.shard_factor, plain.shard_factor * 1.5), "Blood Pact: more shards")
+	assert_true(is_equal_approx(main.devil_speed, plain.devil_speed * 1.1), "and a faster Devil")
 
 
 func test_ghost_sight_shows_the_other_worlds_walls_as_glass() -> void:
