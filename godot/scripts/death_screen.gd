@@ -448,6 +448,7 @@ func _sound(path: String, volume_db: float) -> AudioStreamPlayer:
 	var player := AudioStreamPlayer.new()
 	player.stream = load(path)
 	player.volume_db = volume_db
+	player.bus = Settings.SFX_BUS
 	add_child(player)
 	return player
 

@@ -584,7 +584,7 @@ func _process(delta: float) -> void:
 	_animate_devil(delta)
 	if devil_cam != null:
 		_replay(delta)
-	var tilt := deg_to_rad(INVERT_TILT_DEGREES) if flip.forced_active and game_state == "playing" else 0.0
+	var tilt := deg_to_rad(INVERT_TILT_DEGREES) if flip.forced_active and game_state == "playing" and not Settings.reduce_motion else 0.0
 	camera_pivot.rotation.z = lerpf(camera_pivot.rotation.z, tilt, clampf(4.0 * delta, 0.0, 1.0))
 	if game_state == "dying":
 		_animate_fall(delta)
@@ -716,9 +716,11 @@ func _move_input() -> Vector2:
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back", feel.stick_deadzone)
 	return -input if flip.forced_active or (mirror and world == NIGHTMARE) else input
 
+## Mouse and stick both land here, so the player's sensitivity and invert cover both.
 func _apply_look(yaw_delta: float, pitch_delta: float) -> void:
-	yaw += yaw_delta
-	pitch = clampf(pitch + pitch_delta, -feel.max_pitch, feel.max_pitch)
+	var invert := -1.0 if Settings.invert_y else 1.0
+	yaw += yaw_delta * Settings.sensitivity
+	pitch = clampf(pitch + pitch_delta * Settings.sensitivity * invert, -feel.max_pitch, feel.max_pitch)
 	player.rotation.y = yaw
 	camera_pivot.rotation.x = pitch
 
@@ -743,7 +745,7 @@ func _update_head_bob(h_speed: float, sprinting: bool, delta: float) -> void:
 	was_on_floor = on_floor
 	var target_intensity := clampf(h_speed / feel.walk_speed, 0.0, 1.5) if on_floor else 0.0
 	bob_intensity = lerpf(bob_intensity, target_intensity, clampf(feel.bob_blend_speed * delta, 0.0, 1.0))
-	camera.position = feel.bob_offset(step_phase, bob_intensity)
+	camera.position = Vector3.ZERO if Settings.reduce_motion else feel.bob_offset(step_phase, bob_intensity)
 	if paper_map.is_up():
 		paper_map.bob = -camera.position  # the map in your hands lags each step
 	var running := sprinting and h_speed > feel.walk_speed * 1.05
@@ -817,8 +819,9 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 		warning_overlay.visible = false
 	var tween := create_tween().set_parallel()
 	camera.rotation.z = 0.0
-	tween.tween_property(camera, "rotation:z", TAU, FLIP_ROLL_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	flash_rect.color = Color(Unlocks.item(flip_flash).get("color", SIGIL_COLORS[new_world]), 0.6)
+	if not Settings.reduce_motion:
+		tween.tween_property(camera, "rotation:z", TAU, FLIP_ROLL_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_screen_flash(Color(Unlocks.item(flip_flash).get("color", SIGIL_COLORS[new_world]), 0.6))
 	tween.tween_property(flash_rect, "color:a", 0.0, 0.3)
 	tween.chain().tween_callback(func() -> void: camera.rotation.z = 0.0)
 	# It follows you across worlds: re-path on the new walls, never a catch on the flip itself.
@@ -995,7 +998,7 @@ func _on_key_turned(index: int) -> void:
 ## The lid is up: the chest pays its roll for this floor's seed (plans/06 C5), then the floor is cleared.
 func _on_chest_opened() -> void:
 	_pay_chest({"kind": "rare", "shards": MetaState.RARE_SHARDS} if rare_chest else MetaState.chest_roll(seed_value))
-	flash_rect.color = Color(1.0, 0.85, 0.5, 0.55)
+	_screen_flash(Color(1.0, 0.85, 0.5, 0.55))
 	var tween := create_tween()
 	tween.tween_property(flash_rect, "color", Color(1.0, 0.85, 0.5, 0.0), 0.6)
 	tween.tween_callback(_win_game).set_delay(0.2)
@@ -1274,7 +1277,7 @@ func _count(stat: String, amount := 1) -> void:
 ## FLASH_STUN_TILES and in sight; fired at nothing, it's spent all the same.
 func _camera_flash() -> void:
 	flash_stuns -= 1
-	flash_rect.color = Color(1, 1, 1, 0.85)
+	_screen_flash(Color(1, 1, 1, 0.85))
 	create_tween().tween_property(flash_rect, "color:a", 0.0, 0.5)
 	if devil_active and _devil_distance() <= FLASH_STUN_TILES and DevilBrain.line_of_sight(layout, world, player_cell, devil_cell):
 		devil_stun = FLASH_STUN_TIME
@@ -1369,7 +1372,7 @@ func _collapse(index: int) -> void:
 	t.tween_property(player, "rotation:x", FALL_TIP, FALL_TIME).set_delay(FALL_BEAT + 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	# Gravity: slow first, then gone.
 	t.tween_property(player, "global_position:y", start.y - FALL_DEPTH, FALL_TIME).set_delay(FALL_BEAT + 0.07).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	flash_rect.color = Color(0.55, 0.05, 0.0, 0.35)
+	_screen_flash(Color(0.55, 0.05, 0.0, 0.35))
 	t.tween_property(flash_rect, "color", Color(0.55, 0.05, 0.0, 0.0), 0.25)
 	t.tween_property(flash_rect, "color", Color(0, 0, 0, 1), FALL_TIME * 0.5).set_delay(FALL_BEAT + FALL_TIME * 0.65).set_ease(Tween.EASE_IN)
 	t.tween_callback(_fall_impact).set_delay(FALL_BEAT + FALL_TIME)
@@ -1399,10 +1402,16 @@ func _fall_impact() -> void:
 	fall_player.play()
 	_shake(0.12)
 
-## Camera shake via lens offset, so it never fights look, bob or flip roll.
+## Camera shake via lens offset, so it never fights look, bob or flip roll. Reduce Motion stills it.
 func _shake(amount: float) -> void:
+	if Settings.reduce_motion:
+		amount = 0.0
 	camera.h_offset = randf_range(-amount, amount)
 	camera.v_offset = randf_range(-amount, amount)
+
+## A full-screen flash, dimmed by Reduce Flashing (the fall's fade to black isn't a flash and sets the rect itself).
+func _screen_flash(color: Color) -> void:
+	flash_rect.color = Color(color, color.a * (Settings.FLASH_REDUCED if Settings.reduce_flashing else 1.0))
 
 ## Spawn -> each sigil (nearest first) -> exit, in path tiles: what the clock budgets for.
 func _tour_tiles() -> int:
@@ -1430,6 +1439,7 @@ func _build_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_energy = 0.45
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = Settings.brightness
 	env.glow_enabled = true
 	env.fog_enabled = true
 	environment.environment = env
@@ -1445,6 +1455,7 @@ func _build_audio() -> void:
 	calm_player = _audio("CalmLoop", "res://assets/audio/sfx_ambient_calm.mp3", music_db)
 	intense_player = _audio("IntenseLoop", "res://assets/audio/sfx_ambient_intense.mp3", -60.0)
 	for music in [calm_player, intense_player]:
+		music.bus = Settings.MUSIC_BUS
 		(music.stream as AudioStreamMP3).loop = true
 		music.play()
 	win_player = _audio("WinSfx", "res://assets/audio/sfx_win.mp3", -4.0)
@@ -1470,6 +1481,7 @@ func _breath_loop(node_name: String, path: String) -> AudioStreamPlayer:
 	var audio := AudioStreamPlayer.new()
 	audio.name = node_name
 	audio.volume_linear = 0.0
+	audio.bus = Settings.SFX_BUS
 	add_child(audio)
 	if ResourceLoader.exists(path):
 		audio.stream = load(path)
@@ -1482,6 +1494,7 @@ func _audio(node_name: String, path: String, volume_db: float) -> AudioStreamPla
 	audio.name = node_name
 	audio.stream = load(path)
 	audio.volume_db = volume_db
+	audio.bus = Settings.SFX_BUS  # the two music loops move to MUSIC_BUS in _build_audio
 	add_child(audio)
 	return audio
 
@@ -1733,6 +1746,7 @@ func _build_player() -> void:
 
 	footstep_player = AudioStreamPlayer.new()
 	footstep_player.name = "Footsteps"
+	footstep_player.bus = Settings.SFX_BUS
 	footstep_player.stream = _build_footstep_stream()
 	footstep_player.max_polyphony = 2
 	player.add_child(footstep_player)

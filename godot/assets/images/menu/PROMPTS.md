@@ -100,7 +100,7 @@ then the screens use flat panels and plain dark backgrounds. No 3D models are ne
 | File | Used as | Generate at | Ship here at |
 |---|---|---|---|
 | `hub_entry.png` | the frame of every line in the four hub screens (9-slice, 24 px corners, tinted per line) | 600x120, transparent | as generated |
-| `hub_altar.png`, `hub_mirror.png`, `hub_bestiary.png`, `hub_archive.png`, `hub_daily.png` | behind each hub list at 30% opacity, cover-fit | 16:9, 1920x1080 | 1280x720 |
+| `hub_altar.png`, `hub_mirror.png`, `hub_bestiary.png`, `hub_archive.png`, `hub_daily.png`, `hub_settings.png` | behind each hub list at 30% opacity, cover-fit | 16:9, 1920x1080 | 1280x720 |
 | `beast_<id>.png` (8, ids below) | beside a bestiary entry once you've met it, cover-fit 120x72 | 5:3, 1000x600 | 240x144 |
 | `ending_bg.png` | behind an act's ending text at 35% opacity (in the maze, after a Gate) | 16:9, 1920x1080 | 1280x720 |
 
@@ -137,6 +137,12 @@ Backgrounds: keep the centre 70% dark and empty (text sits there), light only at
 > Dark fantasy horror game background, semi-realistic painterly anime style, 16:9: a dusty hospital records room,
 > tall steel filing cabinets, one drawer pulled open and spilling yellowed patient files and handwritten notes, a
 > desk lamp with a weak warm bulb, a 1987 wall calendar half in shadow. The centre stays dark; warm lamp light and
+> deep violet shadow, no readable text, no UI, no watermark.
+
+**hub_settings.png: SETTINGS**
+> Dark fantasy horror game background, semi-realistic painterly anime style, 16:9: the night nurse's station of an
+> abandoned 1987 hospital ward, a wall of old brass dials, toggle switches and a dusty valve radio, one switch flipped
+> and its pilot lamp glowing ember red, a desk lamp with a weak warm bulb. The centre stays dark; warm lamp light and
 > deep violet shadow, no readable text, no UI, no watermark.
 
 **hub_daily.png: THE DAILY** (P6)

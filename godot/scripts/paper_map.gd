@@ -229,6 +229,7 @@ func _ready() -> void:
 	_build_roll()
 	_hands[0].add_child(_roll)
 	_sound.volume_db = SOUND_DB
+	_sound.bus = Settings.SFX_BUS
 	add_child(_sound)
 	_show(false)
 	_pose()

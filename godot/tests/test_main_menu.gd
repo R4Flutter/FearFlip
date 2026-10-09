@@ -10,6 +10,7 @@ func suite_name() -> String:
 func _spawn_menu(floor_number: int, acts_unlocked := 1, run_over := false) -> MainMenu:
 	RunState.save_path = "user://test_run_state.cfg"
 	MetaState.profile_path = "user://test_profile.cfg"
+	Settings.settings_path = "user://test_settings.cfg"
 	RunState._loaded = true
 	MetaState._loaded = true
 	RunState.current_floor = floor_number
@@ -95,12 +96,26 @@ func test_one_shard_pill_and_the_unfinished_business_cards() -> void:
 
 func test_the_hub_replaces_every_coming_soon() -> void:
 	var menu := _spawn_menu(1)
-	for row: String in ["Daily", "Altar", "Mirror", "Bestiary", "Archive"]:
+	for row: String in ["Daily", "Altar", "Mirror", "Bestiary", "Archive", "Settings"]:
 		assert_true(menu._menu.has_node(row), row)
 	assert_true(menu._top_bar.has_node("Guide"), "how to play sits up top, by the shards")
-	for gone: String in ["Character", "Progression", "Settings", "Shop"]:
+	for gone: String in ["Character", "Progression", "Shop"]:
 		assert_false(menu._menu.has_node(gone), gone)
 	assert_false(menu.has_method("_soon"), "nothing answers COMING SOON any more")
+
+
+func test_a_setting_changes_at_once_and_is_kept() -> void:
+	var menu := _spawn_menu(1)
+	menu._open_settings()
+	var motion: Button = menu._screen.find_child("ReduceMotion", true, false)
+	motion.button_pressed = true
+	assert_true(Settings.reduce_motion, "the toggle sets the option")
+	assert_eq(motion.text, "ON")
+	Settings.reduce_motion = false
+	Settings.read(Settings.settings_path)
+	assert_true(Settings.reduce_motion, "and it was saved")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Settings.settings_path))
+	Settings.read(Settings.settings_path)
 	for act in range(1, StageRule.ACT_COUNT + 1):
 		assert_true(menu._right.has_node("Stars%d" % act), "act %d's stars sit where the mode cards were" % act)
 

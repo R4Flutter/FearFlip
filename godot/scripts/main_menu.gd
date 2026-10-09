@@ -54,8 +54,8 @@ const MARGIN := 24.0
 const LOGO_H := 118.0
 const LOGO_SPLIT := 0.565  # x fraction of logo.png between FEAR and FLIP
 const MENU_TOP := 146.0
-const ROW_SIZE := Vector2(268, 66)
-const ROW_GAP := 8
+const ROW_SIZE := Vector2(268, 60)  # eight rows (with SETTINGS) fit above QUIT
+const ROW_GAP := 6
 const RIGHT_W := 454.0
 const QUEST_TOP := 72.0
 const QUEST_SIZE := Vector2(376, 82)
@@ -104,6 +104,8 @@ const ENTRY_ART := Vector2(120, 72)
 ## hub_entry.png, once it lands, frames every entry as a 9-slice with corners this wide.
 const ENTRY_SLICE := 24.0
 const HUB_ART_ALPHA := 0.3
+## Settings sliders move in 5% steps (arrow keys and stick too).
+const SETTING_STEP := 0.05
 const ALTAR_SECTIONS := [
 	["omen", "OMENS", "Each one joins the pool your omen picks draw from."],
 	["slot", "OMEN SLOTS", "More omen picks at the start of every run."],
@@ -227,6 +229,8 @@ var _leaving := false
 
 func _ready() -> void:
 	RunState.load_save()
+	Settings.load_settings()
+	Settings.apply()
 	if RunState.is_daily():
 		RunState.leave_daily()  # the menu always shows the campaign
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -459,7 +463,7 @@ func _set_nightmare(on: bool) -> void:
 ## Lightning: a double flicker that lights the demon up. Gentle (low alpha, >= 6 s apart), not a strobe.
 func _on_thunder() -> void:
 	_thunder.start(randf_range(THUNDER_EVERY.x, THUNDER_EVERY.y))
-	if _nightmare_on or _how_to.visible or _acts.visible or _leaving:
+	if _nightmare_on or _how_to.visible or _acts.visible or _leaving or Settings.reduce_flashing:
 		return
 	_flash.color = Color(LIGHTNING, 0.0)
 	var flash := _retarget(_flash).set_parallel(false)
@@ -473,6 +477,8 @@ func _on_thunder() -> void:
 
 
 func _shake(strength: float, time: float) -> void:
+	if Settings.reduce_motion:
+		return
 	const STEPS := 6
 	var tween := _retarget(self).set_parallel(false)
 	for i in STEPS:
@@ -666,6 +672,7 @@ func _build_column() -> void:
 	_row("BESTIARY", "%d / %d MET" % [met, Lore.BESTIARY.size()], Icon.DEMON, _open_bestiary)
 	_row("ARCHIVE", "%d / %d NOTES" % [mini(MetaState.notes_found, Lore.NOTES.size()), Lore.NOTES.size()], Icon.MAIL,
 			_open_archive)
+	_row("SETTINGS", "SOUND  ·  CONTROLS  ·  COMFORT", Icon.GEAR, _open_settings)
 	if not OS.has_feature("web"):
 		_quit = _text_button(self, "QUIT", 14)
 		_quit.position = Vector2(MARGIN + 4, VIEW.y - 40)
@@ -714,15 +721,15 @@ func _row(title: String, sub: String, icon: Icon, action: Callable, primary := f
 		pulse.tween_property(active, "modulate:a", 0.6, 0.9)
 	var glyph := _image(content, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED)
 	glyph.name = "Icon"
-	glyph.position = Vector2(20, 10)
+	glyph.position = Vector2(20, 7)
 	glyph.size = Vector2(46, 46)
 	glyph.pivot_offset = glyph.size * 0.5
 	var big := _label(content, title, 22, BONE)
 	big.name = "Title"
-	big.position = Vector2(74, 9)
+	big.position = Vector2(74, 6)
 	var small := _label(content, sub, 11, DIM)
 	small.name = "Sub"
-	small.position = Vector2(75, 38)
+	small.position = Vector2(75, 35)
 	row.pressed.connect(action)
 	_hoverable(row)
 	row.focus_entered.connect(_highlight.bind(content, true))
@@ -1166,6 +1173,10 @@ func _open_archive() -> void:
 	_open_screen("THE ARCHIVE", _fill_archive, _menu.get_node("Archive"), "archive")
 
 
+func _open_settings() -> void:
+	_open_screen("SETTINGS", _fill_settings, _menu.get_node("Settings"), "settings")
+
+
 ## A hub screen: a modal with a scrolling list that `fill` builds from the profile. It's rebuilt on every
 ## open (a purchase reopens the Altar), keeping focus on the same button when it's still there.
 func _open_screen(title: String, fill: Callable, row: Control, art: String) -> void:
@@ -1394,6 +1405,87 @@ func _fill_archive(list: VBoxContainer) -> void:
 		_entry(list, "NOTE %d" % (i + 1), Lore.NOTES[i], BONE)
 
 
+## The player's options (Settings). Every change is saved and applied at once, so the menu music answers its sliders.
+func _fill_settings(list: VBoxContainer) -> void:
+	_section(list, "SOUND", "Music is the score. Effects are everything else: steps, breath, his approach.")
+	_slider_setting(list, "MASTER", "", Settings.master, Vector2(0, 1), func(at: float) -> void: Settings.master = at)
+	_slider_setting(list, "MUSIC", "", Settings.music, Vector2(0, 1), func(at: float) -> void: Settings.music = at)
+	_slider_setting(list, "EFFECTS", "", Settings.sfx, Vector2(0, 1), func(at: float) -> void: Settings.sfx = at)
+	_section(list, "CONTROLS", "Mouse and gamepad stick alike.")
+	_slider_setting(list, "LOOK SENSITIVITY", "", Settings.sensitivity, Settings.SENSITIVITY_RANGE,
+			func(at: float) -> void: Settings.sensitivity = at)
+	_toggle_setting(list, "INVERT LOOK", "Push up to look down.", Settings.invert_y,
+			func(on: bool) -> void: Settings.invert_y = on)
+	_section(list, "DISPLAY", "The maze is meant to be dark.")
+	_slider_setting(list, "BRIGHTNESS", "Raise it until you can read the far walls, no further.", Settings.brightness,
+			Settings.BRIGHTNESS_RANGE, func(at: float) -> void: Settings.brightness = at)
+	if not OS.has_feature("web"):  # in a browser, the page's own fullscreen button does it
+		_toggle_setting(list, "FULLSCREEN", "", Settings.fullscreen, func(on: bool) -> void: Settings.fullscreen = on)
+	_section(list, "COMFORT", "For motion sickness and light sensitivity.")
+	_toggle_setting(list, "REDUCE FLASHING", "Dims the full-screen flashes. No lightning on the menu.",
+			Settings.reduce_flashing, func(on: bool) -> void: Settings.reduce_flashing = on)
+	_toggle_setting(list, "REDUCE MOTION", "No camera roll on a flip. No tilt, shake or head-bob.",
+			Settings.reduce_motion, func(on: bool) -> void: Settings.reduce_motion = on)
+
+
+## A setting on a scale: a slider in the entry's side column under its value, as a percentage.
+func _slider_setting(list: Control, title: String, text: String, value: float, limits: Vector2, set_to: Callable) -> void:
+	var side := _entry(list, title, text, BONE)
+	side.custom_minimum_size.x = SIDE_W
+	var shown := _label(side, _percent(value), 15, DIM)
+	shown.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var slider := HSlider.new()
+	slider.name = title.to_pascal_case()
+	slider.min_value = limits.x
+	slider.max_value = limits.y
+	slider.step = SETTING_STEP
+	slider.value = value
+	slider.scrollable = false  # the wheel scrolls the list, not the setting under it
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(DIM, 0.3)
+	track.set_content_margin_all(2)
+	var fill := track.duplicate() as StyleBoxFlat
+	fill.bg_color = BLOOD.darkened(0.35)
+	var lit := track.duplicate() as StyleBoxFlat
+	lit.bg_color = BLOOD
+	slider.add_theme_stylebox_override("slider", track)
+	slider.add_theme_stylebox_override("grabber_area", fill)
+	slider.add_theme_stylebox_override("grabber_area_highlight", lit)
+	slider.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	slider.mouse_entered.connect(slider.grab_focus)  # one highlight for mouse and keys, like _hoverable
+	slider.value_changed.connect(func(at: float) -> void:
+		shown.text = _percent(at)
+		set_to.call(at)
+		_settings_changed()
+	)
+	side.add_child(slider)
+
+
+## A setting that's on or off: the side button reads ON or OFF, and pressing it flips the setting.
+func _toggle_setting(list: Control, title: String, text: String, on: bool, set_to: Callable) -> void:
+	var side := _entry(list, title, text, BONE)
+	side.custom_minimum_size.x = SIDE_W
+	var button := _text_button(side, "ON" if on else "OFF", 17)
+	button.name = title.to_pascal_case()
+	button.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	button.toggle_mode = true
+	button.button_pressed = on
+	button.toggled.connect(func(pressed: bool) -> void:
+		button.text = "ON" if pressed else "OFF"
+		set_to.call(pressed)
+		_settings_changed()
+	)
+
+
+func _settings_changed() -> void:
+	Settings.save()
+	Settings.apply()
+
+
+func _percent(value: float) -> String:
+	return "%d%%" % roundi(value * 100.0)
+
+
 func _section(list: Control, title: String, hint: String) -> void:
 	_gap(list, 8)
 	_label(list, title, 20, BLOOD)
@@ -1458,11 +1550,13 @@ func _build_audio() -> void:
 	_music.stream = load(MUSIC)
 	(_music.stream as AudioStreamMP3).loop = true
 	_music.volume_db = SILENT_DB
+	_music.bus = Settings.MUSIC_BUS
 	add_child(_music)
 	_music.play()
 	_flip_sfx = AudioStreamPlayer.new()
 	_flip_sfx.stream = load(FLIP_SFX)
 	_flip_sfx.volume_db = -6.0
+	_flip_sfx.bus = Settings.SFX_BUS
 	add_child(_flip_sfx)
 	_thunder = Timer.new()
 	_thunder.one_shot = true
