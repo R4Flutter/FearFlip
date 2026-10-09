@@ -1,7 +1,7 @@
 class_name TreasureChest
 extends Node3D
 ## The floor's exit: an iron-banded chest with one lock per key. unlock() flies the keys in from
-## the camera one by one; each drops into its lock and turns with a click and a gold glint. Then
+## the camera one by one; each slides into its keyhole and turns with a click and a gold glint. Then
 ## the chest shudders and the lid bursts open on a flood of gold light. Front = local +Z.
 
 signal key_turned(index: int)
@@ -11,13 +11,18 @@ const WIDTH := 1.05
 const DEPTH := 0.66
 const BASE_HEIGHT := 0.52
 const LID_HEIGHT := 0.24
-## One lock per key, spread across the front: LOCK_SPACING apart, never wider than LOCK_SPAN.
-const LOCK_SPACING := 0.4
+## One lock per key, spread across the front: LOCK_SPACING apart, never wider than LOCK_SPAN. Two locks land on the
+## chest model's two keyholes (x = +-0.18, y = LOCK_Y).
+const LOCK_SPACING := 0.36
 const LOCK_SPAN := 0.72
 const LOCK_Y := 0.3
-## Key in hand: length (metres). In the lock it hangs blade-down from the keyhole, then turns.
+## Key in hand: length (metres). At the lock it lines up pointing into the keyhole, slides its blade in
+## (KEY_INSERT of its length, hidden inside the chest), then turns a quarter about its own shaft.
 const KEY_LENGTH := 0.28
+const KEY_INSERT := 0.4
 const FLY_TIME := 0.5
+const ALIGN_TIME := 0.14
+const INSERT_TIME := 0.16
 const TURN_TIME := 0.22
 const LID_OPEN_DEGREES := -110.0
 const WOOD := Color(0.2, 0.09, 0.05)
@@ -146,8 +151,9 @@ func unlock(camera: Camera3D) -> void:
 		key.add_child(art)
 		var side := camera.global_transform.basis.x * (i - (_lock_x.size() - 1) * 0.5) * 0.22
 		var start := camera.global_position - camera.global_transform.basis.z * 0.7 - camera.global_transform.basis.y * 0.18 + side
-		var hole := Vector3(_lock_x[i], LOCK_Y - 0.03, _front + 0.04)
-		var front := hole + Vector3(0, 0.05, 0.4)
+		var hole := Vector3(_lock_x[i], LOCK_Y, _front)
+		var front := hole + Vector3(0, 0, 0.3)
+		var inside := hole - Vector3(0, 0, KEY_LENGTH * KEY_INSERT)
 		tween.tween_callback(func() -> void:
 			key.global_position = start
 			key.visible = true)
@@ -157,11 +163,14 @@ func unlock(camera: Camera3D) -> void:
 			var mid := from.lerp(front, 0.5) + Vector3(0, 0.35, 0)
 			var u := 1.0 - t
 			key.position = u * u * from + 2.0 * u * t * mid + t * t * front
-			art.rotation.y = t * TAU * 1.5, 0.0, 1.0, FLY_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		# Into the keyhole, square to the lock, then a quarter turn seen head-on.
-		tween.tween_property(art, "rotation:y", 0.0, 0.08)
-		tween.tween_property(key, "position", hole, 0.12).set_ease(Tween.EASE_IN)
-		tween.tween_property(key, "rotation:z", -PI * 0.5 if _lock_x[i] <= 0.0 else PI * 0.5, TURN_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			art.rotation.y = fmod(t * TAU * 2.0, TAU), 0.0, 1.0, FLY_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		# Line up: blade tip pointing into the keyhole (local -Y onto -Z), bow toward you. The spin ends on
+		# whole turns, so it arrives square.
+		tween.tween_property(key, "rotation:x", PI * 0.5, ALIGN_TIME).set_trans(Tween.TRANS_SINE)
+		# Push the blade in (it seats with a little ease-in), then a quarter turn about the shaft.
+		tween.tween_property(key, "position", hole + Vector3(0, 0, 0.02), 0.08)
+		tween.tween_property(key, "position", inside, INSERT_TIME).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tween.tween_property(art, "rotation:y", PI * 0.5, TURN_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		tween.tween_callback(_turned.bind(i))
 		tween.tween_interval(0.08)
 	_open(tween)

@@ -4,6 +4,69 @@ Everything delivered so far is in the game (list below). Save new files in `godo
 names below and tell Claude; Claude sizes them, moves them into place and wires them. `new_assets/` is your inbox and
 archive of originals: it has a `.gdignore`, so Godot no longer imports it and it never ships.
 
+## 0. Do first: HUD icons, so the status plate has no words (9 Oct 2026)
+
+The top-right plate now shows **icons and numbers only**: floor `1/10` and the floor's rule cards, the world + clock,
+the flip, the keys (the chest joins them once it opens) and the shards. Until these icons arrive, the menu's own icons
+stand in (maze tile, hourglass, the red RETRY arrows, gold chest, gem).
+
+Every file: **512x512 PNG with a transparent background** (if your tool can't do transparency, use a background
+remover). Put it straight into `godot/assets/images/hud/` with the exact name and it shows on the next run, with no code
+change. You can also put it in `new_assets/` and tell Claude. They are drawn at 30-40 px, so use one bold subject, a
+thick outline, no fine detail and nothing behind it. Match the set the menu icons and `key_icon.png` come from:
+glossy, chunky, cracked iron and stone, glowing seams.
+
+| File | Where it shows | Stand-in today |
+|---|---|---|
+| `icon_wake.png` | left of the clock while in WAKE | hourglass |
+| `icon_nightmare.png` | left of the clock while in NIGHTMARE | hourglass |
+| `icon_flip.png` | the flip power; refills clockwise while it recharges, turns red while Flipping Time holds it | RETRY arrows |
+| `icon_floor.png` | before the floor count `3/10` (the depth in the Abyss) | maze tile |
+| `icon_chest.png` (optional) | after the keys once all are found | gold treasure chest |
+| `icon_shards.png` (optional) | before the shard count | purple gem |
+
+**icon_wake.png** and **icon_nightmare.png** are a pair. Keep the same frame at the same size and position, so a flip
+reads as the eye itself changing.
+> Game UI icon of a wide-open human eye set in an almond-shaped frame of cracked grey stone with frosted silver trim,
+> the iris glowing cold ice-blue, calm and watchful, a faint blue mist around it, palette of ice blue, steel grey and
+> white with no red at all, dark fantasy horror mobile game icon, chunky bold silhouette, thick dark outline, glossy
+> painted highlights, front view, centred, isolated on a transparent background, no text, no letters, no watermark.
+
+> The same almond-shaped stone eye frame as a matching game UI icon, now demonic: a bloodshot blood-red eye with a
+> vertical slit pupil of molten orange, small curved horns growing from the frame, glowing red cracks in the stone and
+> red smoke curling off it, crimson and black palette, dark fantasy horror mobile game icon, chunky bold silhouette,
+> thick dark outline, glossy painted highlights, front view, centred, isolated on a transparent background, no text, no
+> letters, no watermark.
+
+**icon_flip.png** must be round: the game fills it clockwise like a cooldown clock.
+> Round game UI emblem for a "flip between two worlds" power: two thick curved arrows chasing each other around a
+> circle, the left arrow carved from cold ice-blue stone, the right arrow from molten red cracked iron, a small glowing
+> hourglass in the centre where the two colours meet, symmetrical, fills a circle, dark fantasy horror mobile game
+> icon, chunky bold silhouette, thick dark outline, glossy painted highlights, front view, centred, isolated on a
+> transparent background, no text, no letters, no watermark.
+
+**icon_floor.png**
+> Game UI icon of an open square stone trapdoor seen from above, a spiral stone staircase winding down into a deep red
+> glow, an iron rim with rivets around the hatch, dark fantasy horror mobile game icon, chunky bold silhouette, thick
+> dark outline, glossy painted highlights, centred, isolated on a transparent background, no text, no letters, no
+> watermark.
+
+**icon_chest.png** (optional; matches the 3D exit chest better than the menu's gold chest)
+> Game UI icon of a heavy black iron-bound chest with a horned demon face on the lid, the lid cracked open with molten
+> gold light spilling out, three-quarter front view, dark fantasy horror mobile game icon, chunky bold silhouette, thick
+> dark outline, glossy painted highlights, centred, isolated on a transparent background, no text, no letters, no
+> watermark.
+
+**icon_shards.png** (optional)
+> Game UI icon of a single jagged violet soul-crystal shard with a glowing lilac core, a wisp of violet smoke trailing
+> from its tip, sharp facets with white highlights, dark fantasy horror mobile game icon, chunky bold silhouette, thick
+> dark outline, centred, isolated on a transparent background, no text, no letters, no watermark.
+
+The plate itself (`hud_plate.png`) stays. It is now drawn at its own 720x400 shape, so the thorned corners no longer
+stretch.
+
+---
+
 ## In the game now (8 Oct 2026)
 
 - **Cards:** 25 card arts (`images/cards/<id>.png`; the four curses reuse their twin rule's art), `card_frame`,
@@ -52,6 +115,12 @@ as **PNG, 1024x1024, top-down, on pure white**:
 
 Prompts: `ASSET_PROMPTS.md` §3b: `models/landmark_statue.glb`, `models/landmark_debris.glb`,
 `textures/decals/glyph_1.png` … `glyph_12.png` (the painted numerals I–XII). Code stand-ins until then.
+
+### 2e. Paper map (plans/07): 2 models, 1 image, 2 sounds
+
+Prompts: `ASSET_PROMPTS.md` §3c: `models/map_hand.glb` (one right hand and forearm; the game mirrors it for the
+left), `models/map_roll.glb`, `images/hud/map_paper.png` (2048x1536, plain centre), `audio/sfx_map_open.mp3`,
+`audio/sfx_map_close.mp3`. Code stand-ins (and silence) until then.
 
 ### 2c. Meta hub art and the flashlight cards (plans/06 P5)
 
@@ -146,8 +215,84 @@ fakes the walk in code. If your tool can animate a rigged model (Meshy *Animate*
 export each again as GLB with these clips, in place, 30 fps: **idle, walk, run**, and for the Devil also **attack**
 (a forward lunge-grab, about 0.6 s). Keep the same file names. Also export the textures at 1K (they are 2K–4K now).
 
+---
+
+## 4. Later: the other places that still use words
+
+These spots still draw plain text. Generate any of them whenever you like, and Claude wires each one when it arrives
+(the text stays as the fallback). Unless a note says otherwise, use the §0 icon style: 512x512, transparent, no text.
+Teaching lines ("The circle is empty. Move.", "Not now. It's close.") stay as words on purpose.
+
+**Minimap readout** (`DEVIL 12 m` / `EXIT 8 m` under the map, the `EXIT` tag on it). Files go in `images/hud/`.
+
+`icon_devil.png` (the menu's demon icon can stand in):
+> Game UI icon of a horned demon head seen from the front, burning red eyes, blackened cracked skin with glowing lava
+> seams, dark fantasy horror mobile game icon, chunky bold silhouette, thick dark outline, glossy painted highlights,
+> centred, isolated on a transparent background, no text, no letters, no watermark.
+
+`icon_exit.png`:
+> Game UI icon of a round glowing ward circle carved into a stone floor, seen from above, runes around its rim, pale
+> green-white light rising from its centre, dark fantasy horror mobile game icon, chunky bold silhouette, thick dark
+> outline, centred, isolated on a transparent background, no text, no letters, no watermark.
+
+**Score pops** (`+4 CLOSE CALL` and `+4 PHASE DODGE` under the plate). Files go in `images/hud/`.
+
+`badge_close_call.png`:
+> Game UI badge: three glowing red demon claw slashes tearing through the air, missing a small dark figure by a hair,
+> sparks where they pass, round iron badge rim, dark fantasy horror mobile game icon, chunky bold silhouette, thick dark
+> outline, centred, isolated on a transparent background, no text, no letters, no watermark.
+
+`badge_phase_dodge.png`:
+> Game UI badge: a ghostly ice-blue figure stepping through a cracked stone wall while a red demon claw closes on empty
+> air behind it, round iron badge rim, dark fantasy horror mobile game icon, chunky bold silhouette, thick dark
+> outline, centred, isolated on a transparent background, no text, no letters, no watermark.
+
+**Curse marker** (the bottom-left omen line still says `CURSED: <name>`; the omens already have sigils).
+`icon_curse.png`:
+> Game UI icon of a cracked bone skull branded with a glowing red hex rune on its forehead, wrapped in a short rusted
+> chain, dark fantasy horror mobile game icon, chunky bold silhouette, thick dark outline, centred, isolated on a
+> transparent background, no text, no letters, no watermark.
+
+**Control hints** (bottom left; each keycap keeps its letter, an icon replaces the word). `hint_icons.png`,
+**1024x512, a 4x2 grid of 256 px cells**, transparent, in `images/hud/`:
+> A 4x2 sprite sheet of eight small game UI icons, each centred in its own square cell with a margin, same style for
+> all: dark fantasy horror mobile game icons, chunky bold silhouettes, cracked iron with glowing ember seams, thick dark
+> outline. Top row: a pair of bare footprints (move), a winged boot (sprint), two curved arrows chasing in a circle,
+> one ice-blue and one red (flip), a flashlight with a beam (flashlight). Bottom row: two vertical pause bars (pause), a
+> circular arrow around a small skull (restart), a folded old paper map (map), an empty cell. Transparent background,
+> no text, no letters, no watermark.
+
+**Floor grades** (`GRADE S` on FLOOR CLEARED). `grades.png`, **1024x1024, a 2x2 grid of 512 px cells**,
+transparent, in `images/hud/`. These need letters, so use a tool that can spell (Ideogram, GPT image, Flux):
+> A 2x2 sheet of four round game grade medallions, each centred in its own square cell: top-left a blazing gold
+> medallion with a big carved letter "S" and flames around the rim, top-right a polished silver medallion with "A",
+> bottom-left a bronze medallion with "B", bottom-right a cracked dark iron medallion with "C"; thick bold letters,
+> dark fantasy horror mobile game style, glossy painted highlights, thick dark outline, transparent background, no other
+> text, no watermark.
+
+**Centre titles** (the words in the middle of the screen; the banner smoke already sits behind them). Each is
+**1536x384, transparent, the words only**, in `images/hud/`. Use a tool that can spell:
+
+| File | Words |
+|---|---|
+| `title_floor_cleared.png` | FLOOR CLEARED |
+| `title_act_cleared.png` | ACT CLEARED |
+| `title_paused.png` | PAUSED |
+| `title_flipping_time.png` | FLIPPING TIME |
+| `title_keys_found.png` | ALL KEYS FOUND |
+
+> The words "FLOOR CLEARED" as a dark fantasy horror game title: tall condensed gothic capital letters carved from
+> bone-white stone with worn gold edges, hairline cracks and a soft ember-orange glow behind them, a few sparks, wide
+> centred composition, transparent background, nothing else in the image, no other text, no watermark.
+> (Swap in the words for each file. For `title_flipping_time.png`, make the letters blood red with a jagged glitch
+> split and red static, like a warning.)
+
+The live numbers (time to spare, shards, the countdown) stay as text under each title.
+
 ## Order to do it in
 
+0. §0: the HUD icons (the status plate shows stand-ins until then); `icon_wake`, `icon_nightmare` and `icon_flip`
+   matter most.
 1. 2b: act cards, padlock, burst (the act picker is still flat gradients).
 2. 2c: the hub frame and backgrounds, then the bestiary portraits and the flashlight cards.
-3. 2a `static.png`, 1 (handprint), then section 3 when you have time.
+3. 2a `static.png`, 1 (handprint), then sections 3 and 4 when you have time.

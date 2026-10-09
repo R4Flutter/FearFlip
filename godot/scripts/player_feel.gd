@@ -6,6 +6,10 @@ extends Resource
 @export_group("Movement")
 @export_range(0.5, 8.0, 0.1, "suffix:m/s") var walk_speed: float = 3.0
 @export_range(1.0, 2.5, 0.05) var sprint_multiplier: float = 1.5
+## Longest sprint, in seconds.
+@export_range(0.5, 20.0, 0.5, "suffix:s") var sprint_time: float = 4.0
+## Rest after any sprint ends (run dry or let go) before the next (sprint_time + this = the 10 s cycle).
+@export_range(0.5, 20.0, 0.5, "suffix:s") var sprint_recover_time: float = 6.0
 ## How fast you reach walk speed. Lower = heavier, more dread.
 @export_range(1.0, 60.0, 0.5, "suffix:m/s²") var acceleration: float = 12.0
 ## How fast you stop when keys are released. Higher = snappier stops.
@@ -45,10 +49,26 @@ extends Resource
 @export_range(0.0, 1.0, 0.05) var stutter_energy_ratio: float = 0.25
 
 @export_group("Footsteps")
-@export_range(-40.0, 6.0, 0.5, "suffix:dB") var footstep_volume_db: float = -10.0
-@export_range(0.0, 12.0, 0.5, "suffix:dB") var sprint_footstep_boost_db: float = 4.0
+## Real level (plain player, no 3D falloff). The footstep WAVs peak at -3 dBFS: walk + sprint boost above ~+3 dB starts to clip.
+@export_range(-40.0, 6.0, 0.5, "suffix:dB") var footstep_volume_db: float = 2.0
+@export_range(0.0, 12.0, 0.5, "suffix:dB") var sprint_footstep_boost_db: float = 2.0
 ## Below this real speed no steps play and the bob stops advancing.
 @export_range(0.0, 2.0, 0.05, "suffix:m/s") var min_step_speed: float = 0.4
+
+@export_group("Breathing")
+## Your slow, nervous breath while you walk the maze (sfx_breath_calm.mp3).
+@export_range(-40.0, 6.0, 0.5, "suffix:dB") var breath_volume_db: float = -24.0
+## Panting while you sprint and while you rest after one (sfx_breath_heavy.mp3).
+@export_range(-40.0, 6.0, 0.5, "suffix:dB") var breath_heavy_volume_db: float = -15.0
+## Seconds to crossfade between the two.
+@export_range(0.1, 3.0, 0.1, "suffix:s") var breath_fade_time: float = 0.6
+
+@export_group("Paper Map")
+## Walking speed with the map in your hands (x walk speed); no sprint and no flip until it's back in the pocket.
+@export_range(0.1, 1.0, 0.05) var map_walk_ratio: float = 0.25
+## The map snaps shut once the Devil, at its pace right now, would reach you within this many seconds (on top of
+## heartbeat range): the snap and your first steps fit inside it, so a forced close is never a free catch.
+@export_range(1.0, 12.0, 0.5, "suffix:s") var map_snap_time: float = 5.0
 
 
 ## One footstep per PI of phase. The phase advances only on the floor and above min_step_speed.

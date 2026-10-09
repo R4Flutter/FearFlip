@@ -15,6 +15,8 @@ const DEVIL_NEAR_DISTANCE := 3
 const DEVIL_Y := 0.75
 ## Player body: feet at the capsule bottom. Model heights are fractions of WALL_HEIGHT (wall = 1).
 const PLAYER_MESH_Y := -1.6
+## character2withrig.glb faces +X; this turns it to face -Z (the body's forward).
+const PLAYER_MESH_YAW := 90.0
 const PLAYER_HEIGHT_RATIO := 0.6
 const DEVIL_HEIGHT_RATIO := 0.9
 const DEVIL_ENRAGE_MULTIPLIER := 1.2
@@ -86,8 +88,6 @@ const PAUSE_TEXT := "PAUSED  (Esc to resume, R twice to restart the act)"
 const ACT_CLEARED_ART := "res://assets/images/menu/act_cleared_burst.png"
 const GOLD := Color(1.0, 0.78, 0.3)
 const OMEN_COLOR := Color(0.75, 0.6, 1.0, 0.9)
-## One line of the 22 px status label (measured), for laying out what sits under it.
-const STATUS_LINE := 34.0
 const PICK_TITLES := {
 	"curse": "TEMPT A CURSE?  ·  MORE SHARDS ON EVERY FLOOR OF THIS RUN",
 	"omen": "CHOOSE AN OMEN  ·  YOURS FOR THE REST OF THE RUN",
@@ -114,7 +114,6 @@ const HEARTBEAT_TILES := 8
 
 const WAKE := FloorLayout.World.WAKE
 const NIGHTMARE := FloorLayout.World.NIGHTMARE
-const WORLD_NAMES: Array[String] = ["WAKE", "NIGHTMARE"]
 ## Physics layers: 1 = floor + walls in both worlds, 2 = WAKE-only walls, 3 = NIGHTMARE-only walls.
 const LAYER_SHARED := 1
 const LAYER_WAKE := 2
@@ -175,11 +174,21 @@ const LANDMARK_CORNER := 0.82
 const LANDMARK_STATUE_HEIGHT := 2.0
 const LANDMARK_DEBRIS_HEIGHT := 0.8
 const LANDMARK_CANDLE := Color(1.0, 0.58, 0.25)
-## HUD art: the status plate's 9-slice corners, and how strong the NIGHTMARE overlay shows (far, near).
-const PLATE_CORNER := 48
+## HUD art: the status plate, drawn at the 720x400 art's own shape so its thorned corners never stretch, its gap to
+## the screen's top-right corner, and the inset that keeps the icon rows inside its border (left, top, right, bottom).
+const PLATE_SIZE := Vector2(380, 211)
+const PLATE_MARGIN := Vector2(12, 8)
+const PLATE_INSET := Vector4(44, 36, 44, 40)
+## Icons on the plate (keys use KeyHud.SLOT_HEIGHT): the main rows, the floor row, a rule card's chip.
+const PLATE_ICON := 40.0
+const FLOOR_ICON := 30.0
+const CARD_CHIP := Vector2(46, 27)
+## The flip icon while Flipping Time blocks it.
+const FLIP_BLOCKED := Color(1.0, 0.3, 0.25)
+## How strong the NIGHTMARE overlay shows (far, near).
 const NIGHTMARE_OVERLAY_ALPHA := Vector2(0.35, 0.9)
-const HINTS := [["WASD", "MOVE"], ["SHIFT", "SPRINT"], ["SPACE / E", "FLIP"], ["F", "FLASHLIGHT"], ["ESC", "PAUSE"],
-		["R R", "RESTART ACT"]]
+const HINTS := [["WASD", "MOVE"], ["SHIFT", "SPRINT"], ["SPACE / E", "FLIP"], ["F", "FLASHLIGHT"], ["M", "MAP"],
+		["ESC", "PAUSE"], ["R R", "RESTART ACT"]]
 
 const PLAYER_MODEL = preload("res://assets/character/character2withrig.glb")
 const DEVIL_MODEL = preload("res://assets/character/skleton_added_devil.glb")
@@ -249,6 +258,10 @@ var floor_finds: Array[String] = []
 var floor_stats := {}
 ## You sprinted on this floor (Act 1's no-sprint challenge).
 var sprinted := false
+## Share (0..1) of the feel.sprint_time sprint left; once a sprint ends you rest feel.sprint_recover_time.
+var stamina := 1.0
+## Seconds before you can sprint again (> 0 = winded).
+var rest_left := 0.0
 var floor_revives := 0
 ## Seconds with the Devil inside heartbeat range: being hunted costs a grade.
 var chased_time := 0.0
@@ -267,7 +280,6 @@ var trap_cue := 1.0
 var light_energy := 0.0
 var music_db := MUSIC_DB
 var rare_chest := false
-var card_names := ""
 ## The run's omens (plans/06 P4), folded with the floor's cards.
 var heartbeat_tiles := HEARTBEAT_TILES
 var night_fog := 1.0
@@ -312,6 +324,8 @@ var floor_material: StandardMaterial3D
 var death_screen: DeathScreen
 var card_choice: CardChoice
 var heartbeat_player: AudioStreamPlayer
+var breath_calm: AudioStreamPlayer
+var breath_heavy: AudioStreamPlayer
 var alarm_player: AudioStreamPlayer
 var crack_player: AudioStreamPlayer
 var fall_player: AudioStreamPlayer
@@ -330,7 +344,12 @@ var devil_rig: DevilRig
 var goal: Node3D
 var chest: TreasureChest
 var key_hud: KeyHud
-var minimap: Control
+## The map in your hands (M), the only map: no minimap on screen, you navigate from memory. has_map is false on a no-map
+## floor. When it last came out and went back (elapsed s; -1 = not yet), for the playtest log.
+var paper_map: PaperMap
+var has_map := true
+var map_opened_at := 0.0
+var map_closed_at := -1.0
 var player_cell := Vector2i(1, 1)
 var devil_cell := Vector2i.ZERO
 ## Where the Devil is heading. In WAKE it keeps the spot where you vanished.
@@ -365,7 +384,15 @@ var nightmare_overlay: TextureRect
 var warning_overlay: TextureRect
 var goal_material: StandardMaterial3D
 var goal_light: OmniLight3D
-var status_label: Label
+## The status plate (top right): floor count, world icon + clock, the flip, the chest once it opens.
+var floor_label: Label
+var world_icon: TextureRect
+var world_icons: Array[Texture2D] = []
+var clock_label: Label
+var flip_icon: TextureProgressBar
+var stamina_bar: ProgressBar
+var flip_label: Label
+var chest_icon: TextureRect
 var state_label: Label
 var warning_label: Label
 var flash_rect: ColorRect
@@ -381,7 +408,7 @@ var devil_approach_player: AudioStreamPlayer
 var devil_approach_playing := false
 var camera: Camera3D
 var flashlight: SpotLight3D
-var footstep_player: AudioStreamPlayer3D
+var footstep_player: AudioStreamPlayer
 var flashlight_on := true
 var step_phase := 0.0
 var bob_intensity := 0.0
@@ -516,10 +543,6 @@ func _fold_cards() -> void:
 	beam_angle = RunState.mod("beam_angle", 1.0)
 	flash_stuns = roundi(RunState.mod("flash_stun", 0.0))
 	flip_flash = MetaState.wearing("flash")
-	var names: Array[String] = []
-	for id in RunState.floor_cards:
-		names.append(Cards.find(id)["name"])
-	card_names = "  ·  ".join(names)
 	fog_colors.assign(FOG_COLORS)
 	ambient_colors.assign(AMBIENT_COLORS)
 	glow_colors.assign(GLOW_COLORS)
@@ -566,8 +589,15 @@ func _process(delta: float) -> void:
 	if game_state == "dying":
 		_animate_fall(delta)
 	if game_state != "playing":
+		if paper_map != null and paper_map.is_up():
+			_close_map("end")
+			camera.rotation = Vector3(0.0, 0.0, camera.rotation.z)
 		return
 	_record_tape(delta)
+	# The head turns toward the back pocket while the hand reaches for the map; the map snaps shut near the Devil.
+	camera.rotation = Vector3(-paper_map.dip, -paper_map.dip * 0.6, camera.rotation.z)
+	if paper_map.opening and _map_unsafe():
+		_close_map("devil")
 	elapsed += delta
 	time_left -= delta
 	catch_grace = maxf(catch_grace - delta, 0.0)
@@ -579,7 +609,7 @@ func _process(delta: float) -> void:
 		_flash_message("The circle is empty. Move.")
 	_refresh_circles()
 	_tick_devil(delta)
-	if devil_active and _devil_distance() <= HEARTBEAT_TILES:
+	if _devil_close():
 		chased_time += delta
 	_collect_sigils()
 	if not panic and time_left <= PANIC_TIME:
@@ -588,6 +618,7 @@ func _process(delta: float) -> void:
 	_update_hud()
 	_refresh_minimap()
 	_update_devil_audio()
+	_update_breath(delta)
 	if exit_open and player_cell == layout.exit:
 		_unlock_chest()
 	elif time_left <= 0.0:
@@ -601,9 +632,13 @@ func _physics_process(delta: float) -> void:
 		_apply_look(-look_input.x * feel.stick_look_speed * delta, -look_input.y * feel.stick_look_speed * delta)
 	var move_input := _move_input()
 	var direction := player.transform.basis * Vector3(move_input.x, 0.0, move_input.y)
-	var sprinting := Input.is_action_pressed("sprint") and move_input != Vector2.ZERO
+	var reading := paper_map.is_up()  # the map in your hands: a slow walk, no sprint
+	var sprinting := Input.is_action_pressed("sprint") and move_input != Vector2.ZERO and not reading and rest_left <= 0.0
 	sprinted = sprinted or sprinting
+	_tick_breath(sprinting, delta)
 	var target_speed := feel.walk_speed * (feel.sprint_multiplier if sprinting else 1.0)
+	if reading:
+		target_speed *= feel.map_walk_ratio
 	var horizontal_velocity := Vector3(player.velocity.x, 0.0, player.velocity.z)
 	var rate := feel.acceleration if move_input != Vector2.ZERO else feel.friction
 	if not player.is_on_floor():
@@ -624,7 +659,22 @@ func _physics_process(delta: float) -> void:
 	var h_speed := Vector2(real_velocity.x, real_velocity.z).length()
 	_update_head_bob(h_speed, sprinting, delta)
 	if player_rig != null:
-		player_mesh.position.y = PLAYER_MESH_Y + player_rig.animate(h_speed, delta)
+		var fear := clampf(1.0 - float(_devil_distance()) / heartbeat_tiles, 0.0, 1.0) if devil_active else 0.0
+		var winded := 1.0 if rest_left > 0.0 else 1.0 - stamina
+		player_mesh.position.y = PLAYER_MESH_Y + player_rig.flee(h_speed, delta, fear, winded)
+
+## One sprint lasts up to feel.sprint_time; when it ends (run dry or let go) you rest feel.sprint_recover_time.
+func _tick_breath(sprinting: bool, delta: float) -> void:
+	if rest_left > 0.0:
+		rest_left = maxf(rest_left - delta, 0.0)
+		if rest_left == 0.0:
+			stamina = 1.0
+	elif sprinting:
+		stamina = maxf(stamina - delta / feel.sprint_time, 0.0)
+		if stamina == 0.0:
+			rest_left = feel.sprint_recover_time
+	elif stamina < 1.0:
+		rest_left = feel.sprint_recover_time  # let go mid-sprint: that sprint is spent
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("restart") and not game_state in ["dying", "won", "choosing"]:
@@ -650,12 +700,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event.is_action_pressed("flashlight"):
 		if flash_stuns > 0:
-			_camera_flash()
+			if not paper_map.is_up():  # both hands are on the map
+				_camera_flash()
 			return
 		flashlight_on = not flashlight_on
 		flashlight.visible = flashlight_on
 	elif event.is_action_pressed("flip"):
-		flip.request_flip(_spot_open(1 - world))
+		if not paper_map.is_up():  # no flipping with the map in your hands
+			flip.request_flip(_spot_open(1 - world))
+	elif event.is_action_pressed("map"):
+		_toggle_map()
 
 ## Flipping Time inverts movement (the 2D FearFlip rule): W goes back, A goes right, and so on.
 func _move_input() -> Vector2:
@@ -690,6 +744,8 @@ func _update_head_bob(h_speed: float, sprinting: bool, delta: float) -> void:
 	var target_intensity := clampf(h_speed / feel.walk_speed, 0.0, 1.5) if on_floor else 0.0
 	bob_intensity = lerpf(bob_intensity, target_intensity, clampf(feel.bob_blend_speed * delta, 0.0, 1.0))
 	camera.position = feel.bob_offset(step_phase, bob_intensity)
+	if paper_map.is_up():
+		paper_map.bob = -camera.position  # the map in your hands lags each step
 	var running := sprinting and h_speed > feel.walk_speed * 1.05
 	breath_time += delta * (feel.sprint_breath_rate if running else feel.breath_rate)
 	var target_fov := feel.base_fov + sin(breath_time * TAU) * feel.breath_fov_amplitude
@@ -745,6 +801,8 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 	var dodged := not forced and devil_active and (lunge_left > 0.0 or
 			(_devil_distance() <= PHASE_DODGE_TILES and not devil_retreating and not circles.protects(player_cell)))
 	_apply_world(new_world)
+	if paper_map.opening:
+		_close_map("flip")  # the world turns over: both hands grab on
 	if not flip_echo:
 		_noise(player_cell, DevilBrain.NOISE_FLIP)
 	elif _hears(player_cell, DevilBrain.NOISE_FLIP):
@@ -818,7 +876,8 @@ func _apply_world(new_world: int) -> void:
 	var tween := create_tween().set_parallel()
 	tween.tween_property(calm_player, "volume_db", -60.0 if nightmare else music_db, 0.6)
 	tween.tween_property(intense_player, "volume_db", music_db if nightmare else -60.0, 0.6)
-	status_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4) if nightmare else Color(0.65, 0.95, 1.0))
+	world_icon.texture = world_icons[world]
+	clock_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4) if nightmare else Color(0.65, 0.95, 1.0))
 	_refresh_minimap()
 
 ## Ghost Sight: the other world's walls stand in yours as faint glass you walk through (no shadow).
@@ -971,14 +1030,17 @@ func _animate_devil(delta: float) -> void:
 	var moved := next - devil.position
 	devil.position = next
 	var face := Vector3.ZERO
+	var in_sight := devil_active and _devil_distance() <= DevilBrain.SIGHT_TILES and DevilBrain.line_of_sight(layout, world, devil_cell, player_cell)
 	if moved.length_squared() > 0.000001:
 		face = moved
-	elif devil_active and _devil_distance() <= DevilBrain.SIGHT_TILES and DevilBrain.line_of_sight(layout, world, devil_cell, player_cell):
+	elif in_sight:
 		face = player.global_position - devil.position  # paused but sees you: turn to track you
 	if face != Vector3.ZERO:
 		devil.rotation.y = lerp_angle(devil.rotation.y, atan2(face.x, face.z), clampf(DEVIL_TURN_SPEED * delta, 0.0, 1.0))
 	var speed := moved.length() / delta if delta > 0.0 else 0.0
-	devil_mesh.position.y = -DEVIL_Y + devil_rig.animate(speed, delta)
+	# Its head stays on you while you're in sight; one tile away the claws come up, at a lunge they rake.
+	var reach := 1.0 if lunge_left > 0.0 else (0.4 if in_sight and _devil_distance() <= 1 else 0.0)
+	devil_mesh.position.y = -DEVIL_Y + devil_rig.prowl(speed, delta, camera.global_position if in_sight else Vector3.INF, reach)
 
 func _tick_devil(delta: float) -> void:
 	if not devil_enabled:
@@ -1139,13 +1201,17 @@ func _earn(amount: int, why := "") -> void:
 	floor_shards += amount
 	_pop(("+%d  %s" % [amount, why]).strip_edges())
 
-## A "+3" under the shard counter that drifts up and fades; pops landing together stack downwards.
+## A "+3" under the status plate (and its shard counter) that drifts up and fades; pops landing together stack
+## downwards.
 func _pop(text: String) -> void:
-	var pop := shard_label.duplicate() as Label
+	var pop := _hud_label(get_node("HUD"), "Pop", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	pop.text = text
-	shard_label.add_sibling(pop)
+	pop.add_theme_color_override("font_color", SHARD_COLOR)
+	pop.offset_left = -PLATE_MARGIN.x - PLATE_SIZE.x
+	pop.offset_right = -PLATE_MARGIN.x - PLATE_INSET.z
+	pop.offset_top = PLATE_MARGIN.y + PLATE_SIZE.y
 	live_pops += 1
-	pop.position.y += maxf(SHARD_POP_GAP, shard_label.get_minimum_size().y) * live_pops + SHARD_POP_RISE
+	pop.position.y += maxf(SHARD_POP_GAP, pop.get_minimum_size().y) * (live_pops - 1) + SHARD_POP_RISE
 	var tween := pop.create_tween().set_parallel()
 	tween.tween_property(pop, "position:y", pop.position.y - SHARD_POP_RISE, SHARD_POP_TIME).set_trans(Tween.TRANS_QUINT).set_ease(Tween.EASE_OUT)
 	tween.tween_property(pop, "modulate:a", 0.0, SHARD_POP_TIME * 0.5).set_delay(SHARD_POP_TIME * 0.5)
@@ -1396,6 +1462,20 @@ func _build_audio() -> void:
 	creak_player = _audio("FloorCreak", "res://assets/audio/sfx_floor_creak.mp3", -12.0)
 	circle_player = _audio("SafeCircle", "res://assets/audio/sfx_safe_circle.mp3", -6.0)
 	telegraph_player = _audio("DevilWakes", "res://assets/audio/sfx_devil_wakes.mp3", -4.0)
+	breath_calm = _breath_loop("BreathCalm", "res://assets/audio/sfx_breath_calm.mp3")
+	breath_heavy = _breath_loop("BreathHeavy", "res://assets/audio/sfx_breath_heavy.mp3")
+
+## A breathing loop, started silent (_update_breath fades it in); no file yet = no sound.
+func _breath_loop(node_name: String, path: String) -> AudioStreamPlayer:
+	var audio := AudioStreamPlayer.new()
+	audio.name = node_name
+	audio.volume_linear = 0.0
+	add_child(audio)
+	if ResourceLoader.exists(path):
+		audio.stream = load(path)
+		(audio.stream as AudioStreamMP3).loop = true
+		audio.play()
+	return audio
 
 func _audio(node_name: String, path: String, volume_db: float) -> AudioStreamPlayer:
 	var audio := AudioStreamPlayer.new()
@@ -1625,11 +1705,13 @@ func _build_player() -> void:
 	player_mesh = PLAYER_MODEL.instantiate()
 	player_mesh.name = "CharacterMesh"
 	# character2withrig.glb faces +X; turn it to face -Z.
-	player_mesh.rotation_degrees.y = 90.0
+	player_mesh.rotation_degrees.y = PLAYER_MESH_YAW
 	ModelFit.fit_height(player_mesh, WALL_HEIGHT * PLAYER_HEIGHT_RATIO, PLAYER_MESH_Y)
 	player.add_child(player_mesh)
 	player_rig = DevilRig.new(player_mesh, false)
 	player_rig.unstick_hands()
+	player_rig.walk_pace = feel.walk_speed
+	player_rig.sprint_pace = feel.walk_speed * feel.sprint_multiplier
 
 	camera_pivot = Node3D.new()
 	camera_pivot.position.y = 0.45
@@ -1649,11 +1731,9 @@ func _build_player() -> void:
 	flashlight.shadow_normal_bias = FLASHLIGHT_SHADOW_BIAS.y
 	camera.add_child(flashlight)
 
-	footstep_player = AudioStreamPlayer3D.new()
+	footstep_player = AudioStreamPlayer.new()
 	footstep_player.name = "Footsteps"
 	footstep_player.stream = _build_footstep_stream()
-	footstep_player.position = Vector3(0, -1.5, 0)
-	footstep_player.unit_size = 4.0
 	footstep_player.max_polyphony = 2
 	player.add_child(footstep_player)
 
@@ -2094,67 +2174,32 @@ func _build_hud() -> void:
 	var hud := CanvasLayer.new()
 	hud.name = "HUD"
 	add_child(hud)
-	minimap = preload("res://scripts/minimap.gd").new()
-	minimap.name = "Minimap"
-	minimap.layout = layout
-	minimap.fog_colors = fog_colors
-	minimap.glow_colors = glow_colors
-	minimap.sigil_colors = SIGIL_COLORS
-	minimap.sigil_collected = sigil_collected
-	minimap.circles = circles
-	minimap.traps = traps
-	minimap.landmarks = landmarks
-	hud.add_child(minimap)
-	minimap.visible = RunState.mod("minimap", 1.0) > 0.0
-	minimap.crack_reveal = roundi(RunState.mod("crack_reveal", 0.0))
-	var frame := Art.tex(Art.HUD + "minimap_frame.png")
-	if frame != null:
-		var border := _hud_image(hud, "MinimapFrame", frame)
-		border.position = minimap.position - Vector2(10, 10)
-		border.size = minimap.size + Vector2(20, 20)
-		border.visible = minimap.visible
-	var plate_art := Art.tex(Art.HUD + "hud_plate.png")
-	if plate_art != null:
-		# Behind the top-right block (status, keys, shards); sized once the block is laid out below.
-		var plate := NinePatchRect.new()
-		plate.name = "Plate"
-		plate.texture = plate_art
-		plate.patch_margin_left = PLATE_CORNER
-		plate.patch_margin_right = PLATE_CORNER
-		plate.patch_margin_top = PLATE_CORNER
-		plate.patch_margin_bottom = PLATE_CORNER
-		plate.modulate.a = 0.85
-		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		plate.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		hud.add_child(plate)
-
-	status_label = _hud_label(hud, "Status", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
-	status_label.offset_left = -360
-	status_label.offset_right = -24
-	status_label.offset_top = 20
-	status_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN  # a long card line grows left, never off-screen
-
-	# A floor with cards has one more status line: the keys and the shard counter sit below it.
-	var below := STATUS_LINE if card_names != "" else 0.0
-	key_hud = KeyHud.new()
-	key_hud.name = "Keys"
-	hud.add_child(key_hud)
-	key_hud.build(layout.sigils.size())
-	key_hud.offset_top += below
-	key_hud.offset_bottom += below
-
-	shard_label = _hud_label(hud, "Shards", 22, Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
-	shard_label.offset_left = -360
-	shard_label.offset_right = -24
-	shard_label.offset_top = KeyHud.MARGIN_TOP + KeyHud.SLOT_HEIGHT + 8 + below
-	shard_label.add_theme_color_override("font_color", SHARD_COLOR)
-	if hud.has_node("Plate"):
-		var plate: NinePatchRect = hud.get_node("Plate")
-		plate.offset_left = -400
-		plate.offset_right = -8
-		plate.offset_top = 6
-		plate.offset_bottom = shard_label.offset_top + 44
-	var smoke := Art.tex(Art.HUD + "banner.png")
+	has_map = RunState.mod("minimap", 1.0) > 0.0
+	paper_map = PaperMap.new(_new_map(), feel.base_fov)
+	paper_map.name = "PaperMap"
+	hud.add_child(paper_map)
+	_build_status(hud)
+	stamina_bar = ProgressBar.new()  # bottom centre, only while you're short of breath
+	stamina_bar.name = "Stamina"
+	stamina_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stamina_bar.show_percentage = false
+	stamina_bar.max_value = 1.0
+	stamina_bar.step = 0.0
+	stamina_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	stamina_bar.offset_left = -90
+	stamina_bar.offset_right = 90
+	stamina_bar.offset_top = -48
+	stamina_bar.offset_bottom = -42
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0, 0, 0, 0.5)
+	track.set_corner_radius_all(3)
+	var fill := track.duplicate() as StyleBoxFlat
+	fill.bg_color = MainMenu.BONE
+	stamina_bar.add_theme_stylebox_override("background", track)
+	stamina_bar.add_theme_stylebox_override("fill", fill)
+	stamina_bar.visible = false
+	hud.add_child(stamina_bar)
+	var smoke :=Art.tex(Art.HUD + "banner.png")
 	if smoke != null:
 		# Smoke behind the centre messages, multiplied in (its white vanishes); shown with a message.
 		banner = _hud_image(hud, "Banner", smoke)
@@ -2243,6 +2288,20 @@ func _hud_label(hud: CanvasLayer, node_name: String, font_size: int, preset: Con
 	hud.add_child(label)
 	return label
 
+## A minimap of this floor, for the sheet of the paper map: the real layout, keys, circles, traps and landmarks.
+func _new_map() -> Control:
+	var map: Control = preload("res://scripts/minimap.gd").new()
+	map.layout = layout
+	map.fog_colors = fog_colors
+	map.glow_colors = glow_colors
+	map.sigil_colors = SIGIL_COLORS
+	map.sigil_collected = sigil_collected
+	map.circles = circles
+	map.traps = traps
+	map.landmarks = landmarks
+	map.crack_reveal = roundi(RunState.mod("crack_reveal", 0.0))
+	return map
+
 func _hud_image(hud: CanvasLayer, node_name: String, texture: Texture2D) -> TextureRect:
 	var rect := TextureRect.new()
 	rect.name = node_name
@@ -2262,6 +2321,116 @@ func _hud_overlay(hud: CanvasLayer, node_name: String, texture: Texture2D) -> Te
 	overlay.material = additive
 	overlay.visible = false
 	return overlay
+
+## The status plate (top right), icons instead of words: the floor count and its rule cards; the world and the
+## clock, the flip; the keys (then the chest they open) and the shards. Each icon is the delivered images/hud/ art
+## (assets/MISSING_ASSETS.md), else one of the menu's icons standing in.
+func _build_status(hud: CanvasLayer) -> void:
+	var plate_art := Art.tex(Art.HUD + "hud_plate.png")
+	if plate_art != null:
+		var plate := _hud_image(hud, "Plate", plate_art)
+		plate.modulate.a = 0.85
+		_on_plate(plate, Vector4.ZERO)
+	var rows := VBoxContainer.new()
+	rows.name = "Status"
+	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rows.alignment = BoxContainer.ALIGNMENT_CENTER
+	rows.grow_horizontal = Control.GROW_DIRECTION_BEGIN  # a floor with many cards grows left, never off-screen
+	hud.add_child(rows)
+	_on_plate(rows, PLATE_INSET)
+	var menu_icons := MainMenu.ART + "ui_icons.png"
+	var death_icons := DeathScreen.ART + "gameover_icons.png"
+
+	floor_label = _plate_label(20, MainMenu.BONE)
+	floor_label.text = "%d/%d" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT]
+	if RunState.is_daily():
+		floor_label.text = "%d/%d" % [RunState.daily_floor, Daily.FLOORS]
+	elif rule.act == StageRule.ABYSS_ACT:
+		floor_label.text = str(rule.floor_in_act)  # the depth
+	var stairs := _hud_art("icon_floor.png", Art.cell(menu_icons, MainMenu.Icon.MAZE, MainMenu.ICON_CELL))
+	var chips: Array = []  # the floor's rule cards (its opening flash names them)
+	for id in RunState.floor_cards:
+		var card := CardChoice.art(id)
+		if card != null:
+			chips.append(_plate_icon(card, CARD_CHIP))
+	_plate_row(rows, [_plate_icon(stairs, Vector2.ONE * FLOOR_ICON), floor_label], chips)
+
+	var hourglass := Art.cell(death_icons, DeathScreen.Icon.HOURGLASS, DeathScreen.ICON_CELL)
+	world_icons.assign([_hud_art("icon_wake.png", hourglass), _hud_art("icon_nightmare.png", hourglass)])
+	world_icon = _plate_icon(world_icons[WAKE], Vector2.ONE * PLATE_ICON)
+	clock_label = _plate_label(28, Color.WHITE)
+	flip_icon = TextureProgressBar.new()  # refills clockwise while the flip recharges
+	flip_icon.texture_progress = _hud_art("icon_flip.png", Art.cell(death_icons, DeathScreen.Icon.RETRY, DeathScreen.ICON_CELL))
+	flip_icon.texture_under = flip_icon.texture_progress
+	flip_icon.tint_under = Color(1, 1, 1, 0.25)
+	flip_icon.fill_mode = TextureProgressBar.FILL_CLOCKWISE
+	flip_icon.nine_patch_stretch = true
+	flip_icon.max_value = 1.0
+	flip_icon.step = 0.0
+	flip_icon.value = 1.0
+	flip_icon.custom_minimum_size = Vector2.ONE * PLATE_ICON
+	flip_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flip_label = _plate_label(22, MainMenu.BONE)
+	_plate_row(rows, [world_icon, clock_label], [flip_icon, flip_label])
+
+	key_hud = KeyHud.new()
+	key_hud.name = "Keys"
+	key_hud.build(layout.sigils.size())
+	var chest := _hud_art("icon_chest.png", Art.cell(menu_icons, MainMenu.Icon.CHEST, MainMenu.ICON_CELL))
+	chest_icon = _plate_icon(chest, Vector2.ONE * PLATE_ICON)
+	chest_icon.visible = false
+	var gem := _hud_art("icon_shards.png", Art.cell(menu_icons, MainMenu.Icon.GEM, MainMenu.ICON_CELL))
+	shard_label = _plate_label(24, SHARD_COLOR)
+	_plate_row(rows, [key_hud, chest_icon], [_plate_icon(gem, Vector2.ONE * PLATE_ICON * 0.8), shard_label])
+
+## Pins `control` to the status plate's rect (top right), shrunk by `inset` (left, top, right, bottom).
+func _on_plate(control: Control, inset: Vector4) -> void:
+	control.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	control.offset_left = -PLATE_MARGIN.x - PLATE_SIZE.x + inset.x
+	control.offset_top = PLATE_MARGIN.y + inset.y
+	control.offset_right = -PLATE_MARGIN.x - inset.z
+	control.offset_bottom = PLATE_MARGIN.y + PLATE_SIZE.y - inset.w
+
+## The delivered images/hud/<file>, else `stand_in` until it arrives.
+func _hud_art(file: String, stand_in: Texture2D) -> Texture2D:
+	var art := Art.tex(Art.HUD + file)
+	return art if art != null else stand_in
+
+## An icon on the status plate, kept to its own shape inside `side`.
+func _plate_icon(texture: Texture2D, side: Vector2) -> TextureRect:
+	var icon := TextureRect.new()
+	icon.texture = texture
+	icon.custom_minimum_size = side
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return icon
+
+## A number on the status plate, outlined so it reads over the plate's smoke.
+func _plate_label(font_size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.add_theme_font_override("font", DeathScreen.ui_font())
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	label.add_theme_constant_override("outline_size", 6)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	return label
+
+## One row of the status plate: `left` from its left edge, `right` against its right edge.
+func _plate_row(rows: VBoxContainer, left: Array, right: Array) -> void:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 6)
+	rows.add_child(row)
+	for item: Control in left:
+		row.add_child(item)
+	var gap := Control.new()
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(gap)
+	for item: Control in right:
+		row.add_child(item)
 
 ## The controls along the bottom: each key on a keycap (once the art exists), then what it does.
 func _build_hints(hud: CanvasLayer) -> void:
@@ -2311,20 +2480,21 @@ func _format_time(seconds: float) -> String:
 	return "%d:%02d" % [total / 60, total % 60]
 
 func _update_hud() -> void:
-	var flip_line := "FLIP READY  x%d  [SPACE]" % flip.charges_left if flip.charges > 1 else "FLIP READY  [SPACE]"
+	clock_label.text = _format_time(maxf(time_left, 0.0))
+	clock_label.modulate = Color(1.0, 0.35, 0.3, 0.6 + 0.4 * absf(sin(elapsed * 6.0))) if panic else Color.WHITE
+	# The flip refills clockwise while it recharges and turns red while Flipping Time holds it.
+	var recharging := flip.charges_left == 0
+	flip_icon.value = 1.0 - flip.cooldown_left / maxf(flip.cooldown, 0.01) if recharging else 1.0
+	flip_icon.tint_progress = Color.WHITE if recharging or flip.can_flip() else FLIP_BLOCKED
+	flip_label.text = "x%d" % flip.charges_left if flip.charges > 1 else ""
+	var winded := rest_left > 0.0  # red, refilling over the rest
+	stamina_bar.value = 1.0 - rest_left / feel.sprint_recover_time if winded else stamina
+	stamina_bar.visible = stamina < 1.0
+	stamina_bar.modulate = FLIP_BLOCKED if winded else Color.WHITE
 	if flip.forced_active:
-		flip_line = "CONTROLS INVERTED  %ds" % ceili(maxf(flip.forced_left, 0.0))
-	elif flip.charges_left == 0:
-		flip_line = "FLIP  %.1fs" % flip.cooldown_left
-	var goal_line := "OPEN THE CHEST" if exit_open else "KEYS  %d / %d" % [sigils_collected, layout.sigils.size()]
-	var where := ("THE ABYSS" if rule.act == StageRule.ABYSS_ACT else "ACT %d" % rule.act) + "  ·  " + _where(rule)
-	if RunState.is_daily():
-		where = "%s  ·  FLOOR %d / %d" % [_daily_name(), RunState.daily_floor, Daily.FLOORS]
-	if card_names != "":
-		where += "\n" + ("THE GATE  ·  " if rule.is_gate else "") + card_names
-	status_label.text = "%s\n%s   %s\n%s\n%s" % [where, WORLD_NAMES[world], _format_time(maxf(time_left, 0.0)), goal_line, flip_line]
-	status_label.modulate = Color(1.0, 0.35, 0.3, 0.6 + 0.4 * absf(sin(elapsed * 6.0))) if panic else Color.WHITE
-	shard_label.text = "SHARDS  %d" % (MetaState.shards + floor_shards)
+		flip_label.text = str(ceili(maxf(flip.forced_left, 0.0)))  # seconds until the controls come back
+	chest_icon.visible = exit_open
+	shard_label.text = str(MetaState.shards + floor_shards)
 	if warning_label.visible:
 		warning_label.text = "FLIPPING TIME  %d
 CONTROLS WILL INVERT" % maxi(ceili(flip.next_forced_in), 0)
@@ -2349,8 +2519,15 @@ func _update_devil_audio() -> void:
 		devil_approach_player.stop()
 		devil_approach_playing = false
 
+## Your breath: the calm loop, crossfading to panting while a sprint is spent (sprinting or resting after one).
+func _update_breath(delta: float) -> void:
+	var heavy := stamina < 1.0
+	var step := delta / feel.breath_fade_time
+	breath_calm.volume_linear = move_toward(breath_calm.volume_linear, 0.0 if heavy else db_to_linear(feel.breath_volume_db), step)
+	breath_heavy.volume_linear = move_toward(breath_heavy.volume_linear, db_to_linear(feel.breath_heavy_volume_db) if heavy else 0.0, step)
+
 func _stop_tension_audio() -> void:
-	for audio in [devil_approach_player, heartbeat_player, alarm_player]:
+	for audio in [devil_approach_player, heartbeat_player, alarm_player, breath_calm, breath_heavy]:
 		audio.stop()
 	devil_approach_playing = false
 	warning_label.visible = false
@@ -2610,7 +2787,8 @@ func _lose_game(cause: String = "devil") -> void:
 		MetaState.note_death(rule.floor_number)  # hidden mercy (plans/06 G3)
 	if fixed_seed == 0:
 		RunState.log_event("death", {"floor": rule.floor_number, "act": rule.act, "mode": RunState.mode, "cause": cause,
-				"time": snappedf(elapsed, 0.1), "progress": snappedf(clampf(_progress(), 0.0, 1.0), 0.01)})
+				"time": snappedf(elapsed, 0.1), "progress": snappedf(clampf(_progress(), 0.0, 1.0), 0.01),
+				"map_up": paper_map.is_up(), "since_map": snappedf(elapsed - map_closed_at, 0.1) if map_closed_at >= 0.0 else -1.0})
 	var news := _bank()  # dying keeps every shard
 	# Death ends the run now (quitting here can't buy a retry of this maze); a revive brings it back.
 	if fixed_seed == 0:
@@ -2708,7 +2886,14 @@ func _replay(delta: float) -> void:
 	devil.position = (a[0] as Vector3).lerp(b[0], t)
 	devil.rotation.y = lerp_angle(a[1], b[1], t)
 	player.global_position = (a[2] as Vector3).lerp(b[2], t)
-	devil_mesh.position.y = -DEVIL_Y + devil_rig.animate(((b[0] as Vector3) - a[0]).length() / TAPE_STEP, delta)
+	if player_rig != null:
+		# You run from it and look back at it; the mesh turns, not the body, so your camera stays put.
+		var run: Vector3 = (b[2] as Vector3) - (a[2] as Vector3)
+		if Vector2(run.x, run.z).length() > 0.01:
+			var mesh_yaw := atan2(-run.x, -run.z) - player.rotation.y + deg_to_rad(PLAYER_MESH_YAW)
+			player_mesh.rotation.y = lerp_angle(player_mesh.rotation.y, mesh_yaw, clampf(DEVIL_TURN_SPEED * delta, 0.0, 1.0))
+		player_mesh.position.y = PLAYER_MESH_Y + player_rig.flee(run.length() / TAPE_STEP, delta, 1.0, 0.0, true)
+	devil_mesh.position.y = -DEVIL_Y + devil_rig.prowl(((b[0] as Vector3) - a[0]).length() / TAPE_STEP, delta, Vector3.INF, 0.0)
 	var eye := devil_cam.get_child(0).get_child(0) as Camera3D
 	eye.global_position = devil.global_position + Vector3(0, DEVIL_EYE - DEVIL_Y, 0)
 	# Its eyes on you while it can see you; round a corner, on the way ahead.
@@ -2764,6 +2949,7 @@ func _return_to_circle() -> void:
 	camera_pivot.position.y = 0.45
 	camera_pivot.rotation.x = pitch
 	player.rotation = Vector3(0.0, yaw, 0.0)
+	player_mesh.rotation_degrees.y = PLAYER_MESH_YAW  # the Devil Cam turned it to run along the tape
 	camera.top_level = false
 	camera.transform = Transform3D()
 	fall_time = -1.0
@@ -2799,21 +2985,58 @@ func _restart_game() -> void:
 		RunState.start_run(rule.act)
 	get_tree().reload_current_scene()
 
-## Push live positions to the minimap (grid cells, floats). Devil distance = current-world path length.
+## Push the live world and your position to the paper map's sheet while it's in your hands (grid cells, floats); a
+## put-away map shows nothing, so it is never a live GPS. It draws no Devil (minimap.shows_devil).
 func _refresh_minimap() -> void:
-	if minimap == null:
+	if paper_map == null or not paper_map.is_up():
 		return
-	minimap.world = world
-	minimap.exit_open = exit_open
-	minimap.devil_awake = devil_active
-	minimap.player_pos = Vector2(player.global_position.x, player.global_position.z) / CELL_SIZE
-	minimap.devil_pos = Vector2(devil.position.x, devil.position.z) / CELL_SIZE
+	var map := paper_map.sheet
 	var forward := -player.global_transform.basis.z
-	minimap.facing = Vector2(forward.x, forward.z).angle()
-	var steps := _devil_distance()
-	minimap.devil_distance = steps * CELL_SIZE if steps < 999 else -1.0
-	var to_exit := exit_dist[world][player_cell.y * layout.size + player_cell.x]
-	minimap.exit_distance = to_exit * CELL_SIZE if to_exit >= 0 else -1.0
+	map.world = world
+	map.exit_open = exit_open
+	map.player_pos = Vector2(player.global_position.x, player.global_position.z) / CELL_SIZE
+	map.facing = Vector2(forward.x, forward.z).angle()
+
+## M: the paper map comes out of your back pocket, or goes back once it's open; halfway out or in, M waits. Not on a
+## no-map floor, not with the Devil close.
+func _toggle_map() -> void:
+	match paper_map.state():
+		PaperMap.State.OPEN:
+			_close_map("hand")
+		PaperMap.State.CLOSED:
+			if not has_map:
+				_flash_message("No map on this floor.")
+			elif _map_unsafe():
+				_flash_message("Not now. It's close.")
+			else:
+				paper_map.open()
+				map_opened_at = elapsed
+				_refresh_minimap()
+				if fixed_seed == 0:
+					RunState.log_event("map_open", {"floor": rule.floor_number, "act": rule.act, "world": world,
+							"devil": _devil_distance() if devil_active else -1})
+
+## Back in the pocket, and how long it was out for the playtest log. `reason`: "hand" (M), "devil" (snapped shut by
+## _map_unsafe), "flip" (snapped by a flip) or "end" (gone at once: the floor is over).
+func _close_map(reason: String) -> void:
+	if paper_map.opening:
+		map_closed_at = elapsed
+		if fixed_seed == 0:
+			RunState.log_event("map_close", {"floor": rule.floor_number, "reason": reason,
+					"held": snappedf(elapsed - map_opened_at, 0.1), "devil": _devil_distance() if devil_active else -1})
+	if reason == "end":
+		paper_map.stow()
+	else:
+		paper_map.close(reason != "hand")
+
+## Too dangerous to read: close enough to hear its heartbeat (path tiles), or at its pace right now it reaches you
+## within feel.map_snap_time. Path length, not straight-line distance, and its real speed (rubber band, prowl, rage).
+func _map_unsafe() -> bool:
+	return _devil_close() or (devil_active and _devil_distance() * _devil_step_interval() <= feel.map_snap_time)
+
+## Close enough to hear its heartbeat.
+func _devil_close() -> bool:
+	return devil_active and _devil_distance() <= HEARTBEAT_TILES
 
 func _show_message(text: String) -> void:
 	if state_label == null:

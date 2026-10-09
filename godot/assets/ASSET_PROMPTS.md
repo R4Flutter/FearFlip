@@ -210,6 +210,57 @@ itself. The prompt for III (swap in the other numerals):
 > strokes, drips running down from the bottom of each stroke, a few splatters around it, front view, flat, centred,
 > isolated on a transparent background, no wall texture, no shadow, no other text.
 
+### 3c. Paper map (plans/07)
+
+> **Superseded (9 Oct 2026) by `MAP_ASSETS/REQUIREMENTS.md`** (code-built paper curl, grip-pose hand, snap sound).
+
+M takes the map out. The right hand pulls the rolled map from the back pocket of the cargo pants, the left hand takes
+its free edge, both hands pull it open left to right, and it comes up to the eyes to read. Today the hands are skin
+boxes with dark sleeves, the roll is a plain tube and the sheet is flat beige. The game draws the maze on the sheet
+itself, so the paper art must leave its centre plain. Each slot loads as soon as the file exists.
+
+**map_hand.glb** (`models/`). About 6k triangles max, 1K textures. **One right hand** and forearm, cut off just below
+the elbow; the game mirrors it for the left hand. 42 cm from fingertips to the cut end. Pose: a relaxed pinch grip, as
+if holding the edge of a sheet of paper, thumb in front and the four fingers together behind it. Orientation if the
+tool lets you choose: fingers up (+Y), elbow end down, palm facing left (-X), thumb toward the front (+Z). The sleeve
+matches the hero's dark grey jacket (`player.glb`, `menu_hero.png`). If the tool gives a whole arm or two hands,
+deliver it anyway and say so: Claude cuts it.
+> Game asset concept, side view: a single right human hand and forearm, cut off cleanly just below the elbow, in a
+> relaxed pinch grip as if holding the edge of a sheet of paper (thumb in front, four fingers together behind it),
+> fingers pointing straight up, the sleeve of a worn dark grey jacket covering the forearm to the wrist, pale skin
+> with grime on the knuckles and a few small scratches, short nails, semi-realistic, dark horror game style. Isolated
+> on a plain white background, even studio lighting, no body, no shadow, no text.
+
+**map_roll.glb** (`models/`). About 2k triangles max, 1K texture. The map rolled up: 33 cm long, about 5 cm thick,
+standing upright (long axis +Y), pivot at the base centre. No string or ribbon, because it unrolls on screen.
+> Game asset concept, three-quarter view: one sheet of old yellowed parchment rolled into a loose tube about 33 cm
+> long and 5 cm thick, standing upright, the outer edge of the sheet lifting slightly off the roll, ragged torn edges,
+> coffee and water stains, faint ink lines showing through, creased and grubby from being carried in a back pocket,
+> semi-realistic, dark horror game style. Isolated on a plain white background, even studio lighting, no hands, no
+> string, no text.
+
+**map_paper.png** (`images/hud/`). **2048x1536** (4:3), **transparent PNG** (if the tool can't do transparency, use
+pure white around the sheet and say so; Claude cuts it out). The blank sheet the maze is drawn on, seen straight on
+and filling the frame. **Keep the centre plain**: the maze covers a square over the middle two-thirds of the width
+(17% to 83%) and nearly the full height (6% to 94%), so decorate the two side margins only.
+> One sheet of aged yellowed parchment seen straight on, flat, filling the frame, an old explorer's map before
+> anything is drawn on it: ragged torn edges with a few small burn marks, faint fold creases, water and coffee stains
+> and grime gathered near the edges, in the right margin a small faded compass rose with N pointing up, in the left
+> margin a few faded illegible pencil scribbles and one dark brown dried-blood thumbprint, the large centre area left
+> plain, clean and evenly lit, flat even lighting, no perspective, no shadow, isolated on a transparent background,
+> no readable words.
+
+**sfx_map_open.mp3** + **sfx_map_close.mp3** (`audio/`). MP3, peaks around -3 dB, no silence at the start. Use an AI
+sound-effect tool (e.g. ElevenLabs Sound Effects) or cut them from CC0 recordings (freesound.org: "paper unroll",
+"map paper", "pocket rustle").
+- `sfx_map_open.mp3`, **1.7 s** (the whole move, pocket to eyes):
+  > A rolled-up paper map pulled out of the back pocket of cargo pants, then unrolled with both hands: a short
+  > fabric rustle, then crisp old paper crackling as it unrolls, ending in a soft taut snap as it is held open.
+  > Close-up, dry, no music, no voice.
+- `sfx_map_close.mp3`, **0.8 s**:
+  > An old paper map quickly rolled up and pushed back into the back pocket of cargo pants: a fast paper crinkle,
+  > then a short fabric rustle. Close-up, dry, no music, no voice.
+
 ---
 
 ## 4. HUD and screen overlays
@@ -237,9 +288,9 @@ or pure black. It must read at 32 px.
 
 ### Added 7 Oct 2026 (from the P4 screenshots: the HUD is bare text floating over the 3D view)
 
-**hud_plate.png** (behind the top-right status block: act/floor, cards, world + clock, keys, flip). 720x400 PNG,
-stretched as a 9-slice with 48 px corners, so put the decoration only in the four corners and keep the edges plain.
-Transparent is best; an opaque plate works too (Godot draws it at about 80% opacity).
+**hud_plate.png** (behind the top-right status plate of icons: floor, cards, world + clock, flip, keys, shards).
+720x400 PNG, drawn at its own shape (never stretched), so a new plate must keep that 9:5 shape and its border.
+Transparent is best; an opaque plate works too (Godot draws it at about 85% opacity).
 > Game HUD backing plate for a dark fantasy horror game, flat front view, a wide rectangle of dark smoky charcoal
 > glass with a thin worn blackened-iron border, tiny rivets and small thorn ornaments only in the four corners,
 > plain straight edges between the corners, faint inner smoke texture, evenly lit, fills the canvas edge to edge,
@@ -265,7 +316,8 @@ transparent or pure black, blank caps (Godot writes the letter on them).
 > rim and a soft inner shadow, the top face completely blank, centred, isolated, no letters, no text.
 > (For `keycap_wide.png`, the same keycap twice as wide, like a SHIFT or SPACE key.)
 
-No new art needed for the HUD shard counter: it will reuse the GEM cell of the menu's `ui_icons.png`.
+**The plate's icons** (world, flip, floor, chest, shards) and the remaining text spots (minimap readout, pops,
+grades, centre titles, control hints): prompts in `MISSING_ASSETS.md` §0 and §4. The menu's icons stand in until then.
 
 ---
 

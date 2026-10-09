@@ -10,7 +10,8 @@ extends Control
 const GAME_SCENE := "res://scenes/main.tscn"
 const ART := "res://assets/images/menu/"
 const UI_FONT := "res://assets/fonts/ui.ttf"
-const MUSIC := "res://assets/audio/sfx_ambient_calm.mp3"
+## The menu theme: a 30 s seamless orchestral loop (ElevenLabs, 9 Oct 2026).
+const MUSIC := "res://assets/audio/theme_main.mp3"
 const FLIP_SFX := "res://assets/audio/sfx_flip.mp3"
 const MUSIC_DB := -14.0
 const SILENT_DB := -40.0

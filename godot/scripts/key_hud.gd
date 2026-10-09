@@ -1,18 +1,16 @@
 class_name KeyHud
 extends Control
-## Key slots under the status text (top right). A grabbed key leaps from where it was on screen,
-## arcs up and spins into its slot, and the slot flashes and bounces: the Subway Surfers pickup.
+## Key slots on the status plate (top right; sized for a container row). A grabbed key leaps from where it was on
+## screen, arcs up and spins into its slot, and the slot flashes and bounces: the Subway Surfers pickup.
 ## With all keys found the slots breathe gold; at the chest they empty one by one.
 
-const SLOT_HEIGHT := 58.0
-const SLOT_GAP := 12.0
-const MARGIN_RIGHT := 24.0
-const MARGIN_TOP := 172.0
+const SLOT_HEIGHT := 40.0
+const SLOT_GAP := 6.0
 const FLY_TIME := 0.6
 ## The flyer starts this many times the slot size and shrinks into it.
 const FLY_SCALE := 2.4
 const ARC_HEIGHT := 180.0
-const EMPTY := Color(0.3, 0.36, 0.45, 0.45)
+const EMPTY := Color(0.6, 0.6, 0.66, 0.6)
 const LIT := Color(1, 1, 1, 1)
 const GOLD := Color(1.0, 0.85, 0.45)
 
@@ -21,14 +19,9 @@ var _pulse: Tween
 
 
 func build(count: int) -> void:
-	set_anchors_preset(PRESET_TOP_RIGHT)
 	mouse_filter = MOUSE_FILTER_IGNORE
 	var slot_size := _slot_size()
-	var width := count * slot_size.x + (count - 1) * SLOT_GAP
-	offset_left = -MARGIN_RIGHT - width
-	offset_right = -MARGIN_RIGHT
-	offset_top = MARGIN_TOP
-	offset_bottom = MARGIN_TOP + slot_size.y
+	custom_minimum_size = Vector2(count * slot_size.x + (count - 1) * SLOT_GAP, slot_size.y)
 	for i in count:
 		var slot := _key_rect(slot_size)
 		slot.position = Vector2(i * (slot_size.x + SLOT_GAP), 0)

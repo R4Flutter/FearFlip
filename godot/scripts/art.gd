@@ -16,6 +16,19 @@ static func tex(path: String) -> Texture2D:
 	return load(path) if ResourceLoader.exists(path) else null
 
 
+## Cell `index` (row by row) of an icon sheet of `cell_px` squares, like the menu's ui_icons.png. Null until the
+## sheet exists.
+static func cell(path: String, index: int, cell_px: int) -> AtlasTexture:
+	var sheet := tex(path)
+	if sheet == null:
+		return null
+	var columns := floori(sheet.get_width() / float(cell_px))
+	var atlas := AtlasTexture.new()
+	atlas.atlas = sheet
+	atlas.region = Rect2(Vector2(index % columns, floori(index / float(columns))) * cell_px, Vector2.ONE * cell_px)
+	return atlas
+
+
 static func model(model_name: String) -> PackedScene:
 	var path := MODELS + model_name + ".glb"
 	return load(path) if ResourceLoader.exists(path) else null

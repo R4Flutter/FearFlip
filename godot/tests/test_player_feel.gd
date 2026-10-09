@@ -46,6 +46,11 @@ func test_sprint_steps_faster_than_walk() -> void:
 	assert_gt(sprint, walk)
 
 
+func test_sprint_is_a_ten_second_cycle() -> void:
+	var feel := PlayerFeel.new()
+	assert_true(is_equal_approx(feel.sprint_time + feel.sprint_recover_time, 10.0), "4 s sprint + 6 s rest")
+
+
 func test_bob_is_lowest_at_footfall() -> void:
 	var feel := PlayerFeel.new()
 	var at_footfall: Vector3 = feel.bob_offset(PI, 1.0)

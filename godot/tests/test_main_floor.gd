@@ -272,12 +272,12 @@ func test_shard_pops_stack_under_the_counter() -> void:
 	var main := _spawn_floor()
 	main._earn(3)
 	main._earn(4, "CLOSE CALL")
-	var pops: Array = main.shard_label.get_parent().get_children().filter(func(node: Node) -> bool:
+	var pops: Array = main.get_node("HUD").get_children().filter(func(node: Node) -> bool:
 		return node is Label and (node as Label).text.begins_with("+"))
 	assert_eq(pops.size(), 2)
-	var counter_bottom: float = main.shard_label.position.y + main.shard_label.size.y
+	var plate_bottom: float = main.PLATE_MARGIN.y + main.PLATE_SIZE.y
 	for pop: Label in pops:
-		assert_true(pop.position.y >= counter_bottom, "a pop never covers the counter (%.0f < %.0f)" % [pop.position.y, counter_bottom])
+		assert_true(pop.position.y >= plate_bottom, "a pop never covers the plate's counter (%.0f < %.0f)" % [pop.position.y, plate_bottom])
 	assert_true(absf(pops[0].position.y - pops[1].position.y) >= (pops[0] as Label).size.y, "two at once stack, not overlap")
 
 
@@ -368,7 +368,7 @@ func test_omens_reach_the_systems_they_change() -> void:
 	assert_eq(main.traps.holds, 1, "Feather Step")
 	assert_eq(main.traps.creak_range, 2, "Keen Eye")
 	assert_gt(main.trap_nodes[0].cue, plain.trap_nodes[0].cue, "Keen Eye: brighter cracks")
-	assert_eq(main.minimap.crack_reveal, 6, "Cartographer")
+	assert_eq(main.paper_map.sheet.crack_reveal, 6, "Cartographer")
 	assert_eq(main.bonus_chests.size(), plain.bonus_chests.size() + 1, "Locksmith")
 
 
@@ -385,8 +385,8 @@ func test_ghost_sight_shows_the_other_worlds_walls_as_glass() -> void:
 
 func test_last_breath_turns_one_catch_a_floor_into_a_trip_back() -> void:
 	var main := _spawn_floor(["last_breath"], 2)
-	main._wake_devil()
 	for attempt in 2:
+		main._wake_devil()  # the trip back puts it to sleep; it wakes again later
 		main.catch_grace = 0.0
 		main.devil_retreating = false
 		main.devil_cell = main.player_cell
@@ -413,8 +413,199 @@ func test_mirror_night_mirrors_controls_in_nightmare_only() -> void:
 
 func test_static_and_deaf_night_take_the_map_and_the_music() -> void:
 	var main := _spawn_floor(["static", "deaf_night"], 22)
-	assert_false(main.minimap.visible, "no map")
+	assert_false(main.has_map, "no map")
 	assert_true(main.calm_player.volume_db <= -60.0, "no music")
+	main._toggle_map()
+	assert_false(main.paper_map.opening, "and none in your pocket either")
+
+
+# --- the paper map (MAP_ASSETS/REQUIREMENTS.md) --------------------------------------------------------
+
+func test_the_paper_map_is_one_move_at_a_time_on_m() -> void:
+	var main := _spawn_floor()
+	var map: PaperMap = main.paper_map
+	assert_eq(map.state(), PaperMap.State.CLOSED, "in the pocket")
+	assert_false(map.sheet.is_visible_in_tree(), "no map on screen while you explore")
+	_press(main, "map")
+	assert_eq(map.state(), PaperMap.State.DRAWING, "M reaches for the back pocket")
+	var move: Tween = map._tween
+	_press(main, "map")
+	assert_eq(map.state(), PaperMap.State.DRAWING, "M again mid-move does nothing")
+	assert_eq(map._tween, move, "no second animation")
+	map._tween.custom_step(PaperMap.OPEN_TIME * 0.6)
+	assert_eq(map.state(), PaperMap.State.UNROLLING)
+	_finish_map_move(main)
+	assert_eq(map.state(), PaperMap.State.OPEN)
+	assert_true(map.sheet.is_visible_in_tree(), "the floor, with you on it, in your hands")
+	_press(main, "map")
+	assert_eq(map.state(), PaperMap.State.CLOSING, "M once it's open puts it away")
+	_press(main, "map")
+	assert_eq(map.state(), PaperMap.State.CLOSING, "and M on the way back does nothing")
+	_finish_map_move(main)
+	assert_eq(map.state(), PaperMap.State.CLOSED)
+	assert_false(map.sheet.is_visible_in_tree(), "your marker goes with it: no GPS")
+	assert_eq(map.dip, 0.0, "the head is back up")
+
+
+func test_the_paper_unrolls_left_to_right_between_both_hands() -> void:
+	var main := _spawn_floor()
+	var map: PaperMap = main.paper_map
+	_press(main, "map")
+	map._tween.kill()
+	map.progress = 0.3
+	assert_true(map._roll.visible and not map._paper.visible, "first the strapped roll comes out of the pocket")
+	map.progress = 0.55
+	var early: Vector2 = map._curl.get_shader_parameter("edges")
+	var early_hand: float = map._hands[0].position.x
+	assert_true(map._paper.visible and not map._roll.visible, "unstrapped, the roll is the sheet itself")
+	map.progress = 0.75
+	var unrolled: Vector2 = map._curl.get_shader_parameter("edges")
+	assert_eq(unrolled.x, early.x, "the left hand holds its edge where it took it")
+	assert_gt(unrolled.y, early.y, "the right hand pulls the roll across")
+	assert_gt(map._hands[0].position.x, early_hand, "its hand goes with it")
+	assert_true(is_equal_approx(map._hands[0].position.x, -PaperMap.SHEET.x * 0.5 + unrolled.y), "gripping the roll")
+	assert_gt(PaperMap.roll_radius(PaperMap.SHEET.x - early.y), PaperMap.roll_radius(PaperMap.SHEET.x - unrolled.y), "it thins as it pays out paper")
+	map.progress = 1.0
+	assert_eq(map._curl.get_shader_parameter("edges"), Vector2(0.0, PaperMap.SHEET.x), "lifted to read, it's held flat")
+	assert_true(map._hands[1].position.x < 0.0 and map._hands[0].position.x > 0.0, "a hand on each side of the map")
+	if Art.model("map_hand") != null:
+		var forearm: Vector3 = map._hands[0].get_child(0).basis * PaperMap.HAND_ARM
+		assert_gt(-forearm.normalized().y, 0.9, "forearms straight up from below, not across")
+	var maze_half: float = PaperMap.SHEET.x * 0.5 * PaperMap.INK_SCALE * map.sheet.MAP_SIZE / PaperMap.SHEET_2D.x
+	for hand in map._hands:
+		assert_true(is_equal_approx(hand.position.y, PaperMap.GRIP_Y), "halfway up the side edges, like a real map")
+		assert_gt(absf(hand.position.x), maze_half + 0.05, "a fist's width outside the maze's columns")
+
+
+func test_a_spent_sprint_leaves_you_winded_until_your_breath_is_back() -> void:
+	var main := _spawn_floor()
+	var start: Vector3 = main.player.position
+	Input.action_press("move_forward")
+	Input.action_press("sprint")
+	main._physics_process(main.feel.sprint_time)  # runs dry
+	main.player.position = start
+	main.player.velocity = Vector3.ZERO
+	main._physics_process(1.0)
+	var winded := _ground_speed(main)
+	Input.action_release("sprint")
+	main._physics_process(main.feel.sprint_recover_time)  # breath back
+	Input.action_press("sprint")
+	main.player.position = start
+	main._physics_process(1.0)
+	var rested := _ground_speed(main)
+	Input.action_release("sprint")
+	Input.action_release("move_forward")
+	assert_true(absf(winded - main.feel.walk_speed) < 0.05, "winded: a walk, sprint held (%.2f)" % winded)
+	assert_true(absf(rested - main.feel.walk_speed * main.feel.sprint_multiplier) < 0.05, "rested: a sprint again (%.2f)" % rested)
+
+
+func test_letting_go_mid_sprint_still_costs_the_full_rest() -> void:
+	var main := _spawn_floor()
+	main._tick_breath(true, 0.5)  # a short burst
+	main._tick_breath(false, 0.1)  # let go
+	main._tick_breath(false, main.feel.sprint_recover_time - 0.5)
+	assert_gt(main.rest_left, 0.0, "no fresh sprint before the rest is over")
+	main._tick_breath(false, 0.5)
+	assert_eq(main.rest_left, 0.0, "rested")
+	assert_eq(main.stamina, 1.0, "a full 4 s sprint again")
+
+
+func test_with_the_map_up_you_walk_slowly_and_cannot_sprint_or_flip() -> void:
+	var main := _spawn_floor()
+	Input.action_press("move_forward")
+	Input.action_press("sprint")
+	main._physics_process(2.0)
+	var sprint := _ground_speed(main)
+	main.player.velocity = Vector3.ZERO
+	_press(main, "map")
+	main._physics_process(2.0)
+	var reading := _ground_speed(main)
+	Input.action_release("sprint")
+	Input.action_release("move_forward")
+	assert_true(absf(sprint - main.feel.walk_speed * main.feel.sprint_multiplier) < 0.05, "map away: a sprint (%.2f)" % sprint)
+	assert_true(absf(reading - main.feel.walk_speed * main.feel.map_walk_ratio) < 0.05, "map up: a slow walk, sprint held or not (%.2f)" % reading)
+	var world: int = main.world
+	_press(main, "flip")
+	assert_eq(main.world, world, "no flip with the map in your hands")
+	_press(main, "map")  # still coming out: M waits
+	_finish_map_move(main)
+	_press(main, "map")
+	_finish_map_move(main)
+	_press(main, "flip")
+	assert_ne(main.world, world, "back in the pocket, the flip is yours again")
+
+
+func test_the_world_runs_on_while_you_read_and_the_map_never_shows_the_devil() -> void:
+	var main := _spawn_floor()
+	main._apply_world(NIGHTMARE)
+	main._wake_devil()
+	main.devil_cell = _cell_at_distance(main, 20)
+	main.devil.position = main._devil_world_position()
+	var start: Vector2i = main.devil_cell
+	var clock: float = main.time_left
+	_press(main, "map")
+	_finish_map_move(main)
+	for i in 12:
+		main._process(0.25)
+	assert_false(main.get_tree().paused, "no pause")
+	assert_true(main.time_left < clock, "the clock runs")
+	assert_ne(main.devil_cell, start, "it keeps hunting while you read")
+	assert_false(main.paper_map.sheet.shows_devil(), "the map never shows it")
+
+
+func test_the_devil_snaps_the_map_shut_with_a_fair_window() -> void:
+	var main := _spawn_floor()
+	main.feel = main.feel.duplicate()
+	main._apply_world(NIGHTMARE)
+	main._wake_devil()
+	main.devil_cell = _cell_at_distance(main, main.HEARTBEAT_TILES + 4)
+	main.devil.position = main._devil_world_position()
+	main.feel.map_snap_time = 0.1
+	assert_false(main._map_unsafe(), "out of earshot and slow to arrive: safe to read")
+	_press(main, "map")
+	_finish_map_move(main)
+	main.feel.map_snap_time = 600.0  # at its pace it now reaches you in time
+	main._process(0.05)
+	assert_eq(main.paper_map.state(), PaperMap.State.CLOSING, "snapped shut by time-to-contact, not straight-line distance")
+	assert_true(PaperMap.SNAP_TIME < PlayerFeel.new().map_snap_time, "the snap fits inside the default window")
+	_press(main, "map")
+	assert_eq(main.paper_map.state(), PaperMap.State.CLOSING, "the same key can't throw it back open")
+	_finish_map_move(main)
+	main._process(0.05)
+	assert_eq(main.camera.rotation.x, 0.0, "head, hands and walk are yours again")
+	assert_false(main.paper_map.is_up())
+	_press(main, "map")
+	assert_eq(main.paper_map.state(), PaperMap.State.CLOSED, "and it stays in the pocket while it's that close")
+	main.feel.map_snap_time = 0.1
+	main.devil_cell = _cell_at_distance(main, 4)
+	main.devil.position = main._devil_world_position()
+	_press(main, "map")
+	assert_eq(main.paper_map.state(), PaperMap.State.CLOSED, "in earshot it never comes out")
+
+
+func test_the_sheet_is_this_floor_in_the_world_you_stand_in() -> void:
+	var main := _spawn_floor()
+	var sheet: Control = main.paper_map.sheet
+	assert_eq(sheet.layout, main.layout, "the generated maze itself, not a picture")
+	assert_eq(sheet.landmarks, main.landmarks, "the landmarks where they stand")
+	assert_true(is_same(sheet.sigil_collected, main.sigil_collected), "keys as you find them")
+	assert_eq(sheet.circles, main.circles)
+	assert_eq(sheet.traps, main.traps)
+	_press(main, "map")
+	assert_eq(sheet.world, WAKE)
+	assert_eq(sheet.player_pos, Vector2(main.player.global_position.x, main.player.global_position.z) / main.CELL_SIZE, "you are here")
+	main.exit_open = true
+	main._refresh_minimap()
+	assert_true(sheet.exit_open, "the exit as it stands")
+	assert_true(main.flip.request_flip(main._spot_open(NIGHTMARE)))
+	assert_eq(main.paper_map.state(), PaperMap.State.CLOSING, "a flip snaps it shut")
+	_finish_map_move(main)
+	_press(main, "map")
+	assert_eq(sheet.world, NIGHTMARE, "out again, it shows the world you're in now")
+	main.game_state = "lost"
+	main._process(0.05)
+	assert_eq(main.paper_map.state(), PaperMap.State.CLOSED, "gone once the floor is over")
+	assert_eq(main.camera.rotation.x, 0.0)
 
 
 func test_relentless_keeps_its_nightmare_pace_in_wake() -> void:
@@ -625,8 +816,9 @@ func test_delivered_hud_art_frames_the_screen() -> void:
 	if not ResourceLoader.exists(Art.HUD + "hud_plate.png"):
 		return
 	var main := _spawn_floor()
-	assert_true(main.has_node("HUD/Plate") and main.has_node("HUD/MinimapFrame"))
-	assert_true(main.status_label.get_theme_font("font").resource_path.ends_with("ui.ttf"), "the HUD speaks Oswald")
+	assert_true(main.has_node("HUD/Plate"))
+	assert_false(main.has_node("HUD/MinimapFrame"), "no minimap on screen: the map lives in your pocket")
+	assert_true(main.clock_label.get_theme_font("font").resource_path.ends_with("ui.ttf"), "the HUD speaks Oswald")
 	main._show_message("FLOOR 1")
 	assert_true(main.get_node("HUD/Banner").visible, "smoke behind a message")
 	main._show_message("")
@@ -637,6 +829,27 @@ func test_delivered_hud_art_frames_the_screen() -> void:
 	main._on_flipping_time_warning()
 	assert_true(main.get_node("HUD/WarningOverlay").visible)
 	assert_gt(main.get_node("HUD/Hints").get_child_count(), 5, "keycaps for the controls")
+
+
+func test_the_status_plate_speaks_in_icons_and_numbers() -> void:
+	var main := _spawn_floor([], 3)
+	assert_eq(main.floor_label.text, "3/%d" % StageRule.FLOORS_PER_ACT)
+	main._update_hud()
+	assert_eq(main.shard_label.text, str(MetaState.shards + main.floor_shards), "a number, no label")
+	assert_eq(main.flip_icon.value, 1.0, "ready: the whole flip icon")
+	assert_false(main.chest_icon.visible)
+	main.flip.charges_left = 0
+	main.flip.cooldown_left = main.flip.cooldown * 0.25
+	main._update_hud()
+	assert_true(is_equal_approx(main.flip_icon.value, 0.75), "recharging: it refills clockwise")
+	main.flip.charges_left = 1
+	main.flip.forced_active = true
+	main.flip.forced_left = 7.2
+	main.exit_open = true
+	main._update_hud()
+	assert_eq(main.flip_icon.tint_progress, main.FLIP_BLOCKED, "Flipping Time holds it")
+	assert_eq(main.flip_label.text, "8", "the seconds until the controls come back")
+	assert_true(main.chest_icon.visible, "the open chest joins the keys")
 
 
 # --- plans/06 P6: the Daily on the floor -----------------------------------------------------------------------
@@ -654,8 +867,7 @@ func test_a_daily_floor_names_itself() -> void:
 	var daily := "DAILY #%d" % Daily.number(Daily.today())
 	assert_true(main._floor_title().begins_with(daily + "  ·  FLOOR 2 / %d" % Daily.FLOORS), main._floor_title())
 	assert_true(main._floor_title().contains("PRACTICE"), "practice says so")
-	main._update_hud()
-	assert_true(main.status_label.text.begins_with(daily), main.status_label.text)
+	assert_eq(main.floor_label.text, "2/%d" % Daily.FLOORS, "the plate counts the Daily's floors")
 
 
 func test_practice_banks_nothing() -> void:
@@ -831,6 +1043,23 @@ func _cell_at_distance(main: Node3D, gap: int) -> Vector2i:
 		if main.player_dist[i] == gap:
 			return main.layout.cell_at(i)
 	return main.player_cell
+
+
+## One key press through the game's own input handler.
+func _press(main: Node3D, action: String) -> void:
+	var press := InputEventAction.new()
+	press.action = action
+	press.pressed = true
+	main._unhandled_input(press)
+
+
+## Plays the paper map's current move to its end (tweens don't run inside the synchronous suite).
+func _finish_map_move(main: Node3D) -> void:
+	main.paper_map._tween.custom_step(10.0)
+
+
+func _ground_speed(main: Node3D) -> float:
+	return Vector2(main.player.velocity.x, main.player.velocity.z).length()
 
 
 func test_the_devil_cam_replays_the_catch_from_its_eyes() -> void:
