@@ -94,6 +94,9 @@ No 3D models are needed for Phase 1. Phase 3 (Sanctuary altar, Gate arch) will c
 
 ## Meta hub (plans/06 Phase 5)
 
+**Superseded 9 Oct 2026 by `../../HUB_ASSET_PROMPTS.md`** (file names, sizes and the new screen layout live there).
+The background and portrait subjects below are still the ones to use.
+
 All optional, same rules as above: drop the PNG here with the exact name and it shows up on the next import; until
 then the screens use flat panels and plain dark backgrounds. No 3D models are needed for Phase 5.
 

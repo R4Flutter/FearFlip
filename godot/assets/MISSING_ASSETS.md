@@ -131,6 +131,8 @@ left), `models/map_roll.glb`, `images/hud/map_paper.png` (2048x1536, plain centr
 
 ### 2c. Meta hub art and the flashlight cards (plans/06 P5)
 
+**Now in `HUB_ASSET_PROMPTS.md`** (9 Oct 2026): the full art set for the six hub screens. The flashlight cards stay below.
+
 Prompts: `images/menu/PROMPTS.md` → "Meta hub" (`hub_entry`, `hub_altar`, `hub_mirror`, `hub_bestiary`,
 `hub_archive`, `hub_daily` (P6), `hub_settings`, 8 `beast_<id>` portraits, `ending_bg`) and `images/cards/PROMPTS.md` → "Flashlights from P5"
 (`old_torch`, `lantern`, `uv_light`, `camera_flash`).
