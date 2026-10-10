@@ -175,8 +175,8 @@ func test_omens_curses_and_descents_stay_inside_the_limits() -> void:
 			if problem != "":
 				assert_true(false, "floor %d %s: %s" % [number, cards, problem])
 				return
-	assert_eq(Cards.fold(run, "flip_charges", 1.0), 2.0)
-	assert_true(is_equal_approx(Cards.fold(["quick_veil"], "flip_cooldown", 6.0), 4.2), "Quick Veil: 30% faster")
+	assert_eq(Cards.fold(["twin_flip"], "flip_interval", 40.0), 50.0, "Sound Sleeper: Flipping Time a quarter less often")
+	assert_true(is_equal_approx(Cards.fold(["quick_veil"], "flip_duration", 12.0), 8.4), "Quick Veil: it lets go 30% sooner")
 
 
 ## Every card set `rule`'s floor can be dealt: its fixed card, or each door with each rule card (pairs for Hunt).
@@ -235,8 +235,8 @@ func _fairness_problem(cards: Array, rule: StageRule) -> String:
 		return "circles drain too fast"
 	if Cards.fold(cards, "rooms", rule.rooms) < Cards.MIN_ROOMS:
 		return "floor too small"
-	if Cards.fold(cards, "flip_cooldown", 6.0) < Cards.MIN_FLIP_COOLDOWN or Cards.fold(cards, "flip_charges", 1.0) > 2.0:
-		return "flips too cheap"
+	if Cards.fold(cards, "flip_duration", 12.0) < Cards.MIN_FLIP_DURATION:
+		return "Flipping Time too short"
 	if Cards.fold(cards, "shards", 1.0) > 3.0:
 		return "shards run away"
 	return ""

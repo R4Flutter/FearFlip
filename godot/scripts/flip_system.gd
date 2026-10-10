@@ -1,10 +1,11 @@
 class_name FlipSystem
 extends RefCounted
-## World Flip + Flipping Time (FEARFLIP_3D_GAME_APPROACH.md §4). Pure logic: main.gd feeds time and
-## whether the player's spot is open in each world; everything visual listens to `flipped`.
+## Flipping Time (FEARFLIP_3D_GAME_APPROACH.md §4). There is no flip button (user, 10 Oct 2026): the world flips on
+## its own, at random. NIGHTMARE takes you after a warning, then lets go. Pure logic: main.gd feeds time and whether
+## the player's spot is open in each world; everything visual listens to `flipped`.
 
+## `forced` is always true now that every flip is Flipping Time's; kept so listeners read the same.
 signal flipped(world: int, forced: bool)
-signal flip_denied
 ## Fired once, `warning_time` seconds before Flipping Time pulls the player into NIGHTMARE.
 signal flipping_time_warning
 
@@ -12,8 +13,9 @@ const WAKE := FloorLayout.World.WAKE
 const NIGHTMARE := FloorLayout.World.NIGHTMARE
 
 ## Tunables (all targets to playtest).
-var cooldown := 6.0
 var first_forced_at := 45.0
+## arm() lands the first Flipping Time up to this share before or after first_forced_at, at random.
+var first_jitter := 0.25
 var forced_interval_min := 40.0
 var forced_interval_max := 60.0
 ## Each Flipping Time comes this much sooner than the last, down to min_forced_interval.
@@ -25,13 +27,7 @@ var forced_duration_max := 20.0
 ## Each Flipping Time lasts this much longer than the last, up to forced_duration_max.
 var duration_ramp := 2.0
 
-## Flips you can hold (the Twin Flip omen: 2); the cooldown refills them one at a time.
-var charges := 1
-
 var world: int = WAKE
-var charges_left := 1
-## Until the next charge refills.
-var cooldown_left := 0.0
 var next_forced_in := 0.0
 var forced_active := false
 var forced_left := 0.0
@@ -45,35 +41,19 @@ func _init(rng_seed: int = 0) -> void:
 	next_forced_in = first_forced_at
 
 
-func can_flip() -> bool:
-	return not forced_active and not warning_active and charges_left > 0
-
-
-## Manual flip. `target_open` = the player's spot is open in the other world.
-func request_flip(target_open: bool) -> bool:
-	if not can_flip() or not target_open:
-		flip_denied.emit()
-		return false
-	if charges_left == charges:
-		cooldown_left = cooldown
-	charges_left -= 1
-	_set_world(1 - world, false)
-	return true
+## Sets the first Flipping Time at a random moment around first_forced_at (after the floor sets the tunables).
+func arm() -> void:
+	next_forced_in = first_forced_at * _rng.randf_range(1.0 - first_jitter, 1.0 + first_jitter)
 
 
 ## A forced flip never puts the player inside a wall: it waits until their spot is open.
 func advance(delta: float, wake_open: bool, nightmare_open: bool) -> void:
-	if charges_left < charges:
-		cooldown_left = maxf(cooldown_left - delta, 0.0)
-		if cooldown_left <= 0.0:
-			charges_left += 1
-			cooldown_left = cooldown if charges_left < charges else 0.0
 	if forced_active:
 		forced_left -= delta
 		if forced_left <= 0.0 and wake_open:
 			forced_active = false
 			next_forced_in = maxf(_rng.randf_range(forced_interval_min, forced_interval_max) - interval_ramp * forced_count, min_forced_interval)
-			_set_world(WAKE, true)
+			_set_world(WAKE)
 		return
 	next_forced_in -= delta
 	if not warning_active and next_forced_in <= warning_time:
@@ -85,9 +65,9 @@ func advance(delta: float, wake_open: bool, nightmare_open: bool) -> void:
 		forced_left = minf(_rng.randf_range(forced_duration_min, forced_duration_min + duration_ramp * 2.0) + duration_ramp * forced_count, forced_duration_max)
 		forced_count += 1
 		if world != NIGHTMARE:
-			_set_world(NIGHTMARE, true)
+			_set_world(NIGHTMARE)
 
 
-func _set_world(new_world: int, forced: bool) -> void:
+func _set_world(new_world: int) -> void:
 	world = new_world
-	flipped.emit(world, forced)
+	flipped.emit(world, true)

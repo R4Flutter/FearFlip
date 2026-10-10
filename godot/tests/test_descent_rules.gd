@@ -90,27 +90,12 @@ func test_far_devil_is_faster_than_close() -> void:
 	assert_gt(DevilBrain.speed(20, WALK, SPRINT, 1.0), DevilBrain.speed(2, WALK, SPRINT, 1.0))
 
 
-func test_devil_follows_newest_scent_and_waits_at_its_end() -> void:
-	var brain := DevilBrain.new()
-	for cell in [Vector2i(1, 1), Vector2i(2, 1), Vector2i(3, 1), Vector2i(2, 1), Vector2i(2, 2)]:
-		brain.record(cell, true)
-	# At (2,1): its newest visit is index 3, so it skips the (3,1) detour and heads for (2,2).
-	assert_eq(brain.target(Vector2i(2, 1), Vector2i(9, 9)), Vector2i(2, 2))
-	assert_eq(brain.target(Vector2i(2, 2), Vector2i(9, 9)), Vector2i(2, 2), "end of the scent: wait")
-	brain.record(Vector2i(2, 3), false)
-	assert_eq(brain.target(Vector2i(2, 2), Vector2i(9, 9)), Vector2i(2, 2), "frozen while you're in WAKE")
-	brain.sense(true, false, 0.1)
-	assert_eq(brain.target(Vector2i(2, 2), Vector2i(9, 9)), Vector2i(9, 9), "sees you: straight at you")
-	brain.sense(false, false, DevilBrain.SENSE_MEMORY + 0.1)
-	assert_eq(brain.sense_left, 0.0)
-
-
 func test_spawn_is_far_behind_and_unseen() -> void:
 	var layout := FloorLayout.generate(42, 7)
 	var brain := DevilBrain.new()
 	var path := layout.route(layout.spawn, layout.exit)
 	for cell in path:
-		brain.record(cell, true)
+		brain.record(cell)
 	var player: Vector2i = path[path.size() - 1]
 	var dist := layout.distances(FloorLayout.World.NIGHTMARE, player)
 	var seen := func(cell: Vector2i) -> bool: return DevilBrain.line_of_sight(layout, FloorLayout.World.NIGHTMARE, player, cell)

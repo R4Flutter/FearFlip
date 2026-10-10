@@ -1,9 +1,9 @@
 class_name Director
 extends RefCounted
-## The menace meter (plans/06 P7, master plan §7): it decides WHEN the Devil comes, so a floor runs quiet, then
-## builds, peaks and relaxes. Pure: main.gd feeds it what the Devil senses each tick, gives the Devil a fuzzy cell
-## near you when advance() says a hint is due, lets it chase at full speed only at the PEAK, and pulls it back
-## during RELAX.
+## The menace meter (plans/06 P7, master plan §7): it sets the Devil's pace, so a floor runs quiet, then builds,
+## peaks and relaxes. Pure: main.gd feeds it what the Devil senses each tick, gives the Devil your scent (chase pace)
+## when advance() says a hint is due, and lets it run flat out only at the PEAK. The Devil always hunts you; RELAX
+## only slows it down.
 
 enum Phase { CALM, BUILD, PEAK, RELAX }
 
@@ -17,12 +17,11 @@ const NEAR_TILES := 6
 const HEARD_TILES := 10
 ## A chase only runs at the peak.
 const PEAK_AT := 80.0
-## Calm this long and it builds: a fuzzy hint (a cell near you), then one every HINT_EVERY s until the peak.
+## Calm this long and it builds: a hint (your scent, so it picks up the pace), then one every HINT_EVERY s until the
+## peak.
 const CALM_LIMIT := 35.0
 const HINT_EVERY := 10.0
-## A hint is a random cell within this many path tiles of you: fuzzy, never your own cell.
-const HINT_RADIUS := 4
-## A peak lasts at most PEAK_LIMIT s, or until it hasn't seen you for LOST_LIMIT s; then it backs off for RELAX_TIME.
+## A peak lasts at most PEAK_LIMIT s, or until it hasn't seen you for LOST_LIMIT s; then it slows for RELAX_TIME.
 const PEAK_LIMIT := 12.0
 const LOST_LIMIT := 6.0
 const RELAX_TIME := Vector2(15.0, 25.0)

@@ -109,19 +109,21 @@ func test_it_only_sees_ahead_down_a_straight_corridor() -> void:
 	assert_true(DevilBrain.sees(layout, world, cell, Vector2i.ZERO, cell + dir * 2), "fresh from its spawn it looks every way")
 
 
-func test_without_a_sense_it_follows_your_scent_or_its_interest() -> void:
+func test_it_always_comes_for_you_and_only_an_echo_draws_it_off() -> void:
 	var brain := DevilBrain.new()
-	for cell: Vector2i in [Vector2i(1, 1), Vector2i(2, 1), Vector2i(3, 1)]:
-		brain.record(cell, true)
-	assert_eq(brain.target(Vector2i(1, 1), Vector2i(9, 9)), Vector2i(2, 1), "your trail, not you")
+	brain.record(Vector2i(1, 1))
+	assert_eq(brain.target(Vector2i(1, 1), Vector2i(9, 9)), Vector2i(9, 9), "nothing sensed: still you, at a prowl")
 	assert_eq(brain.mode(), "patrol")
 	brain.investigate(Vector2i(5, 5))
-	assert_eq(brain.target(Vector2i(1, 1), Vector2i(9, 9)), Vector2i(5, 5), "a noise or a hint draws it")
+	assert_eq(brain.target(Vector2i(1, 1), Vector2i(9, 9)), Vector2i(5, 5), "an echo draws it")
 	assert_eq(brain.mode(), "investigate")
-	assert_eq(brain.target(Vector2i(5, 5), Vector2i(9, 9)), Vector2i(2, 1), "nothing there: back to your scent")
+	assert_eq(brain.target(Vector2i(5, 5), Vector2i(9, 9)), Vector2i(9, 9), "nothing there: back after you")
+	brain.investigate(Vector2i(5, 5))
 	brain.sense(true, false, 0.1)
-	assert_eq(brain.target(Vector2i(1, 1), Vector2i(9, 9)), Vector2i(9, 9), "it senses you: straight at you")
 	assert_eq(brain.mode(), "chase")
+	brain.sense(false, false, DevilBrain.SENSE_MEMORY + 0.1)
+	assert_eq(brain.sense_left, 0.0, "it forgets it saw you")
+	assert_eq(brain.target(Vector2i(1, 1), Vector2i(9, 9)), Vector2i(9, 9), "seeing you made it drop the echo")
 
 
 func test_mercy_after_three_deaths_on_a_floor_until_it_is_cleared() -> void:

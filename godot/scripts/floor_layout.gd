@@ -20,6 +20,9 @@ const NIGHTMARE_CHANGE := 0.0
 const MIN_DEVIL_DISTANCE := 10
 ## Chests down dead ends (plans/06 B3) sit about this many path tiles off the route: a real detour.
 const DETOUR_TILES := 6
+## Share of the perfect maze's dead ends knocked through into a loop once the exit is chosen (user, 10 Oct 2026): more
+## junctions to choose at and a way round the Devil, on the same maze size. 0 = the 2D perfect maze.
+const BRAID := 0.12
 
 var seed_value: int
 var size: int
@@ -208,13 +211,14 @@ func _build(rng: RandomNumberGenerator, rooms: int) -> void:
 		_protected[center] = true
 		for d in DIRS:
 			_protected[center + d] = true
+	_braid(rng)
 	_make_nightmare(rng)
 	_place_sigils()
 	_place_devil(rng)
 
 
 ## The 2D game's MazeGenerator (lib/presentation/gameplay/maze_generator.dart): recursive
-## backtracker from the spawn room, one route only (a perfect maze). Exit = farthest room.
+## backtracker from the spawn room, one route only (a perfect maze). Exit = farthest room; _braid then opens a few loops.
 func _carve(rng: RandomNumberGenerator) -> void:
 	var grid := walls[World.WAKE]
 	grid[_idx(spawn)] = 0
@@ -233,6 +237,25 @@ func _carve(rng: RandomNumberGenerator) -> void:
 		grid[_idx(cell + (pick - cell) / 2)] = 0
 		grid[_idx(pick)] = 0
 		stack.append(pick)
+
+
+## BRAID of the dead ends get one more way out: the wall to a neighbouring room is knocked through, making a loop.
+## The spawn, the exit and the cells around them stay as carved.
+func _braid(rng: RandomNumberGenerator) -> void:
+	var grid := walls[World.WAKE]
+	for y in range(1, size, 2):
+		for x in range(1, size, 2):
+			var cell := Vector2i(x, y)
+			var ways := 0
+			var closed: Array[Vector2i] = []
+			for d in DIRS:
+				if grid[_idx(cell + d)] == 0:
+					ways += 1
+				elif _interior(cell + d * 2) and not _protected.has(cell + d):
+					closed.append(cell + d)
+			if ways != 1 or closed.is_empty() or _protected.has(cell) or rng.randf() >= BRAID:
+				continue
+			grid[_idx(closed[rng.randi_range(0, closed.size() - 1)])] = 0
 
 
 ## Copy WAKE, then toggle a share of the corridor connectors (one odd + one even coordinate).

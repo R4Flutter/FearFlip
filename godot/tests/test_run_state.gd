@@ -173,6 +173,36 @@ func test_a_later_act_owes_its_start_kit_and_curses_open_after_act_1() -> void:
 	assert_false(RunState.has_progress(), "still on the floor the run started on")
 
 
+## plans/09: a retry of the same act plays its start kit again with no picks; the menu offers them anew.
+func test_a_retry_keeps_the_start_kit() -> void:
+	MetaState.unlock_act(3)
+	RunState.start_run(3)
+	while not RunState.picks.is_empty():
+		RunState.take(RunState.pick_options()[1])  # never NO CURSE: a real curse, then omens
+	var kit := RunState.run_cards.duplicate()
+	assert_eq(kit.size(), 3)
+	RunState.start_run(3, true, true)
+	assert_eq(RunState.picks, [], "no picks on a retry")
+	assert_eq(RunState.run_cards, kit, "the same curse and omens")
+	_relaunch()
+	RunState.start_run(3, true, true)
+	assert_eq(RunState.run_cards, kit, "kept across a relaunch")
+	RunState.start_run(3)
+	assert_eq(RunState.picks.size(), 3, "from the menu: pick again")
+	RunState.start_run(2, true, true)
+	assert_eq(RunState.picks.size(), 2, "another act's retry has no kit yet")
+
+
+## A save can't claim a floor past the Gate of the last act opened (a profile reset or a test save left one behind).
+func test_best_floor_never_passes_the_acts_opened() -> void:
+	MetaState.stats = {}  # floor 50 never fell: no Abyss
+	MetaState.save()
+	RunState.best_floor = 50
+	RunState.save()
+	_relaunch()
+	assert_eq(RunState.best_floor, StageRule.GATE_FLOOR, "Act 1 open: floor 10 at most")
+
+
 func test_declining_the_curse_keeps_the_run_clean() -> void:
 	MetaState.unlock_act(2)
 	RunState.start_run(1)
@@ -183,7 +213,7 @@ func test_declining_the_curse_keeps_the_run_clean() -> void:
 func test_omens_fold_into_every_floor_of_the_run() -> void:
 	RunState.run_cards.assign(["quick_veil", "blood_pact"])
 	RunState.advance_floor()
-	assert_true(is_equal_approx(RunState.mod("flip_cooldown", 6.0), 4.2))
+	assert_true(is_equal_approx(RunState.mod("flip_duration", 12.0), 8.4))
 	assert_eq(RunState.mod("devil_speed", 1.0), 1.1)
 	RunState.advance_floor()
 	assert_eq(RunState.mod("shards", 1.0), Cards.fold(RunState.floor_cards, "shards", 1.0) * 1.5, "still there a floor later")

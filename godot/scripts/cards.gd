@@ -7,12 +7,13 @@ extends RefCounted
 
 ## Mods that count (neutral 0) add up across cards; every other mod is a factor (neutral 1).
 const ADDED: Array[String] = ["keys", "chests", "mirror", "follow_flips", "devil_awake", "rare_chest", "omen_pick",
-		"flip_charges", "heartbeat", "time_bonus", "devil_early", "creak_range", "feather", "crack_reveal", "ghost_sight", "last_breath", "flash_stun",
+		"heartbeat", "time_bonus", "devil_early", "creak_range", "feather", "crack_reveal", "ghost_sight", "last_breath", "flash_stun",
 		"extra_circles", "beam_hidden", "flip_echo", "quiet_sprint"]
 const MAX_KEYS := 5
 const MAX_TRAPS := 16
 const MIN_FLIP_INTERVAL := 12.0
-const MIN_FLIP_COOLDOWN := 3.0
+## However the cards stack, a Flipping Time holds you at least this long (s).
+const MIN_FLIP_DURATION := 5.0
 const MIN_CIRCLE_TIME := 2.0
 const MIN_ROOMS := 6
 ## Omens a new profile can be offered; each omen token found adds the next one in OMENS order.
@@ -35,8 +36,7 @@ const LIMITS := {
 	"circles": Vector2(1.0, 6.0),
 	"rooms": Vector2(MIN_ROOMS, 99.0),
 	"shards": Vector2(0.5, 3.0),
-	"flip_cooldown": Vector2(MIN_FLIP_COOLDOWN, 99.0),
-	"flip_charges": Vector2(1.0, 2.0),
+	"flip_duration": Vector2(MIN_FLIP_DURATION, 99.0),
 }
 ## Hunt doors are Act 2's new thing, and never lead into an act's first two floors.
 const HUNT_FROM_ACT := 2
@@ -60,7 +60,7 @@ const RULES: Array[Dictionary] = [
 	{"id": "blood_moon", "from": 2, "event": "blood_moon", "art": "blood_moon", "name": "BLOOD MOON", "text": "The moon is red. It runs faster, and every shard counts double.", "mods": {"devil_speed": 1.15, "shards": 2.0}},
 	{"id": "harvest", "from": 2, "event": "blood_moon", "art": "blood_moon", "name": "HARVEST", "text": "Two chests wait down dead ends. It wakes sooner.", "mods": {"chests": 2, "devil_delay": 0.7}},
 	{"id": "whiteout", "from": 1, "event": "frozen_nightmare", "art": "frozen_nightmare", "name": "WHITEOUT", "text": "Snow-blind fog fills the maze, but the frozen cracks glow.", "mods": {"fog": 1.6, "trap_cue": 1.5}},
-	{"id": "deep_freeze", "from": 1, "event": "frozen_nightmare", "art": "frozen_nightmare", "name": "DEEP FREEZE", "text": "The cold slows it down. It slows your flip too.", "mods": {"devil_speed": 0.9, "flip_cooldown": 1.3}},
+	{"id": "deep_freeze", "from": 1, "event": "frozen_nightmare", "art": "frozen_nightmare", "name": "DEEP FREEZE", "text": "The cold slows it down, but NIGHTMARE holds you longer.", "mods": {"devil_speed": 0.9, "flip_duration": 1.3}},
 	{"id": "frozen_wards", "from": 1, "event": "frozen_nightmare", "art": "frozen_nightmare", "name": "FROZEN WARDS", "text": "Safe circles freeze solid: they hold twice as long, but there are fewer.", "mods": {"circle_time": 2.0, "circles": 0.7}},
 ]
 ## Doors into the next floor (A2). "safe" doors never raise the danger.
@@ -84,13 +84,13 @@ const SANCTUARY := {"id": "sanctuary", "name": "SANCTUARY", "text": "A small, qu
 ## Omens (B1): pick 1 of 3 at Shrines, Sanctuaries, Gates you descend from and a later act's start; kept
 ## all run. In unlock order: the first STARTER_OMENS, then one per omen token. "needs" waits for that system.
 const OMENS: Array[Dictionary] = [
-	{"id": "quick_veil", "name": "QUICK VEIL", "text": "Your flip recharges 30% faster.", "mods": {"flip_cooldown": 0.7}},
+	{"id": "quick_veil", "name": "QUICK VEIL", "text": "NIGHTMARE lets go of you 30% sooner.", "mods": {"flip_duration": 0.7}},
 	{"id": "cold_blood", "name": "COLD BLOOD", "text": "Your heartbeat warns you 3 cells earlier.", "mods": {"heartbeat": 3}},
 	{"id": "circle_keeper", "name": "CIRCLE KEEPER", "text": "Safe circles drain half as fast.", "mods": {"circle_time": 2.0}},
 	{"id": "borrowed_time", "name": "BORROWED TIME", "text": "20 more seconds on every clock. It wakes 5 seconds sooner.", "mods": {"time_bonus": 20, "devil_early": 5}},
 	{"id": "keen_eye", "name": "KEEN EYE", "text": "Cracks glow brighter and creak a cell farther away.", "mods": {"trap_cue": 1.5, "creak_range": 1}},
 	{"id": "night_owl", "name": "NIGHT OWL", "text": "NIGHTMARE's fog thins by a third.", "mods": {"nightmare_fog": 0.7}},
-	{"id": "twin_flip", "name": "TWIN FLIP", "text": "Two flip charges.", "mods": {"flip_charges": 1}},
+	{"id": "twin_flip", "name": "SOUND SLEEPER", "text": "Flipping Time comes a quarter less often.", "mods": {"flip_interval": 1.25}},
 	{"id": "feather_step", "name": "FEATHER STEP", "text": "Once a floor, a cracked floor holds when it should give way.", "mods": {"feather": 1}},
 	{"id": "cartographer", "name": "CARTOGRAPHER", "text": "The map marks hidden cracks within 6 cells.", "mods": {"crack_reveal": 6}},
 	{"id": "locksmith", "name": "LOCKSMITH", "text": "Keys glow brighter, and one more chest waits down a dead end.", "mods": {"key_glow": 2.0, "chests": 1}},
@@ -118,7 +118,7 @@ const WEEKLY: Array[Dictionary] = [
 	{"id": "week_blind", "art": "cursed_week", "name": "BLIND WEEK", "text": "Thick fog all run, but your map marks cracks within 3 cells. +50% shards.", "mods": {"fog": 1.5, "crack_reveal": 3, "shards": 1.5}},
 	{"id": "week_restless_dead", "art": "cursed_week", "name": "RESTLESS DEAD", "text": "It wakes far sooner, but every floor has one more safe circle. +50% shards.", "mods": {"devil_delay": 0.6, "extra_circles": 1, "shards": 1.5}},
 	{"id": "week_broken_floors", "art": "cursed_week", "name": "BROKEN FLOORS", "text": "Half again the cracked floors, but every crack glows. +50% shards.", "mods": {"traps": 1.5, "trap_cue": 1.4, "shards": 1.5}},
-	{"id": "week_quicksilver", "art": "cursed_week", "name": "QUICKSILVER", "text": "Flipping Time comes far sooner, but your flip recharges faster. +50% shards.", "mods": {"flip_interval": 0.7, "flip_cooldown": 0.8, "shards": 1.5}},
+	{"id": "week_quicksilver", "art": "cursed_week", "name": "QUICKSILVER", "text": "Flipping Time comes far sooner, but lets go of you sooner. +50% shards.", "mods": {"flip_interval": 0.7, "flip_duration": 0.8, "shards": 1.5}},
 	{"id": "week_silent", "art": "cursed_week", "name": "SILENT WEEK", "text": "No music all run, but your heartbeat warns you 2 cells earlier. +40% shards.", "mods": {"music": 0.0, "heartbeat": 2, "shards": 1.4}},
 	{"id": "week_dark", "art": "cursed_week", "name": "DARK WEEK", "text": "No ceiling light all run, but your beam reaches a third farther. +50% shards.", "mods": {"lights": 0.0, "beam_range": 1.3, "shards": 1.5}},
 ]
@@ -146,7 +146,7 @@ const RANKS: Array[Dictionary] = [
 	{"id": "rank_4", "name": "QUICKENING", "text": "Flipping Time comes around 10% sooner.", "mods": {"flip_interval": 0.9, "shards": RANK_SHARDS}},
 	{"id": "rank_5", "name": "BRITTLE", "text": "A quarter more cracked floors.", "mods": {"traps": 1.25, "shards": RANK_SHARDS}},
 	{"id": "rank_6", "name": "THIN WARDS", "text": "Safe circles drain a fifth faster.", "mods": {"circle_time": 0.8, "shards": RANK_SHARDS}},
-	{"id": "rank_7", "name": "HEAVY VEIL", "text": "Your flip recharges a fifth slower.", "mods": {"flip_cooldown": 1.2, "shards": RANK_SHARDS}},
+	{"id": "rank_7", "name": "HEAVY VEIL", "text": "NIGHTMARE holds you a fifth longer.", "mods": {"flip_duration": 1.2, "shards": RANK_SHARDS}},
 	{"id": "rank_8", "name": "DIM", "text": "The ceiling lights burn at half strength.", "mods": {"lights": 0.5, "shards": RANK_SHARDS}},
 	{"id": "rank_9", "name": "MIST", "text": "The fog is a fifth thicker.", "mods": {"fog": 1.2, "shards": RANK_SHARDS}},
 	{"id": "rank_10", "name": "HUNGER", "text": "It runs 5% faster.", "mods": {"devil_speed": 1.05, "shards": RANK_SHARDS}},

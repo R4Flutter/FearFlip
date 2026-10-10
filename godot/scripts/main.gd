@@ -36,13 +36,11 @@ const LUNGE_TIME := 0.35
 const LUNGE_RANGE := 1.3
 const LUNGE_SPEED := 7.0
 const LUNGE_MISS_STUN := 0.6
-## Close Call / Phase Dodge (plans/06 C2): a near miss pays, time slows for a beat and the heart jumps.
+## Close Call (plans/06 C2): a near miss pays, time slows for a beat and the heart jumps.
 const CLOSE_CALL_TIME_SCALE := 0.35
 const CLOSE_CALL_SLOWMO := 0.3
 const CLOSE_CALL_HEART_PITCH := 1.5
 const CLOSE_CALL_HEART_TIME := 1.5
-## Your own flip with the Devil this close (path tiles), or mid-lunge, is a Phase Dodge.
-const PHASE_DODGE_TILES := 1
 ## Camera Flash (Altar torch, plans/06 P5): it freezes the Devil this long when it's this close (path tiles) and in sight.
 const FLASH_STUN_TIME := 3.0
 const FLASH_STUN_TILES := 6
@@ -59,8 +57,6 @@ const SHARD_POP_TIME := 0.9
 const SPAWN_TELEGRAPH := 1.5
 ## Path tiles it backs off to while you stand in a safe circle.
 const CIRCLE_RETREAT_DISTANCE := 10
-## The Director's relief (plans/06 P7): the Devil backs off at least this far (path tiles) while it relaxes.
-const RELAX_RETREAT_DISTANCE := 12
 ## Devil Cam (plans/06 C6): the last TAPE_SECONDS of the hunt, sampled every TAPE_STEP, replayed through its eyes on
 ## the death screen at REPLAY_SPEED. Its model sits on DEVIL_LAYER so its own camera looks out, not at its skull.
 const TAPE_SECONDS := 4.0
@@ -69,8 +65,12 @@ const REPLAY_SPEED := 0.75
 const DEVIL_LAYER := 1 << 1
 const DEVIL_EYE := 2.2
 const DEVIL_CAM_SIZE := Vector2(320, 180)
+## While it hunts, a smaller live Devil Cam rides in the top-left corner over its distance (user, 9 Oct 2026), which
+## turns amber inside DEVIL_METER_WARN.y metres and red, pulsing, inside .x.
+const LIVE_CAM_SIZE := Vector2(256, 144)
+const DEVIL_METER_WARN := Vector2(10.0, 20.0)
 ## It sees in the dark: its eye's ambient light and exposure multiplied, the fog thinned, and a red glare from its
-## eyes (energy, range, cone degrees) that lights you up in the replay.
+## eyes (energy, range, cone degrees) that lights what it looks at, in both Devil Cams and in the maze itself.
 const DEVIL_SIGHT := Vector3(6.0, 1.8, 0.4)
 const DEVIL_GLARE := Vector3(6.0, 16.0, 50.0)
 ## Echo Step: a flip's echo sounds this many path tiles from you.
@@ -187,7 +187,7 @@ const CARD_CHIP := Vector2(46, 27)
 const FLIP_BLOCKED := Color(1.0, 0.3, 0.25)
 ## How strong the NIGHTMARE overlay shows (far, near).
 const NIGHTMARE_OVERLAY_ALPHA := Vector2(0.35, 0.9)
-const HINTS := [["WASD", "MOVE"], ["SHIFT", "SPRINT"], ["SPACE / E", "FLIP"], ["F", "FLASHLIGHT"], ["M", "MAP"],
+const HINTS := [["WASD", "MOVE"], ["SHIFT", "SPRINT"], ["F", "FLASHLIGHT"], ["M", "MAP"],
 		["ESC", "PAUSE"], ["R R", "RESTART ACT"]]
 
 const PLAYER_MODEL = preload("res://assets/character/character2withrig.glb")
@@ -207,8 +207,8 @@ const FOOTSTEP_PATHS: Array[String] = [
 ## Rooms per side; the maze is (2 * rooms + 1) tiles square. 0 = from the floor's StageRule.
 @export_range(0, 30) var rooms: int = 0
 ## Debug: also put a cracked floor on this tile of the route from spawn (3 = third tile). 0 = off.
-## Skips the fairness check, so a sigil behind it can force a second crossing.
-@export_range(0, 20) var debug_trap_step: int = 3
+## Skips the fairness check, so a sigil behind it can force a second crossing. Never ship it on.
+@export_range(0, 20) var debug_trap_step: int = 0
 
 @export_group("World Lights")
 ## Ceiling light on every Nth open cell (by (x+y) % N). Higher = darker, cheaper.
@@ -299,6 +299,10 @@ var tape: Array = []
 var devil_cam: SubViewportContainer
 var _tape_clock := 0.0
 var _replay_time := 0.0
+## The top-left corner while it hunts: the live Devil Cam and its distance under it (_update_devil_corner).
+var devil_corner: VBoxContainer
+var live_cam: SubViewportContainer
+var devil_meter: Label
 ## The torch worn (Altar gear, folded like a card): the beam's shape, and Camera Flashes left this floor.
 var beam_energy := 1.0
 var beam_range := 1.0
@@ -352,7 +356,7 @@ var map_opened_at := 0.0
 var map_closed_at := -1.0
 var player_cell := Vector2i(1, 1)
 var devil_cell := Vector2i.ZERO
-## Where the Devil is heading. In WAKE it keeps the spot where you vanished.
+## Where the Devil backs off to while devil_retreating (a safe circle sent it away).
 var devil_target := Vector2i.ZERO
 var devil_timer := 0.0
 var enrage_left := 0.0
@@ -389,7 +393,7 @@ var floor_label: Label
 var world_icon: TextureRect
 var world_icons: Array[Texture2D] = []
 var clock_label: Label
-var flip_icon: TextureProgressBar
+var flip_icon: TextureRect
 var stamina_bar: ProgressBar
 var flip_label: Label
 var chest_icon: TextureRect
@@ -401,7 +405,6 @@ var intense_player: AudioStreamPlayer
 var win_player: AudioStreamPlayer
 var lose_player: AudioStreamPlayer
 var flip_player: AudioStreamPlayer
-var deny_player: AudioStreamPlayer
 var warning_player: AudioStreamPlayer
 var sigil_player: AudioStreamPlayer
 var devil_approach_player: AudioStreamPlayer
@@ -447,16 +450,14 @@ func _ready() -> void:
 			roundi(RunState.mod("keys", FloorLayout.SIGIL_COUNT)))
 	flip = FlipSystem.new(seed_value)
 	flip.first_forced_at = RunState.mod("flip_interval", rule.first_forced_at)
-	flip.next_forced_in = flip.first_forced_at
+	flip.arm()  # no flip button: the first Flipping Time comes at a random moment
 	flip.forced_interval_min = RunState.mod("flip_interval", rule.forced_interval_min)
 	flip.forced_interval_max = RunState.mod("flip_interval", rule.forced_interval_max)
 	flip.min_forced_interval = RunState.mod("flip_interval", rule.min_forced_interval)
+	flip.forced_duration_min = RunState.mod("flip_duration", flip.forced_duration_min)
+	flip.forced_duration_max = RunState.mod("flip_duration", flip.forced_duration_max)
 	flip.warning_time = rule.flip_warning
-	flip.cooldown = RunState.mod("flip_cooldown", flip.cooldown)
-	flip.charges = roundi(RunState.mod("flip_charges", 1.0))
-	flip.charges_left = flip.charges
 	flip.flipped.connect(_on_flipped)
-	flip.flip_denied.connect(_on_flip_denied)
 	flip.flipping_time_warning.connect(_on_flipping_time_warning)
 	route = layout.route(layout.spawn, layout.exit)
 	from_spawn = layout.distances(FloorLayout.ANY, layout.spawn)
@@ -490,7 +491,7 @@ func _ready() -> void:
 	player_cell = layout.spawn
 	last_player_cell = player_cell
 	visited[player_cell] = true
-	brain.record(player_cell, true)
+	brain.record(player_cell)
 	devil_cell = layout.devil_spawn
 	devil_target = devil_cell
 	prev_devil_cell = devil_cell
@@ -582,6 +583,7 @@ func _process(delta: float) -> void:
 	_update_flashlight(delta)
 	_flicker_landmark()
 	_animate_devil(delta)
+	_update_devil_corner()
 	if devil_cam != null:
 		_replay(delta)
 	var tilt := deg_to_rad(INVERT_TILT_DEGREES) if flip.forced_active and game_state == "playing" and not Settings.reduce_motion else 0.0
@@ -705,9 +707,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		flashlight_on = not flashlight_on
 		flashlight.visible = flashlight_on
-	elif event.is_action_pressed("flip"):
-		if not paper_map.is_up():  # no flipping with the map in your hands
-			flip.request_flip(_spot_open(1 - world))
 	elif event.is_action_pressed("map"):
 		_toggle_map()
 
@@ -790,18 +789,20 @@ func _build_footstep_stream() -> AudioStreamRandomizer:
 
 # --- World Flip -------------------------------------------------------------
 
-## True if the player's capsule footprint is open in `target_world` (a flip would not land in a wall).
+## True if the player's capsule footprint is open in `target_world` (a flip would not land in a wall): no wall cell of
+## that world within PLAYER_RADIUS of you. A circle, not a square: rounding a corner, the pillar diagonal to you is clear.
 func _spot_open(target_world: int) -> bool:
-	var center := player.global_position
-	for offset in [Vector3(-PLAYER_RADIUS, 0, -PLAYER_RADIUS), Vector3(PLAYER_RADIUS, 0, -PLAYER_RADIUS), Vector3(-PLAYER_RADIUS, 0, PLAYER_RADIUS), Vector3(PLAYER_RADIUS, 0, PLAYER_RADIUS)]:
-		if not layout.is_open(target_world, world_to_cell(center + offset)):
-			return false
+	var at := Vector2(player.global_position.x, player.global_position.z)
+	var here := world_to_cell(player.global_position)
+	for y in range(-1, 2):
+		for x in range(-1, 2):
+			var cell := here + Vector2i(x, y)
+			var low := (Vector2(cell) - Vector2(0.5, 0.5)) * CELL_SIZE
+			if not layout.is_open(target_world, cell) and at.distance_to(at.clamp(low, low + Vector2.ONE * CELL_SIZE)) < PLAYER_RADIUS:
+				return false
 	return true
 
 func _on_flipped(new_world: int, forced: bool) -> void:
-	# Your own flip out of its grab (mid-lunge, or with it a step away and able to catch you) is a Phase Dodge.
-	var dodged := not forced and devil_active and (lunge_left > 0.0 or
-			(_devil_distance() <= PHASE_DODGE_TILES and not devil_retreating and not circles.protects(player_cell)))
 	_apply_world(new_world)
 	if paper_map.opening:
 		_close_map("flip")  # the world turns over: both hands grab on
@@ -813,6 +814,8 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 	_count("flips")
 	if forced:
 		_count("forced_flips")
+	if new_world == WAKE:
+		_count("nightmares")  # a Flipping Time ridden out
 	flip_player.play()
 	warning_label.visible = false
 	if warning_overlay != null:
@@ -831,15 +834,6 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 	_move_devil_into_world()
 	if forced:
 		_keep_devil_fair()
-	if dodged:
-		_close_call("PHASE DODGE")
-
-func _on_flip_denied() -> void:
-	deny_player.play()
-	var tween := create_tween()
-	tween.tween_property(camera, "h_offset", 0.05, 0.04)
-	tween.tween_property(camera, "h_offset", -0.05, 0.08)
-	tween.tween_property(camera, "h_offset", 0.0, 0.04)
 
 func _on_flipping_time_warning() -> void:
 	warning_player.play()
@@ -881,6 +875,7 @@ func _apply_world(new_world: int) -> void:
 	tween.tween_property(intense_player, "volume_db", music_db if nightmare else -60.0, 0.6)
 	world_icon.texture = world_icons[world]
 	clock_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4) if nightmare else Color(0.65, 0.95, 1.0))
+	_devil_eye(live_cam).environment = _devil_sight()  # the live Devil Cam sees this world's fog
 	_refresh_minimap()
 
 ## Ghost Sight: the other world's walls stand in yours as faint glass you walk through (no shadow).
@@ -1058,11 +1053,9 @@ func _tick_devil(delta: float) -> void:
 	var sees := _devil_sees()
 	brain.sense(sees, false, delta)
 	var gap := _devil_distance()
-	var was := director.phase
+	# It never backs off at RELAX: past the peak it just slows to a prowl (_devil_step_interval).
 	if director.advance(delta, sees, gap <= Director.NEAR_TILES, gap <= Director.HEARD_TILES):
-		brain.investigate(_cell_near_player(1, Director.HINT_RADIUS))
-	if director.phase == Director.Phase.RELAX and was != Director.Phase.RELAX:
-		_start_retreat(RELAX_RETREAT_DISTANCE)
+		brain.sense(false, true, 0.0)  # a Director hint: it catches your scent and picks up the pace
 	devil_timer += delta
 	# Next cell only once the body is on its current cell centre: it walks corridors, never cuts a wall corner.
 	if devil_timer >= _devil_step_interval() and devil.position.distance_to(_devil_world_position()) < 0.05:
@@ -1073,18 +1066,16 @@ func _tick_devil(delta: float) -> void:
 ## One cell along the BFS shortest path to you (or to its retreat spot), through open cells only.
 func _step_devil() -> void:
 	prev_devil_cell = devil_cell
-	if devil_retreating and steps_since_retreat >= rule.devil_respawn_steps and not circles.protects(player_cell) \
-			and director.phase != Director.Phase.RELAX:
+	if devil_retreating and steps_since_retreat >= rule.devil_respawn_steps and not circles.protects(player_cell):
 		devil_retreating = false
-	# ponytail: its goal (a noise, a hint, your scent) is always reachable while both worlds share one maze
-	# (FloorLayout.NIGHTMARE_CHANGE = 0). Above 0 a flip can wall one off and it stands frozen until it senses you
-	# or gets a new hint: then drop goals it can't reach (BFS from devil_cell) before stepping.
+	# ponytail: an echo is always reachable while both worlds share one maze (FloorLayout.NIGHTMARE_CHANGE = 0). Above 0
+	# a flip can wall one off and it stands frozen until it senses you: then drop an echo it can't reach (BFS from
+	# devil_cell) before stepping. You are always reachable (_move_devil_into_world).
 	devil_cell = layout.next_step(world, devil_cell, devil_target if devil_retreating else _devil_goal())
 	if devil_cell != prev_devil_cell:
 		devil_facing = devil_cell - prev_devil_cell
 
-## Where it walks (plans/06 P7 fair play): you only while it senses you; else what it heard or the Director's hint;
-## else your scent.
+## Where it walks: always at you (user, 9 Oct 2026), unless an Echo Step echo draws it aside.
 func _devil_goal() -> Vector2i:
 	return brain.target(devil_cell, player_cell)
 
@@ -1226,7 +1217,7 @@ func _pop(text: String) -> void:
 ## and the heart jumps.
 func _close_call(what: String) -> void:
 	_earn(MetaState.CLOSE_CALL_SHARDS, what)
-	_count("phase_dodges" if what == "PHASE DODGE" else "close_calls")
+	_count("close_calls")
 	_count("devil_escapes")
 	Engine.time_scale = CLOSE_CALL_TIME_SCALE
 	get_tree().create_timer(CLOSE_CALL_SLOWMO, true, false, true).timeout.connect(Engine.set.bind("time_scale", 1.0))
@@ -1304,11 +1295,12 @@ func _enter_cell(cell: Vector2i) -> void:
 		visited[cell] = true
 		circles.on_new_cell()
 		steps_since_retreat += 1
-	brain.record(cell, true)
+	brain.record(cell)
 	if bonus_chests.has(cell):
 		_open_detour_chest(cell)
 	if cell == layout.exit and not exit_open:
-		_flash_message("THE CHEST IS LOCKED   find %d more keys" % (layout.sigils.size() - sigils_collected))
+		var missing := layout.sigils.size() - sigils_collected
+		_flash_message("THE CHEST IS LOCKED   find %d more key%s" % [missing, "" if missing == 1 else "s"])
 	if traps.creak(cell):
 		creak_player.play()
 	var holds := traps.holds
@@ -1328,7 +1320,7 @@ func _enter_cell(cell: Vector2i) -> void:
 func _enter_circle() -> void:
 	_count("circles")
 	circle_player.play()
-	snapshot = {"cell": player_cell, "time_left": time_left, "traps": traps.states.duplicate()}
+	snapshot = {"cell": player_cell, "time_left": time_left, "traps": traps.states.duplicate(), "trail": brain.trail.size()}
 	if devil_active and not devil_retreating:
 		_start_retreat()
 
@@ -1461,7 +1453,6 @@ func _build_audio() -> void:
 	win_player = _audio("WinSfx", "res://assets/audio/sfx_win.mp3", -4.0)
 	lose_player = _audio("LoseSfx", "res://assets/audio/sfx_lose.mp3", -4.0)
 	flip_player = _audio("FlipSfx", "res://assets/audio/sfx_flip.mp3", -6.0)
-	deny_player = _audio("FlipDenied", "res://assets/audio/sfx_flip_denied.mp3", -8.0)
 	warning_player = _audio("FlippingTimeWarning", "res://assets/audio/sfx_flipping_warning.mp3", -4.0)
 	sigil_player = _audio("SigilSfx", "res://assets/audio/sfx_sigil.mp3", -6.0)
 	devil_approach_player = _audio("DevilApproach", "res://assets/audio/sfx_devil_approach.mp3", -10.0)
@@ -1705,6 +1696,12 @@ func _build_player() -> void:
 	player = CharacterBody3D.new()
 	player.name = "Player"
 	player.position = cell_to_world(player_cell) + Vector3(0, PLAYER_HEIGHT, 0)
+	# Face down the first open corridor, not into the spawn corner's wall.
+	for d in FloorLayout.DIRS:
+		if layout.is_open(WAKE, player_cell + d):
+			yaw = atan2(-float(d.x), -float(d.y))
+			break
+	player.rotation.y = yaw
 	player.floor_snap_length = 0.2
 	add_child(player)
 	var collision := CollisionShape3D.new()
@@ -2193,6 +2190,7 @@ func _build_hud() -> void:
 	paper_map.name = "PaperMap"
 	hud.add_child(paper_map)
 	_build_status(hud)
+	_build_devil_corner(hud)
 	stamina_bar = ProgressBar.new()  # bottom centre, only while you're short of breath
 	stamina_bar.name = "Stamina"
 	stamina_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2373,17 +2371,10 @@ func _build_status(hud: CanvasLayer) -> void:
 	world_icons.assign([_hud_art("icon_wake.png", hourglass), _hud_art("icon_nightmare.png", hourglass)])
 	world_icon = _plate_icon(world_icons[WAKE], Vector2.ONE * PLATE_ICON)
 	clock_label = _plate_label(28, Color.WHITE)
-	flip_icon = TextureProgressBar.new()  # refills clockwise while the flip recharges
-	flip_icon.texture_progress = _hud_art("icon_flip.png", Art.cell(death_icons, DeathScreen.Icon.RETRY, DeathScreen.ICON_CELL))
-	flip_icon.texture_under = flip_icon.texture_progress
-	flip_icon.tint_under = Color(1, 1, 1, 0.25)
-	flip_icon.fill_mode = TextureProgressBar.FILL_CLOCKWISE
-	flip_icon.nine_patch_stretch = true
-	flip_icon.max_value = 1.0
-	flip_icon.step = 0.0
-	flip_icon.value = 1.0
-	flip_icon.custom_minimum_size = Vector2.ONE * PLATE_ICON
-	flip_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Red, and only while Flipping Time holds you (_update_hud): there is no flip button to show.
+	flip_icon = _plate_icon(_hud_art("icon_flip.png", Art.cell(death_icons, DeathScreen.Icon.RETRY, DeathScreen.ICON_CELL)), Vector2.ONE * PLATE_ICON)
+	flip_icon.modulate = FLIP_BLOCKED
+	flip_icon.visible = false
 	flip_label = _plate_label(22, MainMenu.BONE)
 	_plate_row(rows, [world_icon, clock_label], [flip_icon, flip_label])
 
@@ -2496,17 +2487,13 @@ func _format_time(seconds: float) -> String:
 func _update_hud() -> void:
 	clock_label.text = _format_time(maxf(time_left, 0.0))
 	clock_label.modulate = Color(1.0, 0.35, 0.3, 0.6 + 0.4 * absf(sin(elapsed * 6.0))) if panic else Color.WHITE
-	# The flip refills clockwise while it recharges and turns red while Flipping Time holds it.
-	var recharging := flip.charges_left == 0
-	flip_icon.value = 1.0 - flip.cooldown_left / maxf(flip.cooldown, 0.01) if recharging else 1.0
-	flip_icon.tint_progress = Color.WHITE if recharging or flip.can_flip() else FLIP_BLOCKED
-	flip_label.text = "x%d" % flip.charges_left if flip.charges > 1 else ""
+	# The flip icon shows only while Flipping Time holds you, red, with the seconds until your controls come back.
+	flip_icon.visible = flip.forced_active
+	flip_label.text = str(ceili(maxf(flip.forced_left, 0.0))) if flip.forced_active else ""
 	var winded := rest_left > 0.0  # red, refilling over the rest
 	stamina_bar.value = 1.0 - rest_left / feel.sprint_recover_time if winded else stamina
 	stamina_bar.visible = stamina < 1.0
 	stamina_bar.modulate = FLIP_BLOCKED if winded else Color.WHITE
-	if flip.forced_active:
-		flip_label.text = str(ceili(maxf(flip.forced_left, 0.0)))  # seconds until the controls come back
 	chest_icon.visible = exit_open
 	shard_label.text = str(MetaState.shards + floor_shards)
 	if warning_label.visible:
@@ -2778,7 +2765,7 @@ func _show_act_cleared() -> void:
 	tween.tween_property(burst, "scale", Vector2.ONE, 0.6).from(Vector2.ONE * 1.4)
 
 const DEATH_TEXT := {
-	"devil": ["THE DEVIL GOT YOU", "It is slow up close: keep walking. It is slower in WAKE: flip to lose it, or stand in a safe circle."],
+	"devil": ["THE DEVIL GOT YOU", "It always finds you, but up close it is slower than your walk: keep moving. It is slower in WAKE, and a safe circle holds it off."],
 	"trap": ["THE FLOOR GAVE WAY", "Cracked floors break on the second step. Listen for the creak; look for the cracks."],
 	"time": ["CLOCK HIT ZERO", "Dead ends eat time. Grab the keys on the way, not one at a time."],
 }
@@ -2802,6 +2789,7 @@ func _lose_game(cause: String = "devil") -> void:
 	if fixed_seed == 0:
 		RunState.log_event("death", {"floor": rule.floor_number, "act": rule.act, "mode": RunState.mode, "cause": cause,
 				"time": snappedf(elapsed, 0.1), "progress": snappedf(clampf(_progress(), 0.0, 1.0), 0.01),
+				"world": world, "flipping": flip.forced_active,
 				"map_up": paper_map.is_up(), "since_map": snappedf(elapsed - map_closed_at, 0.1) if map_closed_at >= 0.0 else -1.0})
 	var news := _bank()  # dying keeps every shard
 	# Death ends the run now (quitting here can't buy a retry of this maze); a revive brings it back.
@@ -2852,31 +2840,10 @@ func _record_tape(delta: float) -> void:
 
 ## Devil Cam (plans/06 C6): the last seconds again, through its eyes, in a corner of the death screen. Clip bait.
 func _start_devil_cam() -> void:
-	devil_cam = SubViewportContainer.new()
+	devil_cam = _devil_view()
 	devil_cam.name = "DevilCam"
-	devil_cam.stretch = true
-	devil_cam.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	devil_cam.position = Vector2(16, 16)
 	devil_cam.size = DEVIL_CAM_SIZE
-	var view := SubViewport.new()
-	view.world_3d = get_viewport().find_world_3d()
-	devil_cam.add_child(view)
-	var eye := Camera3D.new()
-	eye.cull_mask = 0xFFFFF & ~DEVIL_LAYER
-	eye.fov = 70.0
-	var sight := env.duplicate() as Environment
-	sight.ambient_light_energy = env.ambient_light_energy * DEVIL_SIGHT.x
-	sight.tonemap_exposure = env.tonemap_exposure * DEVIL_SIGHT.y
-	sight.fog_density = env.fog_density * DEVIL_SIGHT.z
-	eye.environment = sight
-	var glare := SpotLight3D.new()
-	glare.light_color = Color(1.0, 0.3, 0.25)
-	glare.light_energy = DEVIL_GLARE.x
-	glare.spot_range = DEVIL_GLARE.y
-	glare.spot_angle = DEVIL_GLARE.z
-	eye.add_child(glare)
-	view.add_child(eye)
-	eye.current = true
 	death_screen.add_child(devil_cam)
 	var tag := Label.new()
 	tag.name = "DevilCamTag"
@@ -2908,14 +2875,93 @@ func _replay(delta: float) -> void:
 			player_mesh.rotation.y = lerp_angle(player_mesh.rotation.y, mesh_yaw, clampf(DEVIL_TURN_SPEED * delta, 0.0, 1.0))
 		player_mesh.position.y = PLAYER_MESH_Y + player_rig.flee(run.length() / TAPE_STEP, delta, 1.0, 0.0, true)
 	devil_mesh.position.y = -DEVIL_Y + devil_rig.prowl(((b[0] as Vector3) - a[0]).length() / TAPE_STEP, delta, Vector3.INF, 0.0)
-	var eye := devil_cam.get_child(0).get_child(0) as Camera3D
+	_aim_devil_eye(_devil_eye(devil_cam))
+
+## A window out of the Devil's eyes: its own camera on the shared maze, blind to its own skull, seeing in the dark by
+## its red glare (the eye's only child: a real light, so the maze shows it too).
+func _devil_view() -> SubViewportContainer:
+	var frame := SubViewportContainer.new()
+	frame.stretch = true
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var view := SubViewport.new()
+	view.world_3d = get_viewport().find_world_3d()
+	frame.add_child(view)
+	var eye := Camera3D.new()
+	eye.cull_mask = 0xFFFFF & ~DEVIL_LAYER
+	eye.fov = 70.0
+	eye.environment = _devil_sight()
+	var glare := SpotLight3D.new()
+	glare.light_color = Color(1.0, 0.3, 0.25)
+	glare.light_energy = DEVIL_GLARE.x
+	glare.spot_range = DEVIL_GLARE.y
+	glare.spot_angle = DEVIL_GLARE.z
+	eye.add_child(glare)
+	view.add_child(eye)
+	eye.current = true
+	return frame
+
+func _devil_eye(frame: SubViewportContainer) -> Camera3D:
+	return frame.get_child(0).get_child(0) as Camera3D
+
+## This world's look, brighter and with thinner fog: it sees in the dark.
+func _devil_sight() -> Environment:
+	var sight := env.duplicate() as Environment
+	sight.ambient_light_energy = env.ambient_light_energy * DEVIL_SIGHT.x
+	sight.tonemap_exposure = env.tonemap_exposure * DEVIL_SIGHT.y
+	sight.fog_density = env.fog_density * DEVIL_SIGHT.z
+	return sight
+
+## Its eyes on you while it can see you; round a corner, on the way ahead.
+func _aim_devil_eye(eye: Camera3D) -> void:
 	eye.global_position = devil.global_position + Vector3(0, DEVIL_EYE - DEVIL_Y, 0)
-	# Its eyes on you while it can see you; round a corner, on the way ahead.
 	var target := eye.global_position + Vector3(sin(devil.rotation.y), -0.1, cos(devil.rotation.y))
 	if DevilBrain.line_of_sight(layout, world, world_to_cell(devil.global_position), world_to_cell(player.global_position)):
 		target = player.global_position + Vector3(0, 0.3, 0)
-	if eye.global_position.distance_to(target) > 0.1:
+	var gap := target - eye.global_position
+	if Vector2(gap.x, gap.z).length() > 0.1:  # never straight down at you mid-lunge: look_at can't aim along UP
 		eye.look_at(target)
+
+## The top-left corner while it hunts (user, 9 Oct 2026): a live Devil Cam, and under it the Devil's icon and how far
+## it is along the corridors. Hidden while nothing hunts.
+func _build_devil_corner(hud: CanvasLayer) -> void:
+	devil_corner = VBoxContainer.new()
+	devil_corner.name = "DevilCorner"
+	devil_corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	devil_corner.position = Vector2(16, 16)
+	devil_corner.visible = false
+	hud.add_child(devil_corner)
+	live_cam = _devil_view()
+	live_cam.name = "LiveCam"
+	live_cam.custom_minimum_size = LIVE_CAM_SIZE
+	devil_corner.add_child(live_cam)
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	devil_corner.add_child(row)
+	var demon := Art.cell(MainMenu.ART + "ui_icons.png", MainMenu.Icon.DEMON, MainMenu.ICON_CELL)
+	row.add_child(_plate_icon(_hud_art("icon_devil.png", demon), Vector2.ONE * PLATE_ICON))
+	devil_meter = _plate_label(26, Color.WHITE)  # tinted by its row: bone, amber, then red
+	row.add_child(devil_meter)
+
+## Its live eyes and its distance, which pulse faster, amber then red, as it closes in. Only while it hunts on a live
+## floor: its glare lights the real maze, so it goes out with the corner.
+func _update_devil_corner() -> void:
+	var on := devil_active and game_state == "playing"
+	devil_corner.visible = on
+	var eye := _devil_eye(live_cam)
+	(eye.get_child(0) as SpotLight3D).visible = on
+	if not on:
+		return
+	_aim_devil_eye(eye)
+	var d := _devil_distance()
+	var metres := d * CELL_SIZE
+	devil_meter.text = "%d m" % roundi(metres) if d < 999 else "--"
+	var color := MainMenu.BONE
+	if metres <= DEVIL_METER_WARN.x:
+		color = MainMenu.BLOOD
+	elif metres <= DEVIL_METER_WARN.y:
+		color = Color(1.0, 0.6, 0.2)
+	var urgency := clampf(1.0 - metres / DEVIL_METER_WARN.y, 0.0, 1.0)
+	(devil_meter.get_parent() as Control).modulate = Color(color, 0.55 + 0.45 * absf(sin(elapsed * (2.0 + 8.0 * urgency))))
 
 func _stop_devil_cam() -> void:
 	if devil_cam == null:
@@ -2956,8 +3002,9 @@ func _revive() -> void:
 
 ## Back to the last safe circle you used (the spawn if none yet) with its clock and floor cracks; the Devil sleeps.
 func _return_to_circle() -> void:
-	var at: Dictionary = snapshot if not snapshot.is_empty() else {"cell": layout.spawn, "time_left": time_left, "traps": traps.states.duplicate()}
+	var at: Dictionary = snapshot if not snapshot.is_empty() else {"cell": layout.spawn, "time_left": time_left, "traps": traps.states.duplicate(), "trail": 1}
 	var cell: Vector2i = at["cell"]
+	brain.rewind(at["trail"])  # it wakes behind you again, never on the path you walked after this circle
 	player.global_position = cell_to_world(cell) + Vector3(0, PLAYER_HEIGHT, 0)
 	player.velocity = Vector3.ZERO
 	camera_pivot.position.y = 0.45
@@ -2996,11 +3043,11 @@ func _restart_game() -> void:
 	if fixed_seed == 0 and RunState.is_daily():
 		RunState.start_daily(true)
 	elif fixed_seed == 0:
-		RunState.start_run(rule.act)
+		RunState.start_run(rule.act, true, true)  # a retry keeps the act's start kit: straight back in, no picks
 	get_tree().reload_current_scene()
 
 ## Push the live world and your position to the paper map's sheet while it's in your hands (grid cells, floats); a
-## put-away map shows nothing, so it is never a live GPS. It draws no Devil (minimap.shows_devil).
+## put-away map shows nothing, so it is never a live GPS. It marks the Devil where it is (user, 9 Oct 2026).
 func _refresh_minimap() -> void:
 	if paper_map == null or not paper_map.is_up():
 		return
@@ -3010,6 +3057,9 @@ func _refresh_minimap() -> void:
 	map.exit_open = exit_open
 	map.player_pos = Vector2(player.global_position.x, player.global_position.z) / CELL_SIZE
 	map.facing = Vector2(forward.x, forward.z).angle()
+	map.devil_awake = devil_active
+	map.devil_pos = Vector2(devil.position.x, devil.position.z) / CELL_SIZE
+	map.devil_distance = _devil_distance() * CELL_SIZE if _devil_distance() < 999 else -1.0
 
 ## M: the paper map comes out of your back pocket, or goes back once it's open; halfway out or in, M waits. Not on a
 ## no-map floor, not with the Devil close.

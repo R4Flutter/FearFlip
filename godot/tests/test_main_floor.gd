@@ -40,7 +40,8 @@ func test_flip_swaps_collision_and_visuals() -> void:
 	assert_eq(main.world, WAKE)
 	assert_eq(main.player.collision_mask, main.LAYER_SHARED | main.LAYER_WAKE)
 	assert_false(main.devil.visible, "Devil only exists in NIGHTMARE")
-	assert_true(main.flip.request_flip(main._spot_open(NIGHTMARE)), "spawn is open in both worlds")
+	main.flip.next_forced_in = 0.0
+	main.flip.advance(0.01, true, true)  # Flipping Time takes you: the only flip there is
 	assert_eq(main.world, NIGHTMARE)
 	assert_eq(main.player.collision_mask, main.LAYER_SHARED | main.LAYER_NIGHTMARE)
 	assert_true(main.nightmare_walls.visible and not main.wake_walls.visible)
@@ -149,6 +150,52 @@ func test_safe_circle_blocks_catch_and_revive_returns_there() -> void:
 	RunState.revives_used = 0
 
 
+## A revive forgets the cells walked after the circle, so the Devil wakes behind you, never on the way ahead.
+func test_revive_rewinds_the_scent() -> void:
+	var main := _spawn_floor()
+	var circle: Vector2i = main.circles.cells[0]
+	main._enter_cell(circle)
+	var before: int = main.brain.trail.size()
+	var at: int = main.route.find(circle)
+	for cell: Vector2i in main.route.slice(at + 1, at + 15):
+		main._enter_cell(cell)
+	main.brain.sense(true, false, 0.0)
+	main._lose_game("time")
+	main._revive()
+	assert_eq(main.brain.trail.size(), before, "the walk past the circle is forgotten")
+	assert_eq(main.brain.sense_left, 0.0, "and so is having sensed you")
+	RunState.revives_used = 0
+
+
+## The spawn is where you learn the floor: no cracked floor within TrapField.SPAWN_CLEARANCE of it.
+func test_no_cracked_floor_by_the_spawn() -> void:
+	var main := _spawn_floor()
+	for cell: Vector2i in main.traps.cells:
+		var d: int = absi(cell.x - main.layout.spawn.x) + absi(cell.y - main.layout.spawn.y)
+		assert_gt(d, TrapField.SPAWN_CLEARANCE, "a trap %d tiles from the spawn" % d)
+
+
+## Rounding a corner your capsule clears the pillar diagonal to you, so a flip isn't refused because of it.
+func test_flip_is_not_refused_rounding_a_corner() -> void:
+	var main := _spawn_floor()
+	for y in range(1, main.layout.size, 2):
+		for x in range(1, main.layout.size, 2):
+			var cell := Vector2i(x, y)
+			if main.layout.is_open(WAKE, cell + Vector2i(1, 0)) and main.layout.is_open(WAKE, cell + Vector2i(0, 1)):
+				main.player.global_position = main.cell_to_world(cell) + Vector3(0.9, main.PLAYER_HEIGHT, 0.9)
+				assert_true(main._spot_open(NIGHTMARE), "refused by the pillar at the corner of %s" % cell)
+				return
+	assert_true(false, "no corner on this floor")
+
+
+## A floor starts looking down a corridor, never at the spawn corner's wall.
+func test_spawn_faces_a_corridor_not_a_wall() -> void:
+	var main := _spawn_floor()
+	var forward: Vector3 = -main.player.global_transform.basis.z
+	var ahead: Vector2i = main.layout.spawn + Vector2i(roundi(forward.x), roundi(forward.z))
+	assert_true(main.layout.is_open(WAKE, ahead), "facing %s from the spawn" % ahead)
+
+
 func test_cracked_floor_kills_on_second_step() -> void:
 	var main := _spawn_floor()
 	var away: Vector2i = main.player_cell
@@ -186,7 +233,7 @@ func test_forced_flip_moves_close_devil_away() -> void:
 	main._on_flipped(NIGHTMARE, true)
 	var dist: PackedInt32Array = main.layout.distances(NIGHTMARE, main.player_cell)
 	assert_true(dist[main.devil_cell.y * main.layout.size + main.devil_cell.x] >= main.DEVIL_RETREAT_DISTANCE)
-	assert_eq(main.floor_shards, 0, "Flipping Time's own flip is no Phase Dodge")
+	assert_eq(main.floor_shards, 0, "a flip pays nothing by itself")
 
 
 func test_flipping_time_inverts_movement() -> void:
@@ -234,14 +281,6 @@ func test_diving_into_a_circle_mid_lunge_is_a_close_call() -> void:
 	main._enter_cell(main.circles.cells[0])
 	assert_eq(main.lunge_left, 0.0, "the circle breaks the grab")
 	assert_eq(main.floor_shards, MetaState.CLOSE_CALL_SHARDS)
-	Engine.time_scale = 1.0
-
-
-func test_flipping_out_of_a_lunge_is_a_phase_dodge() -> void:
-	var main := _lunging_floor()
-	assert_true(main.flip.request_flip(main._spot_open(WAKE)), "spawn is open in both worlds")
-	assert_eq(main.lunge_left, 0.0, "the flip breaks the grab")
-	assert_eq(main.floor_shards, MetaState.CLOSE_CALL_SHARDS, "and pays a Phase Dodge")
 	Engine.time_scale = 1.0
 
 
@@ -357,8 +396,8 @@ func test_omens_reach_the_systems_they_change() -> void:
 	var plain := _spawn_floor([], 12)
 	var main := _spawn_floor(["quick_veil", "twin_flip", "cold_blood", "borrowed_time", "night_owl", "feather_step",
 			"keen_eye", "cartographer", "locksmith", "circle_keeper", "blood_pact"], 12)
-	assert_true(main.flip.cooldown < plain.flip.cooldown, "Quick Veil")
-	assert_eq(main.flip.charges_left, 2, "Twin Flip")
+	assert_true(main.flip.forced_duration_max < plain.flip.forced_duration_max, "Quick Veil: it lets go sooner")
+	assert_true(main.flip.forced_interval_max > plain.flip.forced_interval_max, "Sound Sleeper: Flipping Time less often")
 	assert_eq(main.heartbeat_tiles, plain.heartbeat_tiles + 3, "Cold Blood")
 	assert_true(is_equal_approx(main.time_left, plain.time_left + 20.0), "Borrowed Time: more clock")
 	assert_true(main.devil_delay < plain.devil_delay, "and it wakes sooner")
@@ -513,7 +552,7 @@ func test_letting_go_mid_sprint_still_costs_the_full_rest() -> void:
 	assert_eq(main.stamina, 1.0, "a full 4 s sprint again")
 
 
-func test_with_the_map_up_you_walk_slowly_and_cannot_sprint_or_flip() -> void:
+func test_with_the_map_up_you_walk_slowly_and_cannot_sprint() -> void:
 	var main := _spawn_floor()
 	Input.action_press("move_forward")
 	Input.action_press("sprint")
@@ -527,18 +566,15 @@ func test_with_the_map_up_you_walk_slowly_and_cannot_sprint_or_flip() -> void:
 	Input.action_release("move_forward")
 	assert_true(absf(sprint - main.feel.walk_speed * main.feel.sprint_multiplier) < 0.05, "map away: a sprint (%.2f)" % sprint)
 	assert_true(absf(reading - main.feel.walk_speed * main.feel.map_walk_ratio) < 0.05, "map up: a slow walk, sprint held or not (%.2f)" % reading)
-	var world: int = main.world
-	_press(main, "flip")
-	assert_eq(main.world, world, "no flip with the map in your hands")
 	_press(main, "map")  # still coming out: M waits
+	assert_true(main.paper_map.opening, "M waits until it's out")
 	_finish_map_move(main)
 	_press(main, "map")
 	_finish_map_move(main)
-	_press(main, "flip")
-	assert_ne(main.world, world, "back in the pocket, the flip is yours again")
+	assert_eq(main.paper_map.state(), PaperMap.State.CLOSED, "back in the pocket")
 
 
-func test_the_world_runs_on_while_you_read_and_the_map_never_shows_the_devil() -> void:
+func test_the_world_runs_on_while_you_read_and_the_map_shows_the_devil() -> void:
 	var main := _spawn_floor()
 	main._apply_world(NIGHTMARE)
 	main._wake_devil()
@@ -553,7 +589,10 @@ func test_the_world_runs_on_while_you_read_and_the_map_never_shows_the_devil() -
 	assert_false(main.get_tree().paused, "no pause")
 	assert_true(main.time_left < clock, "the clock runs")
 	assert_ne(main.devil_cell, start, "it keeps hunting while you read")
-	assert_false(main.paper_map.sheet.shows_devil(), "the map never shows it")
+	var sheet: Control = main.paper_map.sheet
+	assert_true(sheet.shows_devil(), "the map shows where it is")
+	assert_eq(sheet.devil_pos, Vector2(main.devil.position.x, main.devil.position.z) / main.CELL_SIZE, "live, where it really is")
+	assert_eq(sheet.devil_distance, main._devil_distance() * main.CELL_SIZE)
 
 
 func test_the_devil_snaps_the_map_shut_with_a_fair_window() -> void:
@@ -600,7 +639,8 @@ func test_the_sheet_is_this_floor_in_the_world_you_stand_in() -> void:
 	main.exit_open = true
 	main._refresh_minimap()
 	assert_true(sheet.exit_open, "the exit as it stands")
-	assert_true(main.flip.request_flip(main._spot_open(NIGHTMARE)))
+	main.flip.next_forced_in = 0.0
+	main.flip.advance(0.01, true, true)
 	assert_eq(main.paper_map.state(), PaperMap.State.CLOSING, "a flip snaps it shut")
 	_finish_map_move(main)
 	_press(main, "map")
@@ -653,9 +693,9 @@ func test_a_floor_counts_what_you_did_for_the_challenges() -> void:
 		main._collect_sigils()
 	main._pay_chest({"kind": "shards", "shards": 5})
 	main._close_call("CLOSE CALL")
-	main._close_call("PHASE DODGE")
 	Engine.time_scale = 1.0
 	main._on_flipped(NIGHTMARE, true)
+	main._on_flipped(WAKE, true)
 	main._enter_cell(main.circles.cells[0])
 	main._lose_game("trap")
 	var counts: Dictionary = main.floor_stats
@@ -663,10 +703,10 @@ func test_a_floor_counts_what_you_did_for_the_challenges() -> void:
 	assert_eq(counts.get("sigils"), main.layout.sigils.size())
 	assert_eq(counts.get("chests"), 1)
 	assert_eq(counts.get("close_calls"), 1)
-	assert_eq(counts.get("phase_dodges"), 1)
-	assert_eq(counts.get("devil_escapes"), 2, "the bestiary's 'you got away'")
-	assert_eq(counts.get("flips"), 1)
-	assert_eq(counts.get("forced_flips"), 1)
+	assert_eq(counts.get("devil_escapes"), 1, "the bestiary's 'you got away'")
+	assert_eq(counts.get("flips"), 2)
+	assert_eq(counts.get("forced_flips"), 2)
+	assert_eq(counts.get("nightmares"), 1, "a Flipping Time ridden out")
 	assert_eq(counts.get("circles"), 1)
 	assert_eq(counts.get("deaths"), 1)
 	assert_eq(counts.get("deaths_trap"), 1)
@@ -839,18 +879,14 @@ func test_the_status_plate_speaks_in_icons_and_numbers() -> void:
 	assert_eq(main.floor_label.text, "3/%d" % StageRule.FLOORS_PER_ACT)
 	main._update_hud()
 	assert_eq(main.shard_label.text, str(MetaState.shards + main.floor_shards), "a number, no label")
-	assert_eq(main.flip_icon.value, 1.0, "ready: the whole flip icon")
+	assert_false(main.flip_icon.visible, "no flip button, so no flip icon until Flipping Time")
 	assert_false(main.chest_icon.visible)
-	main.flip.charges_left = 0
-	main.flip.cooldown_left = main.flip.cooldown * 0.25
-	main._update_hud()
-	assert_true(is_equal_approx(main.flip_icon.value, 0.75), "recharging: it refills clockwise")
-	main.flip.charges_left = 1
 	main.flip.forced_active = true
 	main.flip.forced_left = 7.2
 	main.exit_open = true
 	main._update_hud()
-	assert_eq(main.flip_icon.tint_progress, main.FLIP_BLOCKED, "Flipping Time holds it")
+	assert_true(main.flip_icon.visible, "Flipping Time holds you")
+	assert_eq(main.flip_icon.modulate, main.FLIP_BLOCKED, "in red")
 	assert_eq(main.flip_label.text, "8", "the seconds until the controls come back")
 	assert_true(main.chest_icon.visible, "the open chest joins the keys")
 
@@ -925,13 +961,14 @@ func _stalked_floor(steps := 4) -> Node3D:
 	return main
 
 
-func test_the_devil_no_longer_knows_where_you_are() -> void:
+func test_the_devil_always_hunts_you() -> void:
 	var main := _stalked_floor()
 	main._tick_devil(0.1)
-	assert_eq(main.brain.mode(), "patrol", "nothing seen, nothing heard")
-	assert_ne(main._devil_goal(), main.player_cell, "it follows your scent, not you")
-	main.brain.sense(true, false, 0.0)
-	assert_eq(main._devil_goal(), main.player_cell, "once it senses you, straight at you")
+	assert_eq(main.brain.mode(), "patrol", "nothing seen, nothing heard: it prowls")
+	assert_eq(main._devil_goal(), main.player_cell, "but straight for you, never off somewhere else")
+	var start: int = main._devil_distance()
+	main._step_devil()
+	assert_eq(main._devil_distance(), start - 1, "every step closes in")
 
 
 func test_a_sprint_is_heard_down_the_corridors_unless_soft_soles() -> void:
@@ -972,21 +1009,20 @@ func test_a_chase_only_runs_flat_out_at_the_peak() -> void:
 	assert_true(main._devil_step_interval() < calm, "at the peak it runs")
 
 
-func test_relief_pulls_it_back_and_a_build_hint_points_near_you() -> void:
+func test_relief_slows_it_without_turning_it_away_and_a_build_hint_quickens_it() -> void:
 	var main := _stalked_floor()
 	main.director.phase = Director.Phase.PEAK
 	main.director.menace = 100.0
 	main.director._clock = Director.PEAK_LIMIT
 	main._tick_devil(0.1)
 	assert_eq(main.director.phase, Director.Phase.RELAX)
-	assert_true(main.devil_retreating, "the peak is over: it backs off")
+	assert_false(main.devil_retreating, "the peak is over: it slows down, it doesn't walk away")
+	assert_eq(main._devil_goal(), main.player_cell)
 	var built := _stalked_floor()
 	built.director._clock = Director.CALM_LIMIT
 	built._tick_devil(0.1)
 	assert_eq(built.director.phase, Director.Phase.BUILD)
-	assert_eq(built.brain.mode(), "investigate", "a fuzzy hint")
-	var gap: int = built.player_dist[built.brain.interest.y * built.layout.size + built.brain.interest.x]
-	assert_true(gap >= 0 and gap <= Director.HINT_RADIUS, "within %d cells of you: %d" % [Director.HINT_RADIUS, gap])
+	assert_eq(built.brain.mode(), "chase", "a hint: it catches your scent and picks up the pace")
 
 
 func test_your_beam_gives_you_away_unless_lantern_heart() -> void:
@@ -1063,6 +1099,23 @@ func _finish_map_move(main: Node3D) -> void:
 
 func _ground_speed(main: Node3D) -> float:
 	return Vector2(main.player.velocity.x, main.player.velocity.z).length()
+
+
+func test_while_it_hunts_its_eyes_and_its_distance_ride_in_the_corner() -> void:
+	var main := _spawn_floor()
+	main._apply_world(NIGHTMARE)
+	var corner: Control = main.get_node("HUD/DevilCorner")
+	main._process(0.1)
+	assert_false(corner.visible, "nothing hunts yet: no camera")
+	main._wake_devil()
+	main.devil_cell = _cell_at_distance(main, 4)
+	main.devil.position = main._devil_world_position()
+	main._process(0.1)
+	assert_true(corner.visible, "it hunts: a live Devil Cam in the corner")
+	var eye := (main.live_cam.get_child(0) as SubViewport).get_child(0) as Camera3D
+	var eyes: Vector3 = main.devil.global_position + Vector3(0, main.DEVIL_EYE - main.DEVIL_Y, 0)
+	assert_true(eye.global_position.is_equal_approx(eyes), "out of its eyes, where it stands now")
+	assert_eq(main.devil_meter.text, "%d m" % roundi(main._devil_distance() * main.CELL_SIZE), "how far along the corridors")
 
 
 func test_the_devil_cam_replays_the_catch_from_its_eyes() -> void:

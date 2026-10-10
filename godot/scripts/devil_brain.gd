@@ -1,8 +1,8 @@
 class_name DevilBrain
 extends RefCounted
 ## The Devil's mind (plans/05 §3.4), pure grid logic. main.gd feeds it cells and senses and moves
-## the body. It is no longer omniscient: it follows your scent trail (newest visit wins, so it
-## even walks your dead-end detours), and only cuts straight to you while it sees or hears you.
+## the body. It always hunts you down the shortest path (user, 9 Oct 2026: never off somewhere else); what it
+## senses only sets its pace, and an Echo Step echo is the one thing that draws it aside.
 
 ## Speed multiplier per world [WAKE, NIGHTMARE]: it hunts in both, slower while you are awake.
 const WORLD_SPEED: Array[float] = [0.6, 1.15]
@@ -27,50 +27,42 @@ const NOISE_CRACK := 8
 ## Its top speed (m/s) for what it's doing, unless it's chasing at the Director's peak (then speed() alone rules).
 const CALM_SPEEDS := {"patrol": 2.2, "investigate": 3.0, "chase": 3.0}
 const NOWHERE := Vector2i(-1, -1)
-## Seconds it keeps hunting you directly after it last saw or heard you.
+## Seconds it keeps chasing at full pace after it last saw or heard you.
 const SENSE_MEMORY := 8.0
 ## Fraction of the floor route you must cover before it can wake.
 const SPAWN_PROGRESS := 0.3
 
-## Cells you entered, oldest first (only cells that exist in NIGHTMARE).
+## Cells you entered, oldest first: where it may wake (pick_spawn), always behind you.
 var trail: Array[Vector2i] = []
-## The Devil follows the trail only up to here. Frozen while you are in WAKE: it waits where you vanished.
-var trail_limit := 0
-## Index of the trail cell it is walking to.
-var trail_pos := 0
 var sense_left := 0.0
-## A noise it heard or a hint the Director gave: it walks there unless it senses you.
+## An echo it heard (Echo Step): it walks there instead of at you, until it gets there or senses you.
 var interest := NOWHERE
-var _newest := {}
 
 
-func record(cell: Vector2i, following: bool) -> void:
+func record(cell: Vector2i) -> void:
 	trail.append(cell)
-	_newest[cell] = trail.size() - 1
-	if following:
-		trail_limit = trail.size()
 
 
-## Where to walk next turn: you while it senses you, else its interest (a noise, a hint), else your scent.
+## Where to walk next turn: you, unless an echo draws it aside.
 func target(devil_cell: Vector2i, player_cell: Vector2i) -> Vector2i:
-	if _newest.has(devil_cell):
-		trail_pos = maxi(trail_pos, _newest[devil_cell] + 1)
-	if sense_left > 0.0:
-		return player_cell
 	if interest == devil_cell:
 		interest = NOWHERE  # nothing there
-	if interest != NOWHERE:
-		return interest
-	if trail_pos >= trail_limit:
-		return devil_cell
-	return trail[trail_pos]
+	return player_cell if interest == NOWHERE else interest
 
 
 func investigate(cell: Vector2i) -> void:
 	interest = cell
 
 
-## "chase" (it senses you), "investigate" (a noise or a hint) or "patrol" (your scent).
+## Back to the first `size` cells of the trail (a revive or Last Breath puts you back at a circle): it forgets where you
+## went after, and that it sensed you, so it can't wake ahead of you on the way you're about to walk again.
+func rewind(size: int) -> void:
+	trail.resize(clampi(size, 0, trail.size()))
+	sense_left = 0.0
+	interest = NOWHERE
+
+
+## "chase" (it senses you), "investigate" (an echo) or "patrol" (neither: it still comes for you, at a prowl).
 func mode() -> String:
 	if sense_left > 0.0:
 		return "chase"
@@ -78,7 +70,11 @@ func mode() -> String:
 
 
 func sense(sees: bool, hears: bool, delta: float) -> void:
-	sense_left = SENSE_MEMORY if sees or hears else maxf(sense_left - delta, 0.0)
+	if sees or hears:
+		sense_left = SENSE_MEMORY
+		interest = NOWHERE  # it has you: the echo is forgotten
+	else:
+		sense_left = maxf(sense_left - delta, 0.0)
 
 
 static func can_spawn(elapsed: float, delay: float, progress: float, in_circle: bool) -> bool:
@@ -91,7 +87,6 @@ func pick_spawn(dist: PackedInt32Array, size: int, min_dist: int, visible: Calla
 	for i in range(trail.size() - 1, -1, -1):
 		var cell := trail[i]
 		if dist[cell.y * size + cell.x] >= min_dist and not visible.call(cell):
-			trail_pos = i + 1
 			return cell
 	return Vector2i(-1, -1)
 

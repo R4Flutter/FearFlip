@@ -33,6 +33,10 @@ static var run_cards: Array[String] = []
 ## Choices owed before the next floor plays, oldest first: "curse", "omen", "door" or "gate". Saved, so
 ## quitting at a picker offers the same choice again on relaunch.
 static var picks: Array[String] = []
+## The start kit (plans/09): the curse and omens a run of `kit_act` opened with. A retry of that act (main.gd
+## _restart_game) plays them again instead of offering the picks; a run started from the menu offers them anew.
+static var kit: Array[String] = []
+static var kit_act := 0
 ## This act's record for its stars (reset by start_run and descend): revives used, the grade points and count
 ## of its floors cleared, and whether you sprinted on any of them.
 static var act_revives := 0
@@ -89,6 +93,11 @@ static func load_save() -> void:
 		act_floors = cfg.get_value("run", "act_floors", 0)
 		act_sprinted = cfg.get_value("run", "act_sprinted", false)
 		rank = cfg.get_value("run", "rank", 0)
+		kit.assign(cfg.get_value("run", "kit", []))
+		kit_act = cfg.get_value("run", "kit_act", 0)
+	# No floor past the Gate of the last act opened was ever reached (a profile reset or a test save left it behind).
+	if not MetaState.abyss_open():
+		best_floor = mini(best_floor, StageRule.act_start(MetaState.acts_unlocked) + StageRule.GATE_FLOOR - 1)
 	if run_seed == 0 or not MetaState.is_act_unlocked(act()):
 		start_run(1, false)
 
@@ -116,6 +125,8 @@ static func save() -> void:
 	cfg.set_value("run", "act_floors", act_floors)
 	cfg.set_value("run", "act_sprinted", act_sprinted)
 	cfg.set_value("run", "rank", rank)
+	cfg.set_value("run", "kit", kit)
+	cfg.set_value("run", "kit_act", kit_act)
 	cfg.save(save_path)
 	Portal.push(save_path)
 
@@ -124,7 +135,8 @@ static func save() -> void:
 ## holds: new maze, full revives. Locked acts refuse. Once Act 1 is cleared it opens on a curse offer, and a later
 ## act's start owes one omen pick per act skipped (the shortcut start kit) plus one per Altar omen slot. `played` =
 ## false for the run a fresh profile is handed at load: nobody's run yet, so the playtest log doesn't count it.
-static func start_run(act_number: int, played := true) -> bool:
+## `retry` = straight back into the same act (death screen, R R): it plays that act's kit again, no picks.
+static func start_run(act_number: int, played := true, retry := false) -> bool:
 	if not MetaState.is_act_unlocked(act_number):
 		return false
 	run_seed = randi() | 1
@@ -141,14 +153,18 @@ static func start_run(act_number: int, played := true) -> bool:
 	run_cards.clear()
 	picks.clear()
 	_new_act()
-	if MetaState.acts_unlocked > 1:
-		picks.append("curse")
-	for _i in act_number - 1 + MetaState.slots():
-		picks.append("omen")
+	if retry and kit_act == act_number:
+		run_cards.assign(kit)
+	else:
+		kit_act = 0  # picked anew; take() keeps the kit once the last start pick is in
+		if MetaState.acts_unlocked > 1:
+			picks.append("curse")
+		for _i in act_number - 1 + MetaState.slots():
+			picks.append("omen")
 	_deal()
 	save()
 	if played:
-		log_event("run", {"act": act_number, "mode": mode})
+		log_event("run", {"act": act_number, "mode": mode, "kit": run_cards.duplicate()})
 	return true
 
 
@@ -396,6 +412,9 @@ static func take(id: String) -> void:
 			if id != "" and id != "no_curse":
 				run_cards.append(id)
 				_deal()  # a curse keeps its twin rule card off the floors
+			if picks.is_empty() and current_floor == start_floor:
+				kit = run_cards.duplicate()  # the start kit is in: a retry of this act plays it again
+				kit_act = act()
 	save()
 
 
@@ -429,4 +448,5 @@ static func use_revive() -> bool:
 	act_revives += 1
 	run_over = false
 	save()
+	log_event("revive", {"floor": current_floor, "left": revives_left()})  # the run_end logged at the death didn't stick
 	return true

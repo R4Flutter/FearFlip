@@ -6,7 +6,7 @@ extends RefCounted
 
 ## What pays, in Fear Shards (plans/06 D1). A floor has 2 keys, so a key pays 4 (the plan's 3 keys x 3).
 const SIGIL_SHARDS := 4
-## A Close Call or a Phase Dodge (C2).
+## A Close Call (C2).
 const CLOSE_CALL_SHARDS := 3
 ## A floor clear pays FLOOR_CLEAR_SHARDS + FLOOR_STEP_SHARDS x its number in the act, plus its grade's bonus.
 const FLOOR_CLEAR_SHARDS := 10

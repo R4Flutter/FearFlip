@@ -24,6 +24,7 @@ glossy, chunky, cracked iron and stone, glowing seams.
 | `icon_floor.png` | before the floor count `3/10` (the depth in the Abyss) | maze tile |
 | `icon_chest.png` (optional) | after the keys once all are found | gold treasure chest |
 | `icon_shards.png` (optional) | before the shard count | purple gem |
+| `icon_devil.png` (optional) | top left, under the live Devil Cam, before its distance `10 m` (tinted amber, then red, as it closes in) | the menu's demon |
 
 **icon_wake.png** and **icon_nightmare.png** are a pair. Keep the same frame at the same size and position, so a flip
 reads as the eye itself changing.
@@ -61,6 +62,12 @@ reads as the eye itself changing.
 > Game UI icon of a single jagged violet soul-crystal shard with a glowing lilac core, a wisp of violet smoke trailing
 > from its tip, sharp facets with white highlights, dark fantasy horror mobile game icon, chunky bold silhouette, thick
 > dark outline, centred, isolated on a transparent background, no text, no letters, no watermark.
+
+**icon_devil.png** (optional; keep it light and greyish: the game tints it amber, then blood red, as the Devil nears)
+> Game UI icon of a horned demon's head seen from the front, long curved horns, hollow glowing eyes, a thin grin of
+> sharp teeth, pale ash-grey skin with bone-white highlights, dark fantasy horror mobile game icon, chunky bold
+> silhouette, thick dark outline, glossy painted highlights, centred, isolated on a transparent background, no text, no
+> letters, no watermark.
 
 The plate itself (`hud_plate.png`) stays. It is now drawn at its own 720x400 shape, so the thorned corners no longer
 stretch.

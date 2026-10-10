@@ -1,7 +1,7 @@
 extends Control
-## Full maze of the current world, north-up, player arrow + view cone, sigils, exit, landmarks. In game it is the
-## paper map's sheet (paper = true: ink, no panel, no readout, never the Devil); the screen mode (a Devil marker that
-## pulses faster as it closes in, a danger readout) is the old corner map, kept for a tutorial floor.
+## Full maze of the current world, north-up, player arrow + view cone, sigils, exit, landmarks, and the Devil (a marker
+## that pulses faster as it closes in). In game it is the paper map's sheet (paper = true: ink, no panel, no readout);
+## the screen mode (with a danger readout) is the old corner map, kept for a tutorial floor.
 ## main.gd pushes state every frame while the map is up (positions are in grid cells, floats).
 
 const MAP_SIZE := 240.0
@@ -148,9 +148,9 @@ func shows_hidden_crack(trap_cell: Vector2i) -> bool:
 	return crack_reveal > 0 and absf(trap_cell.x - player_pos.x) + absf(trap_cell.y - player_pos.y) <= crack_reveal
 
 
-## The paper map never shows the Devil: you read the maze, it hunts you in the real one.
+## Once it's awake the map shows where it hunts you, paper too (user, 9 Oct 2026).
 func shows_devil() -> bool:
-	return devil_awake and not paper
+	return devil_awake
 
 
 func _draw_player(at: Vector2, cell: float) -> void:
