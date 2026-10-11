@@ -20,9 +20,9 @@ const NIGHTMARE_CHANGE := 0.0
 const MIN_DEVIL_DISTANCE := 10
 ## Chests down dead ends (plans/06 B3) sit about this many path tiles off the route: a real detour.
 const DETOUR_TILES := 6
-## Share of the perfect maze's dead ends knocked through into a loop once the exit is chosen (user, 10 Oct 2026): more
-## junctions to choose at and a way round the Devil, on the same maze size. 0 = the 2D perfect maze.
-const BRAID := 0.12
+## Share of the perfect maze's dead ends knocked through into a loop once the exit is chosen. 0 = the 2D perfect maze:
+## long winding routes, which the user wants back (11 Oct 2026; 0.12 from 10 Oct made routes shorter, "simpler").
+const BRAID := 0.0
 
 var seed_value: int
 var size: int

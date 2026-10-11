@@ -55,8 +55,8 @@ func test_nightmare_keeps_the_same_maze() -> void:
 		assert_eq(layout.walls[NIGHTMARE], layout.walls[WAKE], "seed %d" % seed_value)
 
 
-## The 2D perfect maze, then FloorLayout.BRAID of its dead ends knocked through into loops: about two a full-size floor.
-func test_wake_is_a_braided_maze() -> void:
+## The 2D perfect maze (FloorLayout.BRAID 0, user 11 Oct 2026: long routes, no loops).
+func test_wake_is_a_perfect_maze() -> void:
 	var rooms := StageRule.ROOMS_3D.x
 	var loops := 0
 	for seed_value in 50:
@@ -69,7 +69,7 @@ func test_wake_is_a_braided_maze() -> void:
 		# A perfect maze has exactly rooms^2 room cells + (rooms^2 - 1) connectors; every loop opens one more.
 		assert_true(open >= rooms * rooms * 2 - 1, "seed %d lost a corridor" % seed_value)
 		loops += open - (rooms * rooms * 2 - 1)
-	assert_true(loops >= 40 and loops <= 200, "%d loops over 50 floors" % loops)
+	assert_eq(loops, 0, "%d loops over 50 floors" % loops)
 
 
 func test_spawn_and_exit_identical_in_both_worlds() -> void:
