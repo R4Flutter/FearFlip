@@ -1291,10 +1291,12 @@ func _enter_cell(cell: Vector2i) -> void:
 	last_player_cell = player_cell
 	player_cell = cell
 	player_dist = layout.distances(world, player_cell)
+	# Every step counts, walked before or not: after a revive (or a backtrack) every cell is old, and only counting new
+	# ones left it standing at its retreat spot for good.
+	steps_since_retreat += 1
 	if not visited.has(cell):
 		visited[cell] = true
 		circles.on_new_cell()
-		steps_since_retreat += 1
 	brain.record(cell)
 	if bonus_chests.has(cell):
 		_open_detour_chest(cell)

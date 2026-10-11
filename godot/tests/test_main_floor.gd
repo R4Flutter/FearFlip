@@ -150,6 +150,24 @@ func test_safe_circle_blocks_catch_and_revive_returns_there() -> void:
 	RunState.revives_used = 0
 
 
+## After a revive you walk cells you already walked: they still count, so a retreat ends and it hunts again.
+func test_retreat_ends_on_cells_already_walked() -> void:
+	var main := _spawn_floor()
+	var circle: Vector2i = main.circles.cells[0]
+	var at: int = main.route.find(circle)
+	var back: Array = main.route.slice(maxi(at - 12, 0), at)
+	for cell: Vector2i in back:
+		main._enter_cell(cell)  # walked once: all visited
+	main._wake_devil()
+	main._enter_cell(circle)
+	assert_true(main.devil_retreating)
+	back.reverse()
+	for cell: Vector2i in back:
+		main._enter_cell(cell)
+		main._step_devil()
+	assert_false(main.devil_retreating, "it comes back for you on old ground too")
+
+
 ## A revive forgets the cells walked after the circle, so the Devil wakes behind you, never on the way ahead.
 func test_revive_rewinds_the_scent() -> void:
 	var main := _spawn_floor()
