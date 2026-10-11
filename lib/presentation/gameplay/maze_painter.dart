@@ -6,7 +6,31 @@ import 'package:flutter/material.dart';
 import '../../game/trap/trap_fx_renderer.dart';
 import '../../game/trap/trap_tile.dart';
 import '../../domain/entities/direction4.dart';
+import 'maze_camera.dart';
 import 'maze_generator.dart';
+
+/// Stand-in colours until the tileset art lands (2D-gameplay-assets.md, Night 32):
+/// cold stone in WAKE, blood and bone in NIGHTMARE, no green or pink.
+class _World {
+  const _World(this.floor, this.wallTop, this.wallFace);
+
+  final Color floor;
+  final Color wallTop;
+  final Color wallFace;
+}
+
+const _wake = _World(Color(0xFF3B4660), Color(0xFFA3AEC4), Color(0xFF55627E));
+const _nightmare = _World(
+  Color(0xFF4D0E15),
+  Color(0xFFD8C3A0),
+  Color(0xFF8A6B50),
+);
+const _void = Color(0xFF0A0A0F);
+const _amber = Color(0xFFF2B544);
+const _candle = Color(0xFFFFE08A);
+const _gold = Color(0xFFFFC83D);
+const _spirit = Color(0xFF9CC8F0);
+const _danger = Color(0xFFE03A32);
 
 class MazePainter extends CustomPainter {
   MazePainter({
@@ -51,83 +75,45 @@ class MazePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final pathColor = isFlippedMode
-        ? const Color(0xFFFFFFFF)
-        : const Color(0xFF0D0D0D);
-    final wallColor = isFlippedMode
-        ? const Color(0xFF000000)
-        : const Color(0xFFFFFFFF);
+    canvas.drawRect(Offset.zero & size, Paint()..color = _void);
 
-    canvas.drawRect(Offset.zero & size, Paint()..color = pathColor);
-
-    final cellSize = min(size.width / maze.cols, size.height / maze.rows);
-    final mazeWidth = cellSize * maze.cols;
-    final mazeHeight = cellSize * maze.rows;
-    final origin = Offset(
-      (size.width - mazeWidth) * 0.5,
-      (size.height - mazeHeight) * 0.5,
+    final camera = MazeCamera.follow(
+      viewport: size,
+      maze: maze,
+      focus: playerCellPosition,
     );
-
-    final wallPaint = Paint()
-      ..color = wallColor
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.square
-      ..isAntiAlias = false;
-
-    for (var row = 0; row < maze.rows; row++) {
-      for (var col = 0; col < maze.cols; col++) {
-        final cell = maze.cells[row][col];
-        final x = origin.dx + col * cellSize;
-        final y = origin.dy + row * cellSize;
-        final leftTop = Offset(x, y);
-        final rightTop = Offset(x + cellSize, y);
-        final leftBottom = Offset(x, y + cellSize);
-        final rightBottom = Offset(x + cellSize, y + cellSize);
-
-        if (cell.top) {
-          canvas.drawLine(leftTop, rightTop, wallPaint);
-        }
-        if (cell.left) {
-          canvas.drawLine(leftTop, leftBottom, wallPaint);
-        }
-        if (row == maze.rows - 1 && cell.bottom) {
-          canvas.drawLine(leftBottom, rightBottom, wallPaint);
-        }
-        if (col == maze.cols - 1 && cell.right) {
-          canvas.drawLine(rightTop, rightBottom, wallPaint);
-        }
-      }
-    }
+    final cellSize = camera.tileSize;
+    _paintTiles(canvas, size, camera);
 
     // ── Trap tiles (rendered between walls and entities) ──
     if (trapTiles.isNotEmpty) {
       const trapRenderer = TrapFxRenderer();
       trapRenderer.renderTiles(
         canvas,
-        origin: origin,
+        origin: camera.cellOrigin,
         cellSize: cellSize,
+        cellStride: cellSize * 2,
         tiles: trapTiles,
-        isFlippedMode: isFlippedMode,
+        // Both worlds have dark floors now, so the dark-floor look fits both.
+        isFlippedMode: false,
         hiddenCueLevel: trapHiddenCueLevel,
         revealedTileTexture: breakingTrapTexture,
       );
     }
 
-    final startCenter = _cellCenter(origin, cellSize, maze.start);
-    final startGlow = Paint()
-      ..color = const Color(0xAA00FFAA)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
-    final startCore = Paint()..color = const Color(0xFF00FFAA);
-    final startRadius = cellSize * (0.14 + pulse * 0.04);
-    canvas.drawCircle(startCenter, cellSize * 0.22 + pulse * 2.5, startGlow);
-    canvas.drawCircle(startCenter, startRadius, startCore);
+    final startCenter = camera.cellCenter(_offsetOf(maze.start));
+    final startRing = Paint()
+      ..color = _amber.withValues(alpha: 0.75)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(1.5, cellSize * 0.07);
+    canvas.drawCircle(startCenter, cellSize * (0.3 + pulse * 0.04), startRing);
 
     final portal = exitPortalSprite;
     if (portal != null) {
-      final endCenter = _cellCenter(origin, cellSize, maze.end);
+      final endCenter = camera.cellCenter(_offsetOf(maze.end));
       final gateSide = cellSize * (0.92 + sin(time * 2.4) * 0.05);
       final gateGlow = Paint()
-        ..color = const Color(0x88FFD700)
+        ..color = _gold.withValues(alpha: 0.55)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9);
       canvas.drawCircle(endCenter, gateSide * 0.55, gateGlow);
       final cropSide = min(portal.width, portal.height).toDouble();
@@ -148,15 +134,11 @@ class MazePainter extends CustomPainter {
         Paint()..filterQuality = FilterQuality.medium,
       );
     } else {
-      final endTileRect = _cellRect(
-        origin,
-        cellSize,
-        maze.end,
-      ).deflate(cellSize * 0.14);
+      final endTileRect = camera.cellRect(maze.end).deflate(cellSize * 0.14);
       final endGlow = Paint()
-        ..color = const Color(0xAAFFD700)
+        ..color = _gold.withValues(alpha: 0.65)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9);
-      final endCore = Paint()..color = const Color(0xFFFFD700);
+      final endCore = Paint()..color = _gold;
       final endBorder = Paint()
         ..color = const Color(0xFF7A5A00)
         ..style = PaintingStyle.stroke
@@ -168,23 +150,15 @@ class MazePainter extends CustomPainter {
 
     if (safeZones.isNotEmpty) {
       for (final entry in safeZones.entries) {
-        final zoneRect = _cellRect(
-          origin,
-          cellSize,
-          entry.key,
-        ).deflate(cellSize * 0.14);
+        final zoneRect = camera.cellRect(entry.key).deflate(cellSize * 0.14);
         final strength = entry.value.clamp(0.0, 1.0);
         final glow = Paint()
-          ..color = const Color(
-            0x9900FF9D,
-          ).withValues(alpha: 0.2 + strength * 0.45)
+          ..color = _spirit.withValues(alpha: 0.2 + strength * 0.45)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
         final core = Paint()
-          ..color = const Color(
-            0xFF00FF9D,
-          ).withValues(alpha: 0.30 + strength * 0.70);
+          ..color = _spirit.withValues(alpha: 0.15 + strength * 0.35);
         final border = Paint()
-          ..color = const Color(0xFF00A86B)
+          ..color = _spirit.withValues(alpha: 0.5 + strength * 0.5)
           ..style = PaintingStyle.stroke
           ..strokeWidth = max(1.6, cellSize * 0.06);
         canvas.drawRect(zoneRect.inflate(cellSize * 0.06), glow);
@@ -193,22 +167,18 @@ class MazePainter extends CustomPainter {
       }
     }
 
-    final playerCenter = _cellCenterFromPosition(
-      origin,
-      cellSize,
-      playerCellPosition,
-    );
+    final playerCenter = camera.cellCenter(playerCellPosition);
     final breath = isMoving ? 0.0 : sin(time * 2.2) * 0.03;
-    final playerSide = cellSize * 0.78 * (1 + breath);
+    final playerSide = cellSize * 0.9 * (1 + breath);
 
     if (!hidePlayer) {
       if (playerFrames != null && playerFrames!.isNotEmpty) {
         _drawSpriteCharacter(canvas, playerCenter, playerSide);
       } else {
         final playerGlow = Paint()
-          ..color = const Color(0x8800FFAA)
+          ..color = _amber.withValues(alpha: 0.55)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-        final playerCore = Paint()..color = const Color(0xFF00FFAA);
+        final playerCore = Paint()..color = _candle;
         canvas.drawCircle(playerCenter, playerSide * 0.35, playerGlow);
         canvas.drawCircle(playerCenter, playerSide * 0.28, playerCore);
       }
@@ -217,18 +187,16 @@ class MazePainter extends CustomPainter {
         final ring = Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2.4
-          ..color = const Color(0xFF00FF9D);
+          ..color = _spirit;
         canvas.drawCircle(playerCenter, playerSide * 0.42, ring);
       }
     }
 
     final devil = devilCell;
     if (devil != null) {
-      final devilCenter = _cellCenter(
-        origin,
-        cellSize,
-        devil,
-      ).translate(0, sin(time * 3.4) * cellSize * 0.07);
+      final devilCenter = camera
+          .cellCenter(_offsetOf(devil))
+          .translate(0, sin(time * 3.4) * cellSize * 0.07);
       final frames = devilFrames;
       if (frames != null && frames.isNotEmpty) {
         final devilFrame = (time * 9).floor() % frames.length;
@@ -236,17 +204,59 @@ class MazePainter extends CustomPainter {
           canvas: canvas,
           image: frames[devilFrame],
           center: devilCenter,
-          side: cellSize * 0.82,
+          side: cellSize * 0.95,
           facing: playerCellPosition.dx < devil.x
               ? Direction4.left
               : Direction4.right,
         );
       } else {
-        final silhouette = Paint()..color = const Color(0xFF1B1B1B);
-        canvas.drawCircle(devilCenter, cellSize * 0.24, silhouette);
+        // Stand-in until the devil sheets land: a shadow with burning eyes.
+        canvas.drawCircle(
+          devilCenter,
+          cellSize * 0.42,
+          Paint()
+            ..color = _danger.withValues(alpha: 0.35)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        );
+        canvas.drawCircle(devilCenter, cellSize * 0.32, Paint()..color = _void);
+        final eye = Paint()..color = _danger;
+        final eyeY = devilCenter.dy - cellSize * 0.05;
+        canvas.drawCircle(
+          Offset(devilCenter.dx - cellSize * 0.1, eyeY),
+          cellSize * 0.05,
+          eye,
+        );
+        canvas.drawCircle(
+          Offset(devilCenter.dx + cellSize * 0.1, eyeY),
+          cellSize * 0.05,
+          eye,
+        );
       }
     }
+
+    // The camera hides most of the maze, so point at what matters off screen:
+    // the exit always, the Devil once it's close enough to be a threat.
+    _drawPointer(
+      canvas,
+      size,
+      camera.cellCenter(_offsetOf(maze.end)),
+      _gold,
+      cellSize,
+    );
+    if (devil != null &&
+        (_offsetOf(devil) - playerCellPosition).distance <= _devilWarnCells) {
+      _drawPointer(
+        canvas,
+        size,
+        camera.cellCenter(_offsetOf(devil)),
+        _danger,
+        cellSize,
+      );
+    }
   }
+
+  /// How near (in cells) the Devil must be before its off-screen arrow shows.
+  static const double _devilWarnCells = 8;
 
   void _drawSpriteCharacter(Canvas canvas, Offset center, double side) {
     final frames = playerFrames!;
@@ -297,28 +307,104 @@ class MazePainter extends CustomPainter {
     canvas.restore();
   }
 
-  Offset _cellCenter(Offset origin, double cellSize, Point<int> cell) {
-    return Offset(
-      origin.dx + (cell.x + 0.5) * cellSize,
-      origin.dy + (cell.y + 0.5) * cellSize,
+  /// Floor and wall tiles in view. Walls are whole tiles, raised like the
+  /// reference art: a light top, and a darker front face wherever floor lies
+  /// below, which casts a short shadow onto that floor.
+  void _paintTiles(Canvas canvas, Size size, MazeCamera camera) {
+    final world = isFlippedMode ? _nightmare : _wake;
+    final tile = camera.tileSize;
+    // No anti-aliasing: neighbouring tiles share exact edges, so no seams.
+    final floor = Paint()
+      ..color = world.floor
+      ..isAntiAlias = false;
+    final top = Paint()
+      ..color = world.wallTop
+      ..isAntiAlias = false;
+    final face = Paint()
+      ..color = world.wallFace
+      ..isAntiAlias = false;
+    final shadow = Paint()
+      ..color = const Color(0x55000000)
+      ..isAntiAlias = false;
+
+    final firstCol = max(0, (-camera.origin.dx / tile).floor());
+    final firstRow = max(0, (-camera.origin.dy / tile).floor());
+    final lastCol = min(
+      2 * maze.cols,
+      ((size.width - camera.origin.dx) / tile).ceil(),
     );
+    final lastRow = min(
+      2 * maze.rows,
+      ((size.height - camera.origin.dy) / tile).ceil(),
+    );
+
+    for (var row = firstRow; row <= lastRow; row++) {
+      for (var col = firstCol; col <= lastCol; col++) {
+        final rect = camera.tileRect(col, row);
+        if (!isWallTile(maze, col, row)) {
+          canvas.drawRect(rect, floor);
+          if (isWallTile(maze, col, row - 1)) {
+            canvas.drawRect(
+              Rect.fromLTWH(rect.left, rect.top, rect.width, tile * 0.18),
+              shadow,
+            );
+          }
+          continue;
+        }
+        canvas.drawRect(rect, top);
+        if (!isWallTile(maze, col, row + 1)) {
+          canvas.drawRect(
+            Rect.fromLTWH(
+              rect.left,
+              rect.bottom - tile * 0.38,
+              rect.width,
+              tile * 0.38,
+            ),
+            face,
+          );
+        }
+      }
+    }
   }
 
-  Rect _cellRect(Offset origin, double cellSize, Point<int> cell) {
-    return Rect.fromLTWH(
-      origin.dx + cell.x * cellSize,
-      origin.dy + cell.y * cellSize,
-      cellSize,
-      cellSize,
+  /// A triangle at the edge of the view pointing at [target], when off screen.
+  void _drawPointer(
+    Canvas canvas,
+    Size size,
+    Offset target,
+    Color color,
+    double tile,
+  ) {
+    final at = MazeCamera.offscreenPointer(size, target, tile * 0.55);
+    if (at == null) {
+      return;
+    }
+    final direction = target - at;
+    final r = tile * 0.32;
+    final arrow = Path()
+      ..moveTo(r, 0)
+      ..lineTo(-r * 0.7, r * 0.75)
+      ..lineTo(-r * 0.7, -r * 0.75)
+      ..close();
+    canvas.save();
+    canvas.translate(at.dx, at.dy);
+    canvas.rotate(atan2(direction.dy, direction.dx));
+    canvas.drawPath(
+      arrow,
+      Paint()
+        ..color = _void.withValues(alpha: 0.75)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
     );
+    canvas.drawPath(
+      arrow,
+      Paint()..color = color.withValues(alpha: 0.65 + 0.3 * pulse),
+    );
+    canvas.restore();
   }
 
-  Offset _cellCenterFromPosition(Offset origin, double cellSize, Offset pos) {
-    return Offset(
-      origin.dx + (pos.dx + 0.5) * cellSize,
-      origin.dy + (pos.dy + 0.5) * cellSize,
-    );
-  }
+  Offset _offsetOf(Point<int> cell) =>
+      Offset(cell.x.toDouble(), cell.y.toDouble());
 
   @override
   bool shouldRepaint(covariant MazePainter oldDelegate) {

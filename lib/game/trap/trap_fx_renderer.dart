@@ -16,8 +16,10 @@ class TrapFxRenderer {
 
   /// Render all trap tiles into [canvas].
   ///
-  /// * [origin] — top-left pixel offset of the maze grid.
-  /// * [cellSize] — side length of one maze cell in pixels.
+  /// * [origin] — top-left pixel offset of cell (0, 0).
+  /// * [cellSize] — side length of one drawn trap tile in pixels.
+  /// * [cellStride] — distance between neighbouring cells; defaults to
+  ///   [cellSize] (cells touching). The block-maze camera passes 2 tiles.
   /// * [tiles] — current trap-tile list from [TrapStateController].
   /// * [isFlippedMode] — `true` when controls are inverted (white path).
   /// * [hiddenCueLevel] — 0.0 to 1.0, fades hidden-tile dust particles.
@@ -25,19 +27,27 @@ class TrapFxRenderer {
     Canvas canvas, {
     required Offset origin,
     required double cellSize,
+    double? cellStride,
     required List<TrapTile> tiles,
     required bool isFlippedMode,
     double hiddenCueLevel = 1.0,
     Image? revealedTileTexture,
   }) {
+    final stride = cellStride ?? cellSize;
     for (final tile in tiles) {
-      final rect = _cellRect(origin, cellSize, tile.cell);
+      final rect = Rect.fromLTWH(
+        origin.dx + tile.cell.x * stride,
+        origin.dy + tile.cell.y * stride,
+        cellSize,
+        cellSize,
+      );
       switch (tile.state) {
         case TrapState.hidden:
           if (hiddenCueLevel > 0.01) {
             _drawHiddenSuspicion(
               canvas,
               rect,
+              tile.crackSeed,
               tile.particlePhase,
               hiddenCueLevel,
               isFlippedMode,
@@ -61,7 +71,13 @@ class TrapFxRenderer {
             isFlippedMode,
             widened: false,
           );
-          _drawCrackDust(canvas, rect, tile.particlePhase, isFlippedMode);
+          _drawCrackDust(
+            canvas,
+            rect,
+            tile.crackSeed,
+            tile.particlePhase,
+            isFlippedMode,
+          );
           break;
         case TrapState.critical:
           _drawCriticalPulse(canvas, rect, tile.pulsePhase, isFlippedMode);
@@ -81,7 +97,13 @@ class TrapFxRenderer {
             isFlippedMode,
             widened: true,
           );
-          _drawWarningDebris(canvas, rect, tile.particlePhase, isFlippedMode);
+          _drawWarningDebris(
+            canvas,
+            rect,
+            tile.crackSeed,
+            tile.particlePhase,
+            isFlippedMode,
+          );
           break;
         case TrapState.collapsed:
           _drawCollapsedVoid(
@@ -97,14 +119,17 @@ class TrapFxRenderer {
 
   // ── Hidden state: ultra-subtle dust ────────────────────────────────
 
+  // Patterns are seeded per tile, never by screen position: the camera moves
+  // the tiles every frame, and a position seed would make them jitter.
   void _drawHiddenSuspicion(
     Canvas canvas,
     Rect rect,
+    int seed,
     double phase,
     double intensity,
     bool flipped,
   ) {
-    final rng = Random(rect.left.toInt() * 31 + rect.top.toInt() * 17);
+    final rng = Random(seed * 31 + 17);
     final cueColor = flipped
         ? const Color(0xFF111111)
         : const Color(0xFFE8E8E8);
@@ -193,18 +218,23 @@ class TrapFxRenderer {
     bool flipped, {
     required bool widened,
   }) {
-    tile.cachedCrackPath ??= _buildCrackPath(tile.crackSeed, rect);
+    // Cached relative to the tile and drawn translated, so it moves with the
+    // camera instead of staying where the tile was on its first frame.
+    final local = Offset.zero & rect.size;
+    tile.cachedCrackPath ??= _buildCrackPath(tile.crackSeed, local);
     if (widened) {
       tile.cachedCrackPathWide ??= _buildCrackPath(
         tile.crackSeed,
-        rect,
+        local,
         widthScale: 1.3,
       );
     }
 
-    final path = widened
-        ? (tile.cachedCrackPathWide ?? tile.cachedCrackPath!)
-        : tile.cachedCrackPath!;
+    final path =
+        (widened
+                ? (tile.cachedCrackPathWide ?? tile.cachedCrackPath!)
+                : tile.cachedCrackPath!)
+            .shift(rect.topLeft);
 
     final color = flipped ? const Color(0xFF333333) : const Color(0xFFDDDDDD);
     final paint = Paint()
@@ -226,8 +256,14 @@ class TrapFxRenderer {
     canvas.drawPath(path, glow);
   }
 
-  void _drawCrackDust(Canvas canvas, Rect rect, double phase, bool flipped) {
-    final rng = Random(rect.left.toInt() * 53 + rect.top.toInt() * 7);
+  void _drawCrackDust(
+    Canvas canvas,
+    Rect rect,
+    int seed,
+    double phase,
+    bool flipped,
+  ) {
+    final rng = Random(seed * 53 + 7);
     final dustColor = flipped
         ? const Color(0xFF666666)
         : const Color(0xFFAAAAAA);
@@ -272,10 +308,11 @@ class TrapFxRenderer {
   void _drawWarningDebris(
     Canvas canvas,
     Rect rect,
+    int seed,
     double phase,
     bool flipped,
   ) {
-    final rng = Random(rect.left.toInt() * 97 + rect.top.toInt() * 13);
+    final rng = Random(seed * 97 + 13);
     final debrisColor = flipped
         ? const Color(0xFFFF5252)
         : const Color(0xFFFF8A80);
@@ -347,16 +384,5 @@ class TrapFxRenderer {
     }
 
     return path;
-  }
-
-  // ── geometry helpers ───────────────────────────────────────────────
-
-  Rect _cellRect(Offset origin, double cellSize, Point<int> cell) {
-    return Rect.fromLTWH(
-      origin.dx + cell.x * cellSize,
-      origin.dy + cell.y * cellSize,
-      cellSize,
-      cellSize,
-    );
   }
 }

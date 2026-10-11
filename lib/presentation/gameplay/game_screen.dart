@@ -19,6 +19,7 @@ import '../../services/audio_manager.dart';
 import '../../services/error_reporter.dart';
 import '../../services/game_audio_event.dart';
 import 'glitch_effect_controller.dart';
+import 'maze_camera.dart';
 import 'maze_generator.dart';
 import 'maze_painter.dart';
 import 'maze_shift_manager.dart';
@@ -1184,8 +1185,8 @@ class _GameScreenState extends State<GameScreen>
 
     _queueTrapLossAudio();
 
-    final metrics = _trapSurfaceMetrics();
-    if (metrics == null) {
+    final camera = _surfaceCamera();
+    if (camera == null) {
       await _finalizeTrapDeath(withCinematic: false);
       return;
     }
@@ -1197,8 +1198,10 @@ class _GameScreenState extends State<GameScreen>
     });
 
     _trapDeathSequence.start(
-      trapCenter: _cellCenterOnSurface(tile.cell, metrics),
-      cellSize: metrics.cellSize,
+      trapCenter: camera.cellCenter(
+        Offset(tile.cell.x.toDouble(), tile.cell.y.toDouble()),
+      ),
+      cellSize: camera.tileSize,
     );
   }
 
@@ -1249,7 +1252,8 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
-  _TrapSurfaceMetrics? _trapSurfaceMetrics() {
+  /// The same camera [MazePainter] draws with, so overlays line up with it.
+  MazeCamera? _surfaceCamera() {
     final context = _gameSurfaceSizeKey.currentContext;
     if (context == null) {
       return null;
@@ -1259,22 +1263,10 @@ class _GameScreenState extends State<GameScreen>
       return null;
     }
 
-    final size = renderObject.size;
-    final cellSize = min(size.width / _maze.cols, size.height / _maze.rows);
-    final mazeWidth = cellSize * _maze.cols;
-    final mazeHeight = cellSize * _maze.rows;
-    final origin = Offset(
-      (size.width - mazeWidth) * 0.5,
-      (size.height - mazeHeight) * 0.5,
-    );
-
-    return _TrapSurfaceMetrics(origin: origin, cellSize: cellSize);
-  }
-
-  Offset _cellCenterOnSurface(Point<int> cell, _TrapSurfaceMetrics metrics) {
-    return Offset(
-      metrics.origin.dx + (cell.x + 0.5) * metrics.cellSize,
-      metrics.origin.dy + (cell.y + 0.5) * metrics.cellSize,
+    return MazeCamera.follow(
+      viewport: renderObject.size,
+      maze: _maze,
+      focus: _playerController.renderPosition,
     );
   }
 
@@ -2411,10 +2403,4 @@ class _GameScreenState extends State<GameScreen>
       ),
     );
   }
-}
-
-class _TrapSurfaceMetrics {
-  const _TrapSurfaceMetrics({required this.origin, required this.cellSize});
-  final Offset origin;
-  final double cellSize;
 }
