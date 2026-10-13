@@ -88,13 +88,6 @@ flutter:
 
   assets:
     - assets/audio/
-    - assets/images/breaking_trap.png
-    - assets/images/exit_portal.png
-    - assets/images/landing_hero.png
-    - assets/images/phantom_frames/
-    - assets/images/sentinel_frames/
-    - assets/images/devil_frames/
-    - assets/images/void_ripper_frames/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

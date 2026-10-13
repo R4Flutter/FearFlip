@@ -95,6 +95,9 @@ class _LandingScreenState extends State<LandingScreen> {
                       fit: BoxFit.cover,
                       alignment: Alignment.topCenter,
                       cacheWidth: 800,
+                      // The old hero art is gone; until the new one lands,
+                      // show the plain backdrop instead of an error box.
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
                     ),
                   ),
                 ),
