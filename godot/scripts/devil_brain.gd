@@ -27,6 +27,8 @@ const NOISE_CRACK := 8
 ## Its top speed (m/s) for what it's doing, unless it's chasing at the Director's peak (then speed() alone rules).
 const CALM_SPEEDS := {"patrol": 2.2, "investigate": 3.0, "chase": 3.0}
 const NOWHERE := Vector2i(-1, -1)
+## It breaks through a wall (thin_wall) only if that saves at least this many path tiles over walking round.
+const BREACH_SAVING := 4
 ## Seconds it keeps chasing at full pace after it last saw or heard you.
 const SENSE_MEMORY := 8.0
 ## Fraction of the floor route you must cover before it can wake.
@@ -122,3 +124,41 @@ static func line_of_sight(layout: FloorLayout, world: int, a: Vector2i, b: Vecto
 		if not layout.is_open(world, a + step * i):
 			return false
 	return true
+
+
+## The connector wall between two open rooms side by side (two tiles apart in a line), else NOWHERE.
+static func wall_between(layout: FloorLayout, world: int, a: Vector2i, b: Vector2i) -> Vector2i:
+	var gap := b - a
+	if absi(gap.x) + absi(gap.y) != 2 or (gap.x != 0 and gap.y != 0):
+		return NOWHERE
+	var mid := a + gap / 2
+	if mid.x % 2 == mid.y % 2 or layout.is_open(world, mid) or not layout.is_open(world, a) or not layout.is_open(world, b):
+		return NOWHERE
+	return mid
+
+
+## Flipping Time is coming: the wall right beside you whose far side it reaches within `reach` steps, if breaking it
+## (far side + 2 tiles) beats its way round (`gap` tiles to you) by BREACH_SAVING. Nearest first; NOWHERE if none.
+static func thin_wall(layout: FloorLayout, world: int, player: Vector2i, from_devil: PackedInt32Array, gap: int, reach: int) -> Vector2i:
+	var best := NOWHERE
+	var best_steps := reach + 1
+	for d in FloorLayout.DIRS:
+		var far := player + d * 2
+		if wall_between(layout, world, player, far) == NOWHERE:
+			continue
+		var steps := from_devil[far.y * layout.size + far.x]
+		if steps >= 0 and steps < best_steps and steps + 2 + BREACH_SAVING <= gap:
+			best = player + d
+			best_steps = steps
+	return best
+
+
+## The wall it tears out of when it wakes at `cell`: the one behind it as it sets off `toward` you, else any wall
+## beside it (a passage always has its pillars). NOWHERE only in an open square.
+static func burst_wall(layout: FloorLayout, world: int, cell: Vector2i, toward: Vector2i) -> Vector2i:
+	if toward != Vector2i.ZERO and not layout.is_open(world, cell - toward):
+		return cell - toward
+	for d in FloorLayout.DIRS:
+		if not layout.is_open(world, cell + d):
+			return cell + d
+	return NOWHERE

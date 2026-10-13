@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cpovrclgmcsxl"
-path="res://.godot/imported/sanctuary_altar_ORM_3c76ebf8-5134-4309-8490-6831f9f922d0.jpg-541a55eab7faf85d0c8c68747fdfdb38.ctex"
+path.s3tc="res://.godot/imported/sanctuary_altar_ORM_3c76ebf8-5134-4309-8490-6831f9f922d0.jpg-541a55eab7faf85d0c8c68747fdfdb38.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "892c51bad952faf826053233abba21c0"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/models/sanctuary_altar_ORM_3c76ebf8-5134-4309-8490-6831f9f922d0.jpg"
-dest_files=["res://.godot/imported/sanctuary_altar_ORM_3c76ebf8-5134-4309-8490-6831f9f922d0.jpg-541a55eab7faf85d0c8c68747fdfdb38.ctex"]
+dest_files=["res://.godot/imported/sanctuary_altar_ORM_3c76ebf8-5134-4309-8490-6831f9f922d0.jpg-541a55eab7faf85d0c8c68747fdfdb38.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

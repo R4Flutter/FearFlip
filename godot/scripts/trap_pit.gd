@@ -43,7 +43,8 @@ var _glow: OmniLight3D
 var _ember: MeshInstance3D
 var _ember_material: StandardMaterial3D
 var _dust: CPUParticles3D
-## Delivered crack decals (Art), when they exist: hairlines on a weak tile (as strong as its cue), molten light once cracked.
+## Delivered crack decals (Art), when they exist: hairlines on a weak tile with a faint warm glow (both as strong as its
+## cue), molten light once cracked.
 var _hairline: MeshInstance3D
 var _crack_glow: MeshInstance3D
 var _rng := RandomNumberGenerator.new()
@@ -101,7 +102,8 @@ func show_state(new_state: int) -> void:
 	if _hairline != null:
 		_hairline.visible = state == TrapField.State.HIDDEN
 	if _crack_glow != null:
-		_crack_glow.visible = state == TrapField.State.CRACKED
+		# Hidden, the cracks glow faintly warm (as bright as the cue, so Act 1 shows them); cracked, molten.
+		_crack_glow.visible = state != TrapField.State.COLLAPSED
 	_set_ember(HIDDEN_EMBER * cue if state == TrapField.State.HIDDEN else 0.8)
 	_glow.visible = state == TrapField.State.CRACKED
 
@@ -110,6 +112,10 @@ func show_state(new_state: int) -> void:
 func crack() -> void:
 	state = TrapField.State.CRACKED
 	_glow.visible = true
+	if _hairline != null:
+		_hairline.visible = false
+	if _crack_glow != null:
+		_crack_glow.visible = true
 	_flare = 1.0
 	_kill_crack_tween()
 	_crack_tween = create_tween().set_parallel()

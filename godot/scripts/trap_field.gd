@@ -2,7 +2,8 @@ class_name TrapField
 extends RefCounted
 ## Cracked floors (plans/05 §3.6), the 2D two-step rule: the first step cracks it, the second kills.
 ## Placement scores junctions over corridors and never puts a trap you'd have to cross twice
-## (the 2D rule, so it works in a perfect maze). Dead-end entrances only from Act 2 on.
+## (the 2D rule, so it works in a perfect maze). Dead-end entrances only from Act 2 on. The route's own junctions
+## score no higher than any other (plans/09: a cracked junction on the way can never be stepped on again).
 
 enum State { HIDDEN, CRACKED, COLLAPSED }
 
@@ -16,7 +17,6 @@ const SCORE_T_JUNCTION := 86.0
 const SCORE_DEAD_END_ENTRANCE := 78.0
 const SCORE_CROSSROADS := 52.0
 const SCORE_CORRIDOR := 30.0
-const SCORE_ON_ROUTE := 12.0
 const SCORE_NOISE := 20.0
 
 var cells: Array[Vector2i] = []
@@ -58,8 +58,6 @@ func place(layout: FloorLayout, route: Array[Vector2i], count: int, excluded: Ar
 				score = SCORE_T_JUNCTION
 			elif degree == 4:
 				score = SCORE_CROSSROADS
-			if route_index.has(cell):
-				score += SCORE_ON_ROUTE
 			scored.append([score + rng.randf() * SCORE_NOISE, cell])
 	scored.sort_custom(func(a: Array, b: Array) -> bool: return a[0] > b[0])
 	for entry in scored:

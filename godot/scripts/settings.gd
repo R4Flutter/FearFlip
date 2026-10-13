@@ -23,7 +23,8 @@ static var invert_y := false
 ## x the maze's exposure: lift it when the dark is too dark to read.
 static var brightness := 1.0
 static var fullscreen := false
-## Full-screen flashes (flip, chest, Camera Flash, grab) at FLASH_REDUCED, and no menu lightning.
+## Full-screen flashes (flip, chest, Camera Flash, the death screen's hit and revive, a run's start) at FLASH_REDUCED,
+## and no menu lightning.
 static var reduce_flashing := false
 ## No flip roll, Flipping Time tilt, camera shake or head-bob.
 static var reduce_motion := false
@@ -80,6 +81,11 @@ static func apply() -> void:
 	var full := mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
 	if fullscreen != full:  # only on a change, so a maximized window stays maximized
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED)
+
+
+## A full-screen flash's alpha (the game's, the death screen's, the menu's), dimmed under Reduce Flashing.
+static func flash(alpha: float) -> float:
+	return alpha * (FLASH_REDUCED if reduce_flashing else 1.0)
 
 
 static func _volume(bus: StringName, volume: float) -> void:

@@ -45,6 +45,9 @@ hidden crack captured on separate save paths. Tests: 260/260 before, 263/263 aft
 
 ## 3. Still open (not built)
 
+**Update, 11 Oct 2026 (bug sweep):** items 1, 3 and 5 are done, and the sweep fixed more (see §5). Items 2, 4 and 6, and
+Settings inside the pause menu, stay open.
+
 1. **Hidden cracks can't be seen.** I stood one cell away with the flashlight on the crack, on F1 (cue 1.0) and Act 5
    (cue 0.35). The crack looked like every other tile:
    - the floor art is cracked stone everywhere, and the hairline decal blends into it;
@@ -73,3 +76,27 @@ minimap, and big mazes. The new `flipping` field on `death` will show whether in
 - Close Call slow-mo with a shard pop, the Devil Cam, and the death screen's "N m from the exit" line.
 - The map has a real cost: a 0.25x walk, and it snaps shut near the Devil. You still opened it 52 times, so it's wanted.
 - Grades, chests, the Daily with quests and streak, and act stars give every run something to bank.
+
+## 5. Bug sweep (11 Oct 2026)
+
+How it was checked: every gameplay script read; the full suite; a bot that plays real floors headless (real physics and
+input, through both keys to the chest) on 17 floors from Act 1 F1 to the Abyss with card mixes, about 55 minutes of play
+with no script error and no stuck spot, plus a catch run (death, Devil Cam, revive); windowed screenshots one cell from a
+hidden crack on F1 and F44.
+
+| Bug | What the player got | Fix |
+|---|---|---|
+| A crack's molten glow never showed in play | `TrapPit.crack()` never switched the decals, so a cracked tile kept its hairline and no glow until a revive | `crack()` shows CrackGlow and hides the hairline |
+| Hidden cracks blended in (§3.1) | No visual tell on F1 | The crack glow shows faintly on hidden tiles too, at the floor's cue: plain on F1, faint by Act 5. Route junctions no longer score higher for a trap |
+| Ghost Sight did nothing (§3.5) | Both worlds share one maze, so there were no "other walls" to show | Reworked: the Devil's glow shows through walls within 10 cells |
+| Mirror Night did nothing | NIGHTMARE only comes with Flipping Time, which already inverts your steps | Reworked: in NIGHTMARE your look is mirrored too |
+| Your own head blocked the view | Looking down showed the top of your head (the code only hid it at the chest) | The body sits on its own render layer: your eyes skip it, the Devil Cams and the trap fall's camera see it, and it still casts its shadow |
+| Breathing went silent after a revive | The death stopped both breath loops and nothing restarted them | `_revive()` restarts them, and brings back a Flipping Time warning that was running |
+| One R during the chest animation | Restarted the whole act, throwing the cleared floor away | R does nothing while the keys turn |
+| A wake timer outlived a revive | The Devil could wake on an old spot after you came back | The telegraph timer checks it's still due |
+| No pause menu (§3.3) | Esc showed a line of text | Pause menu (RESUME, QUIT TO MENU); focus loss or a tab switch pauses; Esc on a pick screen goes to the menu (the pick is saved) |
+| Reduce Flashing / Reduce Motion gaps | The death screen's hit, its revive flash and the menu's start flash were full strength; the death screen shook | All go through `Settings.flash()`; the death screen's shake respects Reduce Motion |
+| Web export carried ~150 MB of unused models | `character1.glb`, `devil.glb` and their textures are referenced nowhere | `export_presets.cfg` excludes them (the files stay) |
+
+Noted, not changed: a player who keeps walking is never caught (the Devil trails 9-13 tiles behind on every act, as the
+CLOSE_CAP design intends), so deaths come from stops, backtracking and the map. `character_rig.gd` is dead code.

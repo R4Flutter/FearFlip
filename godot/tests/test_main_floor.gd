@@ -19,6 +19,7 @@ func teardown() -> void:
 	RunState.mode = "campaign"
 	RunState.rank = 0
 	MetaState.abyss_best = 0
+	(Engine.get_main_loop() as SceneTree).paused = false  # a failed pause test never freezes the rest
 
 
 ## A debug floor (fixed seed) built from `cards` on `floor_number`; RunState goes back to Act 1 F1 after.
@@ -81,13 +82,6 @@ func test_keys_collect_and_show_in_either_world() -> void:
 
 
 ## The first wall multimesh of a world's wall set.
-func _wall_mesh(walls: Node3D) -> MultiMeshInstance3D:
-	for child in walls.get_children():
-		if child is MultiMeshInstance3D:
-			return child
-	return null
-
-
 func _run(main: Node3D, seconds: float) -> void:
 	for _frame in int(seconds / 0.05):
 		main._process(0.05)
@@ -185,6 +179,47 @@ func test_revive_rewinds_the_scent() -> void:
 	RunState.revives_used = 0
 
 
+## A revive brings the floor back as it was: your breath, a Flipping Time warning still running, and a wake the death
+## interrupted stays cancelled (its telegraph timer finds it asleep).
+func test_a_revive_brings_back_your_breath_and_the_warning() -> void:
+	var main := _spawn_floor()
+	main._enter_cell(main.circles.cells[0])
+	main.devil_spawning = true  # it was waking behind you when you died
+	main.flip.next_forced_in = main.flip.warning_time
+	main.flip.advance(0.01, true, true)
+	assert_true(main.warning_label.visible, "the Flipping Time warning is up")
+	main._lose_game("time")
+	assert_false(main.breath_calm.playing, "a death stops your breath")
+	main._revive()
+	assert_true(main.breath_calm.playing and main.breath_heavy.playing, "you breathe again")
+	assert_true(main.warning_label.visible, "the warning is still on")
+	assert_false(main.devil_spawning, "the wake the death interrupted never lands")
+	RunState.revives_used = 0
+
+
+## R needs a second press mid-floor; while the keys turn in the chest it does nothing at all.
+func test_one_stray_r_never_throws_away_a_cleared_floor() -> void:
+	var main := _spawn_floor()
+	main.game_state = "unlocking"
+	var press := InputEventAction.new()
+	press.action = "restart"
+	press.pressed = true
+	main._unhandled_input(press)
+	assert_eq(main.game_state, "unlocking")
+	assert_false(main.restart_armed)
+
+
+func test_esc_or_losing_focus_pauses_under_a_menu() -> void:
+	var main := _spawn_floor()
+	main._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	assert_true(main.get_tree().paused, "alt-tab pauses the floor")
+	assert_true(main.pause_menu.visible)
+	assert_true(main.pause_menu.find_child("Quit", true, false) is Button, "with a way out to the menu")
+	main._toggle_pause()  # RESUME
+	assert_false(main.get_tree().paused)
+	assert_false(main.pause_menu.visible)
+
+
 ## The spawn is where you learn the floor: no cracked floor within TrapField.SPAWN_CLEARANCE of it.
 func test_no_cracked_floor_by_the_spawn() -> void:
 	var main := _spawn_floor()
@@ -212,6 +247,19 @@ func test_spawn_faces_a_corridor_not_a_wall() -> void:
 	var forward: Vector3 = -main.player.global_transform.basis.z
 	var ahead: Vector2i = main.layout.spawn + Vector2i(roundi(forward.x), roundi(forward.z))
 	assert_true(main.layout.is_open(WAKE, ahead), "facing %s from the spawn" % ahead)
+
+
+## Your eyes never see the inside of your own head; the Devil Cam and the trap fall's rim camera see your body.
+func test_your_own_body_hides_from_your_eyes_only() -> void:
+	var main := _spawn_floor()
+	var part := main.player_mesh.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D
+	assert_eq(part.layers, main.PLAYER_LAYER)
+	assert_eq(main.camera.cull_mask & main.PLAYER_LAYER, 0, "first person: no hair in the way looking down")
+	assert_ne(main._devil_eye(main.live_cam).cull_mask & main.PLAYER_LAYER, 0, "the Devil Cam sees you")
+	main._release_camera()
+	assert_ne(main.camera.cull_mask & main.PLAYER_LAYER, 0, "the trap fall's rim camera watches you drop")
+	main._return_to_circle()
+	assert_eq(main.camera.cull_mask & main.PLAYER_LAYER, 0, "back behind your own eyes after a revive")
 
 
 func test_cracked_floor_kills_on_second_step() -> void:
@@ -432,15 +480,27 @@ func test_omens_reach_the_systems_they_change() -> void:
 	assert_true(is_equal_approx(main.devil_speed, plain.devil_speed * 1.1), "and a faster Devil")
 
 
-func test_ghost_sight_shows_the_other_worlds_walls_as_glass() -> void:
+## Both worlds share one maze, so Ghost Sight shows the Devil instead: its glow, over the walls, while it's near.
+func test_ghost_sight_shows_its_glow_through_the_walls_when_near() -> void:
+	assert_eq(_spawn_floor([], 2).ghost_glow, null, "no omen, no glow")
 	var main := _spawn_floor(["ghost_sight"], 2)
-	assert_true(main.nightmare_walls.visible, "NIGHTMARE's walls show in WAKE")
-	assert_eq(_wall_mesh(main.nightmare_walls).material_override, main.ghost_material)
-	assert_ne(_wall_mesh(main.wake_walls).material_override, main.ghost_material)
-	main._apply_world(NIGHTMARE)
-	assert_eq(_wall_mesh(main.wake_walls).material_override, main.ghost_material, "and the other way round")
-	assert_ne(_wall_mesh(main.nightmare_walls).material_override, main.ghost_material)
-	assert_eq(main.player.collision_mask, main.LAYER_SHARED | main.LAYER_NIGHTMARE, "you still only bump into your own world")
+	main._wake_devil()
+	var near := -1
+	var far := -1
+	for i in main.player_dist.size():
+		var d: int = main.player_dist[i]
+		if near < 0 and d > 1 and d <= main.GHOST_SIGHT_TILES:
+			near = i
+		elif far < 0 and d > main.GHOST_SIGHT_TILES + 2:
+			far = i
+	main.devil_cell = main.layout.cell_at(near)
+	main._process(0.016)
+	assert_true(main.ghost_glow.visible, "near: its glow shows")
+	assert_true((main.ghost_glow.material_override as StandardMaterial3D).no_depth_test, "drawn over the walls")
+	assert_eq(main.ghost_glow.layers, main.DEVIL_LAYER, "never inside its own Devil Cam")
+	main.devil_cell = main.layout.cell_at(far)
+	main._process(0.016)
+	assert_false(main.ghost_glow.visible, "far away: nothing")
 
 
 func test_last_breath_turns_one_catch_a_floor_into_a_trip_back() -> void:
@@ -460,15 +520,21 @@ func test_last_breath_turns_one_catch_a_floor_into_a_trip_back() -> void:
 	assert_eq(main.game_state, "lost", "once a floor")
 
 
-func test_mirror_night_mirrors_controls_in_nightmare_only() -> void:
+## NIGHTMARE only comes with Flipping Time, which already inverts your steps: Mirror Night turns your look around too.
+func test_mirror_night_mirrors_your_look_in_nightmare_only() -> void:
 	var main := _spawn_floor(["mirror_night"], 22)
-	Input.action_press("move_forward")
-	var wake: Vector2 = main._move_input()
+	var before: float = main.yaw
+	main._apply_look(0.1, 0.0)
+	assert_true(main.yaw > before, "WAKE turns the way you push")
 	main._apply_world(NIGHTMARE)
-	var nightmare: Vector2 = main._move_input()
-	Input.action_release("move_forward")
-	assert_true(wake.y < 0.0, "WAKE plays normally")
-	assert_eq(nightmare, -wake, "NIGHTMARE is mirrored")
+	before = main.yaw
+	main._apply_look(0.1, 0.0)
+	assert_true(main.yaw < before, "NIGHTMARE turns you the other way")
+	var plain := _spawn_floor([], 22)
+	plain._apply_world(NIGHTMARE)
+	before = plain.yaw
+	plain._apply_look(0.1, 0.0)
+	assert_true(plain.yaw > before, "without the card your look is your own")
 
 
 func test_static_and_deaf_night_take_the_map_and_the_music() -> void:
@@ -865,11 +931,17 @@ func test_delivered_cracks_and_fx_show_on_the_traps() -> void:
 		return
 	var main := _spawn_floor(["cracked_earth"], 12)
 	var pit: TrapPit = main.trap_nodes[0]
+	var glow := pit.get_node("CrackGlow") as MeshInstance3D
 	assert_true(pit.get_node("Hairline").visible, "a weak tile shows hairline cracks")
-	assert_false(pit.get_node("CrackGlow").visible)
-	pit.show_state(TrapField.State.CRACKED)
-	assert_true(pit.get_node("CrackGlow").visible, "cracked: molten light in the seams")
+	assert_true(glow.visible, "glowing faintly warm, as bright as the floor's cue")
+	var faint := (glow.material_override as StandardMaterial3D).albedo_color.r
+	pit.crack()  # your first step on it, in play
+	pit._process(0.016)
+	assert_true(glow.visible, "cracked: molten light in the seams")
+	assert_gt((glow.material_override as StandardMaterial3D).albedo_color.r, faint, "brighter than the hidden glow")
 	assert_false(pit.get_node("Hairline").visible)
+	pit.show_state(TrapField.State.HIDDEN)
+	assert_true(pit.get_node("Hairline").visible and glow.visible, "a revive puts the weak tile back as it was")
 	assert_true((pit._dust.mesh as QuadMesh) != null, "dust puffs, not cubes")
 
 

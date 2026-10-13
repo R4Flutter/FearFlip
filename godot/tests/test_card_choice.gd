@@ -27,10 +27,12 @@ func test_a_number_key_picks_its_card_once() -> void:
 	choice.picked.connect(func(id: String) -> void: picked.append(id))
 	choice.offer("CHOOSE YOUR DOOR", ["normal", "vault", "mystery"])
 	assert_true(choice.visible)
+	assert_true(choice.is_picking(), "Esc on a pick backs out to the menu (main.gd)")
 	assert_eq(choice._row.get_child_count(), 3)
 	choice._unhandled_input(_key(KEY_2))
 	assert_eq(picked, ["vault"])
 	assert_false(choice.visible, "gone once picked")
+	assert_false(choice.is_picking())
 	choice._unhandled_input(_key(KEY_1))
 	assert_eq(picked, ["vault"], "one pick only")
 
@@ -53,6 +55,7 @@ func test_a_flash_shows_cards_but_takes_no_pick() -> void:
 	assert_eq(choice._row.get_child_count(), 2)
 	choice._unhandled_input(_key(KEY_1))
 	assert_eq(picked, [], "nothing to pick")
+	assert_false(choice.is_picking())
 	assert_eq(choice.mouse_filter, Control.MOUSE_FILTER_IGNORE, "the game plays on underneath")
 
 

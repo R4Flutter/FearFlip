@@ -73,6 +73,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pick(index)
 
 
+## True while it waits for a pick (not during a floor's opening flash).
+func is_picking() -> bool:
+	return visible and _pickable
+
+
 ## Cards to pick from (up to three): emits picked(id) once, then hides.
 func offer(title: String, ids: Array) -> void:
 	_show(title, ids, true)

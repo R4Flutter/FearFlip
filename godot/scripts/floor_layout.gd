@@ -61,6 +61,12 @@ func is_open(world: int, cell: Vector2i) -> bool:
 	return walls[world][_idx(cell)] == 0
 
 
+## The Devil broke through (main.gd::_breach_thin_wall): open in every world from now on.
+func open_cell(cell: Vector2i) -> void:
+	for grid in walls:
+		grid[_idx(cell)] = 0
+
+
 ## Shortest path from -> to (both included) over cells open in either world. Empty if none.
 func route(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
 	var dist := distances(ANY, to)

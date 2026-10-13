@@ -30,3 +30,18 @@ ElevenLabs Sound Effects, model eleven_text_to_sound_v2, loop: true, prompt_infl
   fast breaths in and out through the mouth, exhausted and scared, dry room, no music, no voice,
   no footsteps, seamless loop"
 Levels: PlayerFeel breath_volume_db / breath_heavy_volume_db.
+
+Through the wall (main.gd::_slam_wall): not generated yet; until they exist sfx_floor_crack.mp3 stands in, pitched down.
+ElevenLabs Sound Effects, model eleven_text_to_sound_v2, loop: false, prompt_influence 0.6:
+- sfx_wall_slam.mp3 (1.2 s): "One heavy blow on the far side of a thick stone wall, a deep muffled thud
+  with a short crunch of grit and a low rumble that dies fast, heard from inside a dark corridor, something
+  huge pounding to get through, dry room, no music, no voice"
+- sfx_wall_break.mp3 (2.5 s): "A thick stone wall bursting apart from a massive impact, a sharp crack then
+  heavy chunks of masonry crashing onto a stone floor, grit and dust raining down after, close and loud, a
+  monster smashing through, dry room, no music, no voice"
+
+The wake cut's roar (main.gd::_build_devil_fx, played on the runtime "Echo" bus: reverb + two delay taps, sent to SFX).
+Not generated yet; until it exists sfx_devil_wakes.mp3 at pitch 0.8 stands in.
+- sfx_devil_roar.mp3 (2.5 s): "A huge demonic creature's roar in a stone corridor, starting as a wet guttural
+  snarl and swelling into a long furious bellow with a rasping animal edge, deep and inhuman, close and loud,
+  dry room with no reverb (the game adds the echo), no music, no voice, no words"

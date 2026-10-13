@@ -164,7 +164,7 @@ func _copy_result() -> void:
 func _impact() -> void:
 	_glass.play()
 	var tween := _retarget(self)
-	_flash.color.a = 0.65
+	_flash.color.a = Settings.flash(0.65)
 	tween.tween_property(_flash, "color:a", 0.0, 0.45)
 	tween.tween_property(_dim, "color:a", DIM_ALPHA, 0.6).from(0.0)
 	tween.tween_property(_pool, "modulate:a", 1.0, 0.6).from(0.0).set_delay(0.25)
@@ -230,7 +230,7 @@ func _leave(revive: bool) -> void:
 	var tween := _retarget(self)
 	if revive:
 		_flash.color = Color(GOLD, 0.0)
-		tween.tween_property(_flash, "color:a", 0.6, LEAVE_TIME)
+		tween.tween_property(_flash, "color:a", Settings.flash(0.6), LEAVE_TIME)
 		_heart.pivot_offset = _heart.size * 0.5
 		tween.tween_property(_heart, "scale", Vector2.ONE * 3.0, LEAVE_TIME)
 	else:
@@ -255,6 +255,8 @@ func _to_menu() -> void:
 
 
 func _shake(strength: float, time: float) -> void:
+	if Settings.reduce_motion:
+		return
 	const STEPS := 6
 	var tween := _retarget(_stage).set_parallel(false)
 	for i in STEPS:

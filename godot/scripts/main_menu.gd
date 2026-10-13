@@ -318,7 +318,7 @@ func _start() -> void:
 	_shake(10.0, 0.35)
 	_flash.color = Color(BLOOD, 0.0)
 	var hit := _retarget(_flash).set_parallel(false)
-	hit.tween_property(_flash, "color:a", 0.45, 0.05)
+	hit.tween_property(_flash, "color:a", Settings.flash(0.45), 0.05)
 	hit.tween_property(_flash, "color:a", 0.0, 0.5)
 	if ResourceLoader.load_threaded_get_status(GAME_SCENE) == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
 		ResourceLoader.load_threaded_request(GAME_SCENE)
