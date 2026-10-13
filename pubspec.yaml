@@ -88,6 +88,11 @@ flutter:
 
   assets:
     - assets/audio/
+    # 2D art, cut by tool/process_2d_assets.py from the delivered sheets
+    - assets/images/2d/tiles/
+    - assets/images/2d/objects/
+    - assets/images/2d/fx/
+    - assets/images/2d/ui/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
