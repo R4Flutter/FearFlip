@@ -547,6 +547,10 @@ def build_fx():
 
 # ── UI ──────────────────────────────────────────────────────────────────────
 
+# ui_icons.png, left to right, top row then bottom row
+ICONS = ['pause', 'play', 'maze', 'hourglass', 'flag', 'heart', 'heart_empty', 'skull',
+         'trophy', 'house', 'retry', 'film', 'check', 'cross', 'sound_on', 'sound_off']
+
 
 def build_ui():
     t = key_hard(rgb('ui_icons.png'), enclosed=True, min_enclosed=300)
@@ -562,10 +566,13 @@ def build_ui():
             frames.append(crop(cell, (x0, y0, x1, y1)))
     # every icon fits its own 96 px cell (they're read one at a time)
     cells = [fit_frames([f], 96, 96, pad=0.04)[0] for f in frames]
-    save(strip(cells), 'ui/icons.png')
+    for icon, cell in zip(ICONS, cells):
+        save(cell, f'ui/icon_{icon}.png')
 
     t = key_hard(rgb('ui_button.png'), tol=18)
-    save(strip(fit_frames(blobs(t, 2, min_area=5000), 128, 128, pad=0.02)), 'ui/button.png')
+    up, down = fit_frames(blobs(t, 2, min_area=5000), 128, 128, pad=0.02)
+    save(up, 'ui/button.png')
+    save(down, 'ui/button_pressed.png')
     t = largest_only(key_hard(rgb('ui_knob.png'), tol=18))
     save(fit_frames(blobs(t, 1, min_area=5000), 160, 160, pad=0.02)[0], 'ui/knob.png')
     t = largest_only(key_hard(rgb('ui_joystick.png'), enclosed=True))
@@ -600,7 +607,8 @@ def build_ui():
     idle = pressed.copy()
     arm = pressed[y1 + 1:y1 + 1 + y0, x0:x1 + 1]  # the down arm next to the centre
     idle[0:arm.shape[0], x0:x1 + 1] = arm[::-1]
-    save(strip([Image.fromarray(idle), Image.fromarray(pressed)]), 'ui/dpad.png')
+    save(Image.fromarray(idle), 'ui/dpad.png')
+    save(Image.fromarray(pressed), 'ui/dpad_pressed.png')
 
 
 # ── self-check ──────────────────────────────────────────────────────────────
@@ -615,9 +623,10 @@ EXPECT = {  # rel path: (frame width, frame height, frames)
     'fx/smoke.png': (160, 160, 5), 'fx/debris.png': (128, 128, 5), 'fx/sparkle.png': (96, 96, 4),
     'fx/wisp.png': (96, 96, 4), 'fx/drip.png': (48, 128, 4), 'fx/flip.png': (128, 128, 6),
     'fx/dust.png': (64, 64, 4),
-    'ui/icons.png': (96, 96, 16), 'ui/button.png': (128, 128, 2), 'ui/knob.png': (160, 160, 1),
+    **{f'ui/icon_{i}.png': (96, 96, 1) for i in ICONS},
+    'ui/button.png': (128, 128, 1), 'ui/button_pressed.png': (128, 128, 1), 'ui/knob.png': (160, 160, 1),
     'ui/joystick.png': (384, 384, 1), 'ui/medallion.png': (320, 320, 1), 'ui/timebar.png': (512, 128, 1),
-    'ui/bone_arrow.png': (160, 96, 1), 'ui/dpad.png': (384, 384, 2),
+    'ui/bone_arrow.png': (160, 96, 1), 'ui/dpad.png': (384, 384, 1), 'ui/dpad_pressed.png': (384, 384, 1),
 }
 KEYED = [p for p in EXPECT if not p.startswith('tiles/') and p not in (
     'objects/start.png', 'objects/exit_wake.png', 'objects/exit_nightmare.png',
