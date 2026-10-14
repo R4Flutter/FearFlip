@@ -1913,6 +1913,7 @@ class _GameScreenState extends State<GameScreen>
               GameHud(
                 stage: _stage,
                 remainingSeconds: _remainingSeconds,
+                totalSeconds: _stageDurationSeconds,
                 isPaused: _isPaused,
                 onPauseTap: _togglePause,
                 checkpoint: _checkpoint,
