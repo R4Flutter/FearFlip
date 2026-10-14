@@ -32,7 +32,7 @@ class MazeArt {
   MazeArt._(this._strips);
 
   /// An empty set, for before [load] finishes.
-  MazeArt.none() : _strips = const {};
+  const MazeArt.none() : _strips = const {};
 
   static const _dir = 'assets/images/2d';
 

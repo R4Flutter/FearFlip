@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import '../../game/trap/trap_fx_renderer.dart';
 import '../../game/trap/trap_tile.dart';
 import '../../domain/entities/direction4.dart';
+import 'maze_art.dart';
 import 'maze_camera.dart';
 import 'maze_generator.dart';
+import 'maze_tiles.dart';
 
-/// Stand-in colours until the tileset art lands (2D-gameplay-assets.md, Night 32):
-/// cold stone in WAKE, blood and bone in NIGHTMARE, no green or pink.
+/// Stand-in colours for any art that hasn't loaded (2D-gameplay-assets.md,
+/// Night 32): cold stone in WAKE, blood and bone in NIGHTMARE, no green or pink.
 class _World {
   const _World(this.floor, this.wallTop, this.wallFace);
 
@@ -41,16 +43,13 @@ class MazePainter extends CustomPainter {
     required this.isMoving,
     required this.pulse,
     this.time = 0,
-    this.playerFrames,
-    this.exitPortalSprite,
+    this.art = const MazeArt.none(),
     this.devilCell,
-    this.devilFrames,
     this.safeZones = const <Point<int>, double>{},
     this.playerSafe = false,
     this.isFlippedMode = false,
     this.trapTiles = const <TrapTile>[],
     this.trapHiddenCueLevel = 0.0,
-    this.breakingTrapTexture,
     this.hidePlayer = false,
   });
 
@@ -61,16 +60,15 @@ class MazePainter extends CustomPainter {
   final bool isMoving;
   final double pulse;
   final double time;
-  final List<ui.Image>? playerFrames;
-  final ui.Image? exitPortalSprite;
+
+  /// The delivered sheets; whatever is missing falls back to the stand-ins.
+  final MazeArt art;
   final Point<int>? devilCell;
-  final List<ui.Image>? devilFrames;
   final Map<Point<int>, double> safeZones;
   final bool playerSafe;
   final bool isFlippedMode;
   final List<TrapTile> trapTiles;
   final double trapHiddenCueLevel;
-  final ui.Image? breakingTrapTexture;
   final bool hidePlayer;
 
   @override
@@ -97,7 +95,6 @@ class MazePainter extends CustomPainter {
         // Both worlds have dark floors now, so the dark-floor look fits both.
         isFlippedMode: false,
         hiddenCueLevel: trapHiddenCueLevel,
-        revealedTileTexture: breakingTrapTexture,
       );
     }
 
@@ -108,32 +105,7 @@ class MazePainter extends CustomPainter {
       ..strokeWidth = max(1.5, cellSize * 0.07);
     canvas.drawCircle(startCenter, cellSize * (0.3 + pulse * 0.04), startRing);
 
-    final portal = exitPortalSprite;
-    if (portal != null) {
-      final endCenter = camera.cellCenter(_offsetOf(maze.end));
-      final gateSide = cellSize * (0.92 + sin(time * 2.4) * 0.05);
-      final gateGlow = Paint()
-        ..color = _gold.withValues(alpha: 0.55)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9);
-      canvas.drawCircle(endCenter, gateSide * 0.55, gateGlow);
-      final cropSide = min(portal.width, portal.height).toDouble();
-      final src = Rect.fromCenter(
-        center: Offset(portal.width / 2, portal.height / 2),
-        width: cropSide,
-        height: cropSide,
-      );
-      final dst = Rect.fromCenter(
-        center: endCenter,
-        width: gateSide,
-        height: gateSide,
-      );
-      canvas.drawImageRect(
-        portal,
-        src,
-        dst,
-        Paint()..filterQuality = FilterQuality.medium,
-      );
-    } else {
+    {
       final endTileRect = camera.cellRect(maze.end).deflate(cellSize * 0.14);
       final endGlow = Paint()
         ..color = _gold.withValues(alpha: 0.65)
@@ -172,16 +144,13 @@ class MazePainter extends CustomPainter {
     final playerSide = cellSize * 0.9 * (1 + breath);
 
     if (!hidePlayer) {
-      if (playerFrames != null && playerFrames!.isNotEmpty) {
-        _drawSpriteCharacter(canvas, playerCenter, playerSide);
-      } else {
-        final playerGlow = Paint()
-          ..color = _amber.withValues(alpha: 0.55)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-        final playerCore = Paint()..color = _candle;
-        canvas.drawCircle(playerCenter, playerSide * 0.35, playerGlow);
-        canvas.drawCircle(playerCenter, playerSide * 0.28, playerCore);
-      }
+      // Stand-in until the runner sheets land: the runner's own lantern glow.
+      final playerGlow = Paint()
+        ..color = _amber.withValues(alpha: 0.55)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+      final playerCore = Paint()..color = _candle;
+      canvas.drawCircle(playerCenter, playerSide * 0.35, playerGlow);
+      canvas.drawCircle(playerCenter, playerSide * 0.28, playerCore);
 
       if (playerSafe) {
         final ring = Paint()
@@ -197,19 +166,7 @@ class MazePainter extends CustomPainter {
       final devilCenter = camera
           .cellCenter(_offsetOf(devil))
           .translate(0, sin(time * 3.4) * cellSize * 0.07);
-      final frames = devilFrames;
-      if (frames != null && frames.isNotEmpty) {
-        final devilFrame = (time * 9).floor() % frames.length;
-        _drawFrame(
-          canvas: canvas,
-          image: frames[devilFrame],
-          center: devilCenter,
-          side: cellSize * 0.95,
-          facing: playerCellPosition.dx < devil.x
-              ? Direction4.left
-              : Direction4.right,
-        );
-      } else {
+      {
         // Stand-in until the devil sheets land: a shadow with burning eyes.
         canvas.drawCircle(
           devilCenter,
@@ -258,61 +215,14 @@ class MazePainter extends CustomPainter {
   /// How near (in cells) the Devil must be before its off-screen arrow shows.
   static const double _devilWarnCells = 8;
 
-  void _drawSpriteCharacter(Canvas canvas, Offset center, double side) {
-    final frames = playerFrames!;
-    final frameIndex = isMoving
-        ? currentFrame.clamp(0, frames.length - 1)
-        : 0;
-    _drawFrame(
-      canvas: canvas,
-      image: frames[frameIndex],
-      center: center,
-      side: side,
-      facing: direction,
-    );
-  }
-
-  void _drawFrame({
-    required Canvas canvas,
-    required ui.Image image,
-    required Offset center,
-    required double side,
-    required Direction4 facing,
-  }) {
-    final src = Rect.fromLTWH(
-      0,
-      0,
-      image.width.toDouble(),
-      image.height.toDouble(),
-    );
-    final dst = Rect.fromCenter(center: Offset.zero, width: side, height: side);
-    final spritePaint = Paint()..filterQuality = FilterQuality.medium;
-
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-
-    switch (facing) {
-      case Direction4.right:
-        break;
-      case Direction4.left:
-        canvas.scale(-1, 1);
-        break;
-      case Direction4.up:
-        break;
-      case Direction4.down:
-        break;
-    }
-
-    canvas.drawImageRect(image, src, dst, spritePaint);
-    canvas.restore();
-  }
-
   /// Floor and wall tiles in view. Walls are whole tiles, raised like the
-  /// reference art: a light top, and a darker front face wherever floor lies
-  /// below, which casts a short shadow onto that floor.
+  /// reference art: capstoned tops, and a rock face wherever floor lies below,
+  /// which casts a short shadow onto that floor. Drawn from the world's tile
+  /// atlas in one batch, or as flat stand-in colours until it loads.
   void _paintTiles(Canvas canvas, Size size, MazeCamera camera) {
-    final world = isFlippedMode ? _nightmare : _wake;
     final tile = camera.tileSize;
+    final atlas = isFlippedMode ? art.nightmareTiles : art.wakeTiles;
+    final world = isFlippedMode ? _nightmare : _wake;
     // No anti-aliasing: neighbouring tiles share exact edges, so no seams.
     final floor = Paint()
       ..color = world.floor
@@ -322,9 +232,6 @@ class MazePainter extends CustomPainter {
       ..isAntiAlias = false;
     final face = Paint()
       ..color = world.wallFace
-      ..isAntiAlias = false;
-    final shadow = Paint()
-      ..color = const Color(0x55000000)
       ..isAntiAlias = false;
 
     final firstCol = max(0, (-camera.origin.dx / tile).floor());
@@ -338,32 +245,65 @@ class MazePainter extends CustomPainter {
       ((size.height - camera.origin.dy) / tile).ceil(),
     );
 
+    bool wall(int col, int row) => isWallTile(maze, col, row);
+    final transforms = <RSTransform>[];
+    final sources = <Rect>[];
+    final shaded = <Rect>[];
+    // A hair of overlap, so painted neighbours never show a seam between them.
+    final scale = atlas == null ? 0.0 : (tile + 0.6) / atlas.frameWidth;
+
     for (var row = firstRow; row <= lastRow; row++) {
       for (var col = firstCol; col <= lastCol; col++) {
         final rect = camera.tileRect(col, row);
-        if (!isWallTile(maze, col, row)) {
+        final isWall = wall(col, row);
+        if (!isWall && wall(col, row - 1)) {
+          shaded.add(rect);
+        }
+        if (atlas != null) {
+          for (final slot in tileLayers(wall, col, row)) {
+            transforms.add(RSTransform(scale, 0, rect.left - 0.3, rect.top - 0.3));
+            sources.add(atlas.frame(slot));
+          }
+        } else if (!isWall) {
           canvas.drawRect(rect, floor);
-          if (isWallTile(maze, col, row - 1)) {
+        } else {
+          canvas.drawRect(rect, top);
+          if (!wall(col, row + 1)) {
             canvas.drawRect(
-              Rect.fromLTWH(rect.left, rect.top, rect.width, tile * 0.18),
-              shadow,
+              Rect.fromLTWH(
+                rect.left,
+                rect.bottom - tile * 0.38,
+                rect.width,
+                tile * 0.38,
+              ),
+              face,
             );
           }
-          continue;
-        }
-        canvas.drawRect(rect, top);
-        if (!isWallTile(maze, col, row + 1)) {
-          canvas.drawRect(
-            Rect.fromLTWH(
-              rect.left,
-              rect.bottom - tile * 0.38,
-              rect.width,
-              tile * 0.38,
-            ),
-            face,
-          );
         }
       }
+    }
+    if (atlas != null) {
+      canvas.drawAtlas(
+        atlas.image,
+        transforms,
+        sources,
+        null,
+        null,
+        null,
+        Paint()..filterQuality = FilterQuality.medium,
+      );
+    }
+    for (final rect in shaded) {
+      final depth = tile * 0.28;
+      canvas.drawRect(
+        Rect.fromLTWH(rect.left, rect.top, rect.width, depth),
+        Paint()
+          ..shader = ui.Gradient.linear(
+            rect.topLeft,
+            rect.topLeft.translate(0, depth),
+            const [Color(0x88000000), Color(0x00000000)],
+          ),
+      );
     }
   }
 
@@ -413,17 +353,14 @@ class MazePainter extends CustomPainter {
         oldDelegate.direction != direction ||
         oldDelegate.currentFrame != currentFrame ||
         oldDelegate.isMoving != isMoving ||
-        oldDelegate.playerFrames != playerFrames ||
-        oldDelegate.devilFrames != devilFrames ||
+        oldDelegate.art != art ||
         oldDelegate.devilCell != devilCell ||
         oldDelegate.playerSafe != playerSafe ||
         oldDelegate.isFlippedMode != isFlippedMode ||
         oldDelegate.safeZones != safeZones ||
         oldDelegate.trapTiles != trapTiles ||
         oldDelegate.trapHiddenCueLevel != trapHiddenCueLevel ||
-        oldDelegate.breakingTrapTexture != breakingTrapTexture ||
         oldDelegate.hidePlayer != hidePlayer ||
-        oldDelegate.exitPortalSprite != exitPortalSprite ||
         oldDelegate.time != time ||
         oldDelegate.pulse != pulse;
   }

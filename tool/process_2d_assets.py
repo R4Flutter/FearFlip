@@ -387,6 +387,17 @@ def cold(img, amount=0.35):
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), 'RGBA' if a.shape[2] == 4 else 'RGB')
 
 
+def match_tone(img, refs, amount=0.75):
+    """Shift an image's per-channel mean/spread towards the reference tiles'."""
+    a = np.asarray(img).astype(np.float32)
+    ref = np.stack([np.asarray(r).astype(np.float32)[..., :3] for r in refs])
+    mean, std = a[..., :3].mean((0, 1)), a[..., :3].std((0, 1)) + 1e-6
+    rmean, rstd = ref.mean((0, 1, 2)), ref.std((0, 1, 2))
+    moved = (a[..., :3] - mean) / std * rstd + rmean
+    a[..., :3] = a[..., :3] + (moved - a[..., :3]) * amount
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), 'RGBA')
+
+
 def rim_pieces(h_strip, corner):
     """Wall-top rim slots: full TILE cells, transparent except the rim along
     one edge, plus corner caps. h_strip: TILE×RIM image; corner: RIM×RIM."""
@@ -430,7 +441,8 @@ def build_tiles():
         if world == 'wake':
             floors = [cold(tile_from(a, b), 0.2) for b in WAKE_FLOOR[:6]]
             # rubble tops of the free-standing blocks, inside their rims
-            fills = [cold(tile_from(a, b), 0.6) for b in [(712, 36, 823, 157), (882, 36, 989, 157)]]
+            # (cut well inside the rim, whose inner shadow would grid long walls)
+            fills = [cold(tile_from(a, b), 0.6) for b in [(722, 46, 813, 147), (892, 46, 979, 147)]]
             rim_src = a[12:34, 712:823]  # top rim of block 1
             corner_src = a[12:36, 688:712]
             face_src = a[255:316, 690:849]
@@ -443,9 +455,13 @@ def build_tiles():
             face_src = a[246:318, 690:849]
         extras = [tile_from(extra, b) for b in [(14, 10, 343, 329), (354, 10, 683, 331),
                                                  (696, 10, 1023, 329), (1036, 10, 1365, 331)]]
+        # the delivered extras sit on their own (paler) slabs: tone them to the floor
+        extras = [match_tone(e, floors) for e in extras]
         if world == 'nightmare':
             extras = extras + [tile_from(a, b) for b in NIGHT_FLOOR_GORE]
         else:
+            # the sunken stone reads as a pit (a trap) in play: a mirrored crack instead
+            extras[1] = extras[0].transpose(Image.FLIP_LEFT_RIGHT)
             extras = [cold(e, 0.2) for e in extras] + [floors[0], floors[1]]  # keep 6 slots
         h_strip = resized(rim_src.astype(np.uint8), TILE, RIM).convert('RGBA')
         corner = resized(corner_src.astype(np.uint8), RIM, RIM).convert('RGBA')
