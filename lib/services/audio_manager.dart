@@ -4,7 +4,9 @@ import 'dart:math';
 
 import 'package:audioplayers/audioplayers.dart' as ap;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:just_audio/just_audio.dart' as ja;
 
 import 'game_audio_event.dart';
@@ -12,6 +14,7 @@ import 'error_reporter.dart';
 
 enum _AudioCue {
   calmLoop,
+  menuTheme,
   flip,
   devilApproach,
   mazeShift,
@@ -21,6 +24,9 @@ enum _AudioCue {
   playerLost,
   trapBreak,
   breakGlass,
+  trapCreak,
+  trapFall,
+  trapImpact,
 }
 
 class _ResolvedAsset {
@@ -111,6 +117,10 @@ class AudioManager {
   static const bool _safeZoneHalvesDevilVolume = true;
   static const int _oneShotVoicesPerBus = 4;
 
+  static const double _menuThemeBaseVolume = 0.75;
+  static const Duration _menuThemeFadeIn = Duration(milliseconds: 900);
+  static const Duration _menuThemeFadeOut = Duration(milliseconds: 450);
+
   static const double _calmBaseVolume = 0.45;
   static const double _flipBaseVolume = 0.92;
   static const double _devilBaseVolume = 1.0;
@@ -147,6 +157,12 @@ class AudioManager {
   final _LoopChannel _calmLoop = _LoopChannel(ja.AudioPlayer());
   final _LoopChannel _devilLoop = _LoopChannel(ja.AudioPlayer());
   final _LoopChannel _lowTimeLoop = _LoopChannel(ja.AudioPlayer());
+  final _LoopChannel _menuLoop = _LoopChannel(ja.AudioPlayer());
+  bool _menuThemeWanted = false;
+  bool _appHidden = false;
+  bool _menuNeedsTap = false;
+  bool _menuNeedsTapHooked = false;
+  AppLifecycleListener? _lifecycle;
 
   final Map<AudioBus, List<_OneShotVoice>> _oneShotVoicePools =
       <AudioBus, List<_OneShotVoice>>{
@@ -203,7 +219,7 @@ class AudioManager {
   int? _lastFlipFrameId;
 
   bool _initialized = false;
-  bool _preloadAttempted = false;
+  Future<void>? _preloading;
   bool _disposing = false;
 
   MatchAudioState _matchState = MatchAudioState.idle;
@@ -240,6 +256,7 @@ class AudioManager {
       <_AudioCue, List<String>>{
         // Prefer the dedicated background track; keep legacy fallback.
         _AudioCue.calmLoop: <String>['background_audio.mp3', 'calm_loop.mp3'],
+        _AudioCue.menuTheme: <String>['menu_theme.mp3'],
         _AudioCue.flip: <String>[
           'fahhhh_flippingtime.mp3',
           'fahhhhh_flippingtime.mp3',
@@ -256,6 +273,9 @@ class AudioManager {
         ],
         _AudioCue.trapBreak: <String>['glass_break.mp3', 'glass_break.wav'],
         _AudioCue.breakGlass: <String>['glass_break.mp3', 'glass_break.wav'],
+        _AudioCue.trapCreak: <String>['trap_creak.mp3'],
+        _AudioCue.trapFall: <String>['trap_fall.mp3'],
+        _AudioCue.trapImpact: <String>['trap_impact.mp3'],
       };
 
   static Future<void> configureGlobalAudio({
@@ -274,20 +294,21 @@ class AudioManager {
     }
   }
 
-  Future<void> preload() async {
+  /// Safe to call from several places at once: later callers wait for the
+  /// same load instead of racing ahead with unresolved assets.
+  Future<void> preload() {
     if (_initialized || _disposing) {
-      return;
+      return Future<void>.value();
     }
-    if (_preloadAttempted) {
-      return;
-    }
+    return _preloading ??= _preload();
+  }
 
-    _preloadAttempted = true;
-
+  Future<void> _preload() async {
     await _resolveAssets();
     await _prepareLoopChannel(_calmLoop, _AudioCue.calmLoop);
     await _prepareLoopChannel(_devilLoop, _AudioCue.devilApproach);
     await _prepareLoopChannel(_lowTimeLoop, _AudioCue.lowTimeAlarm);
+    await _prepareLoopChannel(_menuLoop, _AudioCue.menuTheme);
 
     for (final voice in _allOneShotVoices()) {
       voice.completionSubscription ??= voice.player.onPlayerComplete.listen((
@@ -311,6 +332,81 @@ class AudioManager {
     _initialized = true;
     _log('AudioManager initialized');
     _emitDebugSnapshot();
+  }
+
+  bool get isMenuThemePlaying => _menuLoop.player.playing;
+
+  /// Main theme: plays while any menu screen is up, fades out for a match.
+  Future<void> setMenuThemeActive(bool active) async {
+    if (_menuThemeWanted == active || _disposing) {
+      return;
+    }
+    _menuThemeWanted = active;
+    _lifecycle ??= AppLifecycleListener(
+      onHide: () {
+        _appHidden = true;
+        unawaited(_safe('menu.pauseOnHide', _menuLoop.player.pause));
+      },
+      onShow: () {
+        _appHidden = false;
+        unawaited(_startMenuTheme());
+      },
+    );
+    if (kIsWeb && !_menuNeedsTapHooked) {
+      _menuNeedsTapHooked = true;
+      GestureBinding.instance.pointerRouter.addGlobalRoute(_retryMenuOnTap);
+    }
+    await (active ? _startMenuTheme() : _stopMenuTheme());
+  }
+
+  Future<void> _startMenuTheme() async {
+    await preload();
+    if (!_menuThemeWanted || _appHidden || !_menuLoop.prepared) {
+      return;
+    }
+    if (!_menuLoop.player.playing) {
+      _menuLoop.baseVolume = 0;
+      await _setLoopVolume(_menuLoop, AudioBus.bgm);
+      // Not awaited: a looping play() only completes when it is paused.
+      unawaited(
+        _menuLoop.player.play().catchError((Object error) {
+          _logError('menu.play', error);
+          _menuNeedsTap = kIsWeb; // browsers block audio until the first tap
+        }),
+      );
+    }
+    await _fadeLoopVolume(
+      _menuLoop,
+      bus: AudioBus.bgm,
+      toBaseVolume: _menuThemeBaseVolume,
+      duration: _menuThemeFadeIn,
+    );
+  }
+
+  Future<void> _stopMenuTheme() async {
+    if (!_menuLoop.player.playing) {
+      return;
+    }
+    await _fadeLoopVolume(
+      _menuLoop,
+      bus: AudioBus.bgm,
+      toBaseVolume: 0,
+      duration: _menuThemeFadeOut,
+    );
+    if (!_menuThemeWanted) {
+      await _safe('menu.pause', _menuLoop.player.pause);
+    }
+  }
+
+  void _retryMenuOnTap(PointerEvent event) {
+    if (event is! PointerUpEvent || !_menuNeedsTap) {
+      return;
+    }
+    _menuNeedsTap = false;
+    unawaited(() async {
+      await _safe('menu.unlock', _menuLoop.player.pause);
+      await _startMenuTheme();
+    }());
   }
 
   Future<void> handle(
@@ -597,13 +693,13 @@ class AudioManager {
         await _onPlayerLost();
         break;
       case GameAudioEvent.trapStepWarning:
-        // Dedicated break cue when stepping on a fragile tile.
+        // Faint creak when stepping on a fragile tile.
         if (_canPlayGameplaySfx) {
           await _playOneShot(
-            _AudioCue.trapBreak,
+            _AudioCue.trapCreak,
             bus: AudioBus.action,
-            baseVolume: 0.58,
-            playbackRate: 0.96 + (Random().nextDouble() * 0.12),
+            baseVolume: 0.8,
+            playbackRate: 0.94 + (Random().nextDouble() * 0.12),
           );
         }
         break;
@@ -644,10 +740,10 @@ class AudioManager {
         // Falling whoosh accent during the collapse sequence.
         if (_canPlayGameplaySfx) {
           await _playOneShot(
-            _AudioCue.playerLost,
+            _AudioCue.trapFall,
             bus: AudioBus.action,
-            baseVolume: 0.65,
-            playbackRate: 0.72,
+            baseVolume: 0.9,
+            playbackRate: 1,
           );
         }
         break;
@@ -655,10 +751,10 @@ class AudioManager {
         // Heavy low-end impact at the end of the fall.
         if (_canPlayGameplaySfx) {
           await _playOneShot(
-            _AudioCue.playerLost,
+            _AudioCue.trapImpact,
             bus: AudioBus.action,
-            baseVolume: 0.90,
-            playbackRate: 0.64,
+            baseVolume: 1.0,
+            playbackRate: 1,
           );
         }
         break;
@@ -785,6 +881,9 @@ class AudioManager {
     await _safe('calm.dispose', _calmLoop.player.dispose);
     await _safe('devil.dispose', _devilLoop.player.dispose);
     await _safe('alarm.dispose', _lowTimeLoop.player.dispose);
+    await _safe('menu.dispose', _menuLoop.player.dispose);
+    _lifecycle?.dispose();
+    _lifecycle = null;
 
     isMatchActive = false;
     isWon = false;
@@ -911,13 +1010,13 @@ class AudioManager {
         _canUseMatchAudioLayer &&
         !_isDevilPriorityActive &&
         !_isLowTimePriorityActive) {
-      await _safe('calm.resume', _calmLoop.player.play);
+      unawaited(_safe('calm.resume', _calmLoop.player.play));
     }
     if (_devilLoop.resumeAfterPause && _canUseMatchAudioLayer) {
-      await _safe('devil.resume', _devilLoop.player.play);
+      unawaited(_safe('devil.resume', _devilLoop.player.play));
     }
     if (_lowTimeLoop.resumeAfterPause && _canUseMatchAudioLayer) {
-      await _safe('alarm.resume', _lowTimeLoop.player.play);
+      unawaited(_safe('alarm.resume', _lowTimeLoop.player.play));
     }
 
     await _refreshAllVolumes();
@@ -1404,7 +1503,8 @@ class AudioManager {
       await _calmLoop.player.seek(Duration.zero);
     });
 
-    await _safe('calm.play', _calmLoop.player.play);
+    // Looping play() only completes when paused/stopped: never await it.
+    unawaited(_safe('calm.play', _calmLoop.player.play));
     isCalmPlaying = true;
 
     unawaited(
@@ -1493,7 +1593,7 @@ class AudioManager {
       return;
     }
 
-    await _safe('devil.play', _devilLoop.player.play);
+    unawaited(_safe('devil.play', _devilLoop.player.play));
 
     if (_isStaleDevilRevision(devilRevision) ||
         _mustStopDevilImmediatelyFromLatestState) {
@@ -1641,7 +1741,7 @@ class AudioManager {
       return;
     }
 
-    await _safe('alarm.play', _lowTimeLoop.player.play);
+    unawaited(_safe('alarm.play', _lowTimeLoop.player.play));
 
     if (_outcomeEventQueued || !_canUseMatchAudioLayer) {
       await _safe('alarm.stopAfterPlay', _lowTimeLoop.player.stop);
@@ -1856,6 +1956,7 @@ class AudioManager {
     await _setLoopVolume(_calmLoop, AudioBus.bgm);
     await _setLoopVolume(_devilLoop, AudioBus.enemy);
     await _setLoopVolume(_lowTimeLoop, AudioBus.enemy);
+    await _setLoopVolume(_menuLoop, AudioBus.bgm);
 
     for (final voice in _allOneShotVoices()) {
       if (!voice.inUse) {
@@ -2322,10 +2423,7 @@ class AudioManager {
           reason: 'audio_asset_resolve_failed',
           error: error,
           stackTrace: stackTrace,
-          context: <String, Object?>{
-            'cue': cue.name,
-            'asset': candidate,
-          },
+          context: <String, Object?>{'cue': cue.name, 'asset': candidate},
         );
       }
     }

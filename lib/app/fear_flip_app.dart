@@ -15,6 +15,7 @@ import '../presentation/screens/onboarding_consent_screen.dart';
 import '../presentation/screens/privacy_policy_screen.dart';
 import '../presentation/theme/app_palette.dart';
 import '../presentation/widgets/remove_ads_dialog.dart';
+import '../services/audio_manager.dart';
 import '../services/account_deletion_service.dart';
 import '../services/ads_facade.dart';
 import '../services/consent_service.dart';
@@ -1525,6 +1526,16 @@ class _FearFlipAppState extends State<FearFlipApp> {
     );
     unawaited(_adsManager.preload());
     unawaited(_adsManager.preloadBanner());
+    _flow.addListener(_syncMenuTheme);
+    _syncMenuTheme();
+  }
+
+  void _syncMenuTheme() {
+    unawaited(
+      AudioManager.instance.setMenuThemeActive(
+        _flow.showOnboarding || _flow.showAuthGate || _flow.showLanding,
+      ),
+    );
   }
 
   @override
