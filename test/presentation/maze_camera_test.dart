@@ -91,6 +91,19 @@ void main() {
       expect(bottomRight.cellCenter(const Offset(9, 9)), const Offset(95, 95));
     });
 
+    test('a wide screen never shows past a small maze: the tiles grow until '
+        'the maze fills the width', () {
+      // 21 tiles wide on a 2:1 landscape view: 11 tiles tall would leave
+      // bars on both sides, so the maze sets the size instead.
+      final camera = MazeCamera.follow(
+        viewport: const Size(420, 210),
+        maze: maze,
+        focus: const Offset(5, 5),
+      );
+      expect(camera.tileSize, 20);
+      expect(camera.origin.dx, 0);
+    });
+
     test('cell rects are one tile, cells two tiles apart', () {
       final camera = MazeCamera.follow(
         viewport: view,

@@ -209,13 +209,39 @@ class _GameScreenState extends State<GameScreen>
     _startCountdown();
     _startStageLoop();
     unawaited(_loadArt());
+    if (widget.isActive) {
+      _lockOrientation(playing: true);
+    }
     _requestKeyboardFocusIfNeeded();
+  }
+
+  /// A run plays in landscape, like the GBA; the menus stay portrait (as
+  /// main.dart sets them).
+  static const _playOrientations = [
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ];
+  static const _menuOrientations = [
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ];
+
+  void _lockOrientation({required bool playing}) {
+    if (kIsWeb) {
+      return;
+    }
+    unawaited(
+      SystemChrome.setPreferredOrientations(
+        playing ? _playOrientations : _menuOrientations,
+      ),
+    );
   }
 
   @override
   void didUpdateWidget(covariant GameScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isActive != widget.isActive) {
+      _lockOrientation(playing: widget.isActive);
       _handleExternalActivityChange(widget.isActive);
       if (widget.isActive) {
         _requestKeyboardFocusIfNeeded();
@@ -245,6 +271,9 @@ class _GameScreenState extends State<GameScreen>
 
   @override
   void dispose() {
+    if (widget.isActive) {
+      _lockOrientation(playing: false);
+    }
     _art.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _clearKeyboardMovement(stopPlayer: false);
@@ -1836,188 +1865,136 @@ class _GameScreenState extends State<GameScreen>
     final screenSize = MediaQuery.sizeOf(context);
     final shortestSide = min(screenSize.width, screenSize.height);
     final uiScale = (shortestSide / 390).clamp(0.84, 1.2);
-    final mazeFramePadding = (6 * uiScale).clamp(4.0, 10.0);
     final horizontalPadding = (14 * uiScale).clamp(10.0, 20.0);
     final verticalPadding = (10 * uiScale).clamp(8.0, 16.0);
-    final controlsLift = (-44 * uiScale).clamp(-56.0, -30.0);
     final showTouchControls = !kIsWeb;
 
     final gameContent = Material(
       color: NightHud.ink,
-      child: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: horizontalPadding,
-            vertical: verticalPadding,
-          ),
-          child: Stack(
-            children: [
-              Column(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // The maze is the whole screen, like the GBA: no box, no frame.
+          _buildGameSurface(),
+          SafeArea(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: horizontalPadding,
+                vertical: verticalPadding,
+              ),
+              child: Stack(
                 children: [
-                  SizedBox(height: (16 * uiScale).clamp(10.0, 22.0)),
-                  Expanded(
-                    child: Center(
-                      child: AspectRatio(
-                        aspectRatio: 1,
-                        child: Container(
-                          padding: EdgeInsets.all(mazeFramePadding),
-                          decoration: BoxDecoration(
-                            color: NightHud.ink,
-                            borderRadius: BorderRadius.circular(
-                              (18 * uiScale).clamp(14.0, 22.0),
+                  GameHud(
+                    stage: _stage,
+                    remainingSeconds: _remainingSeconds,
+                    totalSeconds: _stageDurationSeconds,
+                    isPaused: _isPaused,
+                    onPauseTap: _togglePause,
+                    checkpoint: _checkpoint,
+                    livesRemaining: _livesRemaining,
+                    maxLives: _maxLivesForHud,
+                  ),
+                  // A fixed, see-through pad over the maze's bottom-left.
+                  if (showTouchControls)
+                    Positioned(
+                      left: 0,
+                      bottom: 0,
+                      child: widget.useArrowController
+                          ? ArrowPad(
+                              size: widget.joystickSize,
+                              onDirection: _holdInputDirection,
+                              onEnd: _endInput,
+                            )
+                          : Joystick(
+                              size: widget.joystickSize,
+                              onDirection: _holdInputDirection,
+                              onEnd: _endInput,
                             ),
-                            border: Border.all(
-                              color: NightHud.boneDim.withAlpha(150),
-                              width: 2,
-                            ),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x33000000),
-                                blurRadius: 12,
-                                offset: Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(
-                              (12 * uiScale).clamp(10.0, 16.0),
-                            ),
-                            child: _buildGameSurface(),
-                          ),
+                    ),
+                  if (AppRuntimeConfig.debugStageDropdownEnabled)
+                    Positioned(
+                      top: 4,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: DebugStageDropdown(
+                          currentStage: _stage,
+                          maxStage: _maxStage,
+                          onStageSelected: _jumpToStageForDebug,
                         ),
                       ),
                     ),
-                  ),
-                  if (showTouchControls) ...[
-                    SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
-                    Transform.translate(
-                      offset: Offset(0, controlsLift),
-                      child: Center(
-                        child: widget.useArrowController
-                            ? ArrowPad(
-                                size: widget.joystickSize,
-                                onDirection: _holdInputDirection,
-                                onEnd: _endInput,
-                              )
-                            : Joystick(
-                                size: widget.joystickSize,
-                                onDirection: _holdInputDirection,
-                                onEnd: _endInput,
-                              ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
-
-              GameHud(
-                stage: _stage,
-                remainingSeconds: _remainingSeconds,
-                totalSeconds: _stageDurationSeconds,
-                isPaused: _isPaused,
-                onPauseTap: _togglePause,
-                checkpoint: _checkpoint,
-                livesRemaining: _livesRemaining,
-                maxLives: _maxLivesForHud,
-              ),
-
-              if (AppRuntimeConfig.debugStageDropdownEnabled)
-                Positioned(
-                  top: 4,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: DebugStageDropdown(
-                      currentStage: _stage,
-                      maxStage: _maxStage,
-                      onStageSelected: _jumpToStageForDebug,
-                    ),
-                  ),
-                ),
-
-              if (_isPaused)
-                Positioned.fill(
-                  child: Container(
-                    color: const Color(0xC0000000),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 460),
-                        child: RunPausedDialog(
-                          stage: _stage,
-                          checkpoint: _checkpoint,
-                          nextCheckpoint: _nextMilestoneStage(),
-                          checkpointText: _checkpointPushText(),
-                          modeLabel: _modeLabel,
-                          timeRemainingLabel: _timeLabel.replaceFirst(
-                            'TIME: ',
-                            '',
-                          ),
-                          onResumePressed: _togglePause,
-                          onExitPressed: _onExitPressed,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-              if (_isStageTransition)
-                StageClearOverlay(
-                  stage: _completedStage,
-                  controller: _stageClearController,
-                ),
-
-              if (_showLossOverlay)
-                Positioned.fill(
-                  child: Container(
-                    color: const Color(0xD9000000),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 460),
-                        child: RunFailedDialog(
-                          stage: _stage,
-                          maxStage: _maxStage,
-                          escapePercent: _escapePercent(),
-                          checkpointText: _checkpointPushText(),
-                          modeLabel: _modeLabel,
-                          timeRemainingLabel: _timeLabel.replaceFirst(
-                            'TIME: ',
-                            '',
-                          ),
-                          lossReason: _lossReasonText(),
-                          comebackHook: _comebackHookText(),
-                          lostByTime: _lostByTime,
-                          lostByTrap: _lostByTrap,
-                          trapDeathQuote: _trapDeathQuote,
-                          adActionInProgress: _adActionInProgress,
-                          livesRemaining: _livesRemaining,
-                          maxLives: _maxLivesForHud,
-                          onRevivePressed: _onReviveFromLoss,
-                          onRestartPressed: _onRestartFromLoss,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-              // ── Stage 100 crown victory overlay ───────────────────────────
-              if (_gameComplete)
-                Positioned.fill(
-                  child: Container(
-                    color: const Color(0xE6000000),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 460),
-                        child: Stage100WinDialog(
-                          onPlayAgain: _onGameCompletePlayAgain,
-                          onExit: widget.onExitToDashboard,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+            ),
           ),
-        ),
+
+          if (_isPaused)
+            Positioned.fill(
+              child: Container(
+                color: const Color(0xC0000000),
+                child: _fitted(
+                  RunPausedDialog(
+                    stage: _stage,
+                    checkpoint: _checkpoint,
+                    nextCheckpoint: _nextMilestoneStage(),
+                    checkpointText: _checkpointPushText(),
+                    modeLabel: _modeLabel,
+                    timeRemainingLabel: _timeLabel.replaceFirst('TIME: ', ''),
+                    onResumePressed: _togglePause,
+                    onExitPressed: _onExitPressed,
+                  ),
+                ),
+              ),
+            ),
+
+          if (_isStageTransition)
+            StageClearOverlay(
+              stage: _completedStage,
+              controller: _stageClearController,
+            ),
+
+          if (_showLossOverlay)
+            Positioned.fill(
+              child: Container(
+                color: const Color(0xD9000000),
+                child: _fitted(
+                  RunFailedDialog(
+                    stage: _stage,
+                    maxStage: _maxStage,
+                    escapePercent: _escapePercent(),
+                    checkpointText: _checkpointPushText(),
+                    modeLabel: _modeLabel,
+                    timeRemainingLabel: _timeLabel.replaceFirst('TIME: ', ''),
+                    lossReason: _lossReasonText(),
+                    comebackHook: _comebackHookText(),
+                    lostByTime: _lostByTime,
+                    lostByTrap: _lostByTrap,
+                    trapDeathQuote: _trapDeathQuote,
+                    adActionInProgress: _adActionInProgress,
+                    livesRemaining: _livesRemaining,
+                    maxLives: _maxLivesForHud,
+                    onRevivePressed: _onReviveFromLoss,
+                    onRestartPressed: _onRestartFromLoss,
+                  ),
+                ),
+              ),
+            ),
+
+          // ── Stage 100 crown victory overlay ───────────────────────────
+          if (_gameComplete)
+            Positioned.fill(
+              child: Container(
+                color: const Color(0xE6000000),
+                child: _fitted(
+                  Stage100WinDialog(
+                    onPlayAgain: _onGameCompletePlayAgain,
+                    onExit: widget.onExitToDashboard,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
 
@@ -2236,6 +2213,20 @@ class _GameScreenState extends State<GameScreen>
         return null;
     }
   }
+
+  /// A run dialog, shrunk to fit the screen (a landscape phone is shorter
+  /// than the dialog), never grown.
+  Widget _fitted(Widget dialog) => SafeArea(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(width: 460, child: dialog),
+        ),
+      ),
+    ),
+  );
 
   Widget _buildGameSurface() {
     return RepaintBoundary(

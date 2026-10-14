@@ -2,7 +2,14 @@ import 'package:flutter/material.dart';
 import '../../theme/night_hud.dart';
 import '../../../domain/entities/direction4.dart';
 
-/// The bloody cross-in-a-ring base with the pearl knob; drag to steer.
+// The controls sit over the full-screen maze, so they're drawn see-through:
+// a faint bone tint and outline, brighter only where the thumb is.
+const double _fill = 0.10;
+const double _fillHeld = 0.32;
+const double _line = 0.32;
+const double _lineHeld = 0.7;
+
+/// A fixed, see-through joystick: drag the knob to steer.
 class Joystick extends StatefulWidget {
   const Joystick({
     required this.size,
@@ -10,6 +17,8 @@ class Joystick extends StatefulWidget {
     required this.onEnd,
     super.key,
   });
+
+  static const knobKey = ValueKey<String>('joystick_knob');
 
   final double size;
   final ValueChanged<Direction4?> onDirection;
@@ -21,11 +30,18 @@ class Joystick extends StatefulWidget {
 
 class _JoystickState extends State<Joystick> {
   static const double _deadZone = 10;
+  static const _chevrons = [
+    (Icons.keyboard_arrow_up_rounded, Alignment.topCenter),
+    (Icons.keyboard_arrow_down_rounded, Alignment.bottomCenter),
+    (Icons.keyboard_arrow_left_rounded, Alignment.centerLeft),
+    (Icons.keyboard_arrow_right_rounded, Alignment.centerRight),
+  ];
   Offset _knobOffset = Offset.zero;
 
   @override
   Widget build(BuildContext context) {
-    final knob = widget.size * 0.36;
+    final size = widget.size;
+    final held = _knobOffset != Offset.zero;
     return Center(
       child: GestureDetector(
         onPanDown: (details) => _handleDrag(details.localPosition),
@@ -33,33 +49,49 @@ class _JoystickState extends State<Joystick> {
         onPanEnd: (_) => _resetKnob(),
         onPanCancel: _resetKnob,
         child: SizedBox(
-          width: widget.size,
-          height: widget.size,
+          width: size,
+          height: size,
           child: Stack(
             children: [
               Positioned.fill(
-                child: NightHud.art(
-                  'joystick',
-                  width: widget.size,
-                  fallback: const DecoratedBox(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: NightHud.slate,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: NightHud.bone.withValues(alpha: _fill * 0.8),
+                    border: Border.all(
+                      color: NightHud.bone.withValues(alpha: _line),
+                      width: 2,
                     ),
                   ),
                 ),
               ),
+              for (final (icon, alignment) in _chevrons)
+                Align(
+                  alignment: alignment,
+                  child: Icon(
+                    icon,
+                    size: size * 0.22,
+                    color: NightHud.bone.withValues(alpha: 0.35),
+                  ),
+                ),
               Positioned.fill(
                 child: Transform.translate(
                   offset: _knobOffset,
                   child: Center(
-                    child: NightHud.art(
-                      'knob',
-                      width: knob,
-                      fallback: const DecoratedBox(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: NightHud.bone,
+                    child: Container(
+                      key: Joystick.knobKey,
+                      width: size * 0.4,
+                      height: size * 0.4,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: NightHud.bone.withValues(
+                          alpha: held ? _fillHeld + 0.08 : _fill * 2.5,
+                        ),
+                        border: Border.all(
+                          color: NightHud.bone.withValues(
+                            alpha: held ? _lineHeld : _line + 0.2,
+                          ),
+                          width: 1.5,
                         ),
                       ),
                     ),
@@ -115,9 +147,7 @@ class _JoystickState extends State<Joystick> {
   }
 }
 
-/// The carved stone cross. Holding an arm moves that way; the stone shows
-/// that arm pressed in (the pressed art has its socket on the up arm, so it
-/// turns a quarter per direction).
+/// A fixed, see-through four-arm pad: hold an arm to move that way.
 class ArrowPad extends StatefulWidget {
   const ArrowPad({
     required this.size,
@@ -126,7 +156,8 @@ class ArrowPad extends StatefulWidget {
     super.key,
   });
 
-  static const artKey = ValueKey<String>('arrow_pad_art');
+  static Key armKey(Direction4 direction) =>
+      ValueKey<String>('arrow_pad_${direction.name}');
 
   final double size;
   final ValueChanged<Direction4?> onDirection;
@@ -140,10 +171,18 @@ class _ArrowPadState extends State<ArrowPad> {
   Direction4? _held;
 
   static const _arms = [
-    (Direction4.up, Alignment.topCenter),
-    (Direction4.down, Alignment.bottomCenter),
-    (Direction4.left, Alignment.centerLeft),
-    (Direction4.right, Alignment.centerRight),
+    (Direction4.up, Alignment.topCenter, Icons.keyboard_arrow_up_rounded),
+    (
+      Direction4.down,
+      Alignment.bottomCenter,
+      Icons.keyboard_arrow_down_rounded,
+    ),
+    (Direction4.left, Alignment.centerLeft, Icons.keyboard_arrow_left_rounded),
+    (
+      Direction4.right,
+      Alignment.centerRight,
+      Icons.keyboard_arrow_right_rounded,
+    ),
   ];
 
   void _press(Direction4 direction) {
@@ -162,33 +201,13 @@ class _ArrowPadState extends State<ArrowPad> {
   Widget build(BuildContext context) {
     final padSize = (widget.size * 1.08).clamp(104.0, 188.0);
     final arm = padSize * 0.34;
-    final held = _held;
 
     return SizedBox(
       width: padSize,
       height: padSize,
       child: Stack(
-        alignment: Alignment.center,
         children: [
-          RotatedBox(
-            key: ArrowPad.artKey,
-            quarterTurns: switch (held) {
-              null || Direction4.up => 0,
-              Direction4.right => 1,
-              Direction4.down => 2,
-              Direction4.left => 3,
-            },
-            child: NightHud.art(
-              held == null ? 'dpad' : 'dpad_pressed',
-              width: padSize,
-              fallback: Icon(
-                Icons.gamepad_rounded,
-                color: NightHud.bone,
-                size: padSize * 0.8,
-              ),
-            ),
-          ),
-          for (final (direction, alignment) in _arms)
+          for (final (direction, alignment, icon) in _arms)
             Align(
               alignment: alignment,
               child: GestureDetector(
@@ -196,7 +215,30 @@ class _ArrowPadState extends State<ArrowPad> {
                 onTapDown: (_) => _press(direction),
                 onTapUp: (_) => _release(),
                 onTapCancel: _release,
-                child: SizedBox(width: arm, height: arm),
+                child: Container(
+                  key: ArrowPad.armKey(direction),
+                  width: arm,
+                  height: arm,
+                  decoration: BoxDecoration(
+                    color: NightHud.bone.withValues(
+                      alpha: _held == direction ? _fillHeld : _fill,
+                    ),
+                    borderRadius: BorderRadius.circular(arm * 0.22),
+                    border: Border.all(
+                      color: NightHud.bone.withValues(
+                        alpha: _held == direction ? _lineHeld : _line,
+                      ),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: arm * 0.7,
+                    color: NightHud.bone.withValues(
+                      alpha: _held == direction ? 0.95 : 0.6,
+                    ),
+                  ),
+                ),
               ),
             ),
         ],

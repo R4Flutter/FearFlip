@@ -4,20 +4,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fearflipgame/domain/entities/direction4.dart';
 import 'package:fearflipgame/presentation/gameplay/widgets/game_controls.dart';
 
-Finder _asset(String name) => find.byWidgetPredicate(
-  (w) =>
-      w is Image &&
-      w.image is AssetImage &&
-      (w.image as AssetImage).assetName == 'assets/images/2d/ui/$name.png',
+Widget _host(Widget child) => MaterialApp(
+  home: Scaffold(
+    backgroundColor: Colors.black,
+    body: Center(child: child),
+  ),
 );
 
-Widget _host(Widget child) => MaterialApp(
-  home: Scaffold(body: Center(child: child)),
-);
+/// Fill opacity of a d-pad arm.
+double _armFill(WidgetTester tester, Direction4 dir) =>
+    (tester.widget<Container>(find.byKey(ArrowPad.armKey(dir))).decoration!
+            as BoxDecoration)
+        .color!
+        .a;
 
 void main() {
   group('ArrowPad', () {
-    testWidgets('holding an arm moves that way and presses the stone in', (
+    testWidgets('see-through, drawn in code: no images', (tester) async {
+      await tester.pumpWidget(
+        _host(ArrowPad(size: 150, onDirection: (_) {}, onEnd: () {})),
+      );
+      expect(find.byType(Image), findsNothing);
+      for (final dir in Direction4.values) {
+        expect(_armFill(tester, dir), lessThan(0.25)); // the maze shows through
+      }
+    });
+
+    testWidgets('holding an arm moves that way and lights that arm up', (
       tester,
     ) async {
       final held = <Direction4?>[];
@@ -25,72 +38,60 @@ void main() {
       await tester.pumpWidget(
         _host(ArrowPad(size: 150, onDirection: held.add, onEnd: () => ends++)),
       );
-      expect(_asset('dpad'), findsOneWidget);
+      final idle = _armFill(tester, Direction4.right);
 
-      final pad = tester.getRect(find.byType(ArrowPad));
       final press = await tester.startGesture(
-        pad.centerRight.translate(-pad.width * 0.15, 0),
+        tester.getCenter(find.byKey(ArrowPad.armKey(Direction4.right))),
       );
       await tester.pump();
       expect(held, [Direction4.right]);
-      expect(_asset('dpad_pressed'), findsOneWidget);
-      // The pressed art's socket is drawn on the up arm: a quarter turn
-      // points it right.
-      expect(
-        tester.widget<RotatedBox>(find.byKey(ArrowPad.artKey)).quarterTurns,
-        1,
-      );
+      expect(_armFill(tester, Direction4.right), greaterThan(idle));
+      expect(_armFill(tester, Direction4.left), idle);
 
       await press.up();
       await tester.pump();
       expect(ends, 1);
-      expect(_asset('dpad'), findsOneWidget);
+      expect(_armFill(tester, Direction4.right), idle);
     });
 
-    testWidgets('each arm turns the socket its own way', (tester) async {
+    testWidgets('every arm steers its own way', (tester) async {
       final held = <Direction4?>[];
       await tester.pumpWidget(
         _host(ArrowPad(size: 150, onDirection: held.add, onEnd: () {})),
       );
-      final pad = tester.getRect(find.byType(ArrowPad));
-      final arms = {
-        Direction4.up: (pad.topCenter.translate(0, pad.height * 0.15), 0),
-        Direction4.down: (pad.bottomCenter.translate(0, -pad.height * 0.15), 2),
-        Direction4.left: (pad.centerLeft.translate(pad.width * 0.15, 0), 3),
-      };
-      for (final MapEntry(key: dir, value: (at, turns)) in arms.entries) {
-        final press = await tester.startGesture(at);
-        await tester.pump();
+      for (final dir in Direction4.values) {
+        await tester.tap(find.byKey(ArrowPad.armKey(dir)));
         expect(held.last, dir);
-        expect(
-          tester.widget<RotatedBox>(find.byKey(ArrowPad.artKey)).quarterTurns,
-          turns,
-        );
-        await press.up();
-        await tester.pump();
       }
     });
   });
 
   group('Joystick', () {
-    testWidgets('the pearl knob on the bloody base steers', (tester) async {
+    testWidgets('see-through, drawn in code; the knob follows the thumb', (
+      tester,
+    ) async {
       final held = <Direction4?>[];
       var ends = 0;
       await tester.pumpWidget(
         _host(Joystick(size: 140, onDirection: held.add, onEnd: () => ends++)),
       );
-      expect(_asset('joystick'), findsOneWidget);
-      expect(_asset('knob'), findsOneWidget);
-
+      expect(find.byType(Image), findsNothing);
       final centre = tester.getCenter(find.byType(Joystick));
+      expect(tester.getCenter(find.byKey(Joystick.knobKey)), centre);
+
       final drag = await tester.startGesture(centre);
       await drag.moveBy(const Offset(40, 0));
       await tester.pump();
       expect(held.last, Direction4.right);
+      expect(
+        tester.getCenter(find.byKey(Joystick.knobKey)).dx,
+        greaterThan(centre.dx),
+      );
 
       await drag.up();
       await tester.pump();
       expect(ends, 1);
+      expect(tester.getCenter(find.byKey(Joystick.knobKey)), centre);
     });
   });
 }

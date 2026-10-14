@@ -620,10 +620,8 @@ def build_ui():
     up, down = fit_frames(blobs(t, 2, min_area=5000), 128, 128, pad=0.02)
     save(up, 'ui/button.png')
     save(down, 'ui/button_pressed.png')
-    t = largest_only(key_hard(rgb('ui_knob.png'), tol=18))
-    save(fit_frames(blobs(t, 1, min_area=5000), 160, 160, pad=0.02)[0], 'ui/knob.png')
-    t = largest_only(key_hard(rgb('ui_joystick.png'), enclosed=True))
-    save(fit_frames(blobs(t, 1, min_area=5000), 384, 384, pad=0.01)[0], 'ui/joystick.png')
+    # ui_dpad, ui_joystick, ui_knob: not cut. The controls are drawn in code,
+    # see-through over the full-screen maze (the user's call, 14 Oct 2026).
     t = largest_only(key_hard(rgb('ui_textbox.png'), enclosed=True))
     save(fit_frames(blobs(t, 1, min_area=5000), 320, 320, pad=0.01)[0], 'ui/medallion.png')
     t = key_hard(rgb('ui_timebar.png'), tol=18)
@@ -635,37 +633,6 @@ def build_ui():
     t = largest_only(key_hard(a[:, :a.shape[1] // 2 - 20], tol=70, flat=True, enclosed=True, thin=2,
                               t_max=2.2, min_island=400))
     save(fit_frames(blobs(t, 1, min_area=5000), 160, 96, pad=0.02)[0], 'ui/bone_arrow.png')
-    # D-pad: the art is the up-pressed pad. Idle = the down arm mirrored over
-    # the up socket; pressed = the art as-is (the game rotates it).
-    t = largest_only(key_hard(rgb('ui_dpad.png'), tol=16, flat=True, enclosed=True, thin=2))
-    pressed = np.asarray(fit_frames(blobs(t, 1, min_area=5000), 384, 384, pad=0.01)[0]).copy()
-    # Measure the plus: the up arm's columns (top rows only) and the left arm's
-    # rows (left columns only); anything outside the plus is backdrop.
-    solid = pressed[..., 3] > 128
-    xs = np.flatnonzero(solid[:384 // 8].any(0))
-    ys = np.flatnonzero(solid[:, :384 // 8].any(1))
-    (x0, x1), (y0, y1) = (xs.min(), xs.max()), (ys.min(), ys.max())
-    plus = np.zeros_like(solid)
-    plus[:, x0:x1 + 1] = True
-    plus[y0:y1 + 1, :] = True
-    # exact, not widened: a sliver of checker hugs the up arm's left bevel
-    plus = ndimage.gaussian_filter(plus.astype(np.float32), 0.8)
-    pressed[..., 3] = (pressed[..., 3] * plus).astype(np.uint8)
-    idle = pressed.copy()
-    arm = pressed[y1 + 1:y1 + 1 + y0, x0:x1 + 1]  # the down arm next to the centre
-    idle[0:arm.shape[0], x0:x1 + 1] = arm[::-1]
-    # keying left spikes and notches on the stone's edge: smooth the outline
-    # and keep it just inside the measured plus, so the arms stay straight
-    inside = ndimage.binary_erosion(plus > 0.5, iterations=2)
-    for pad_art in (idle, pressed):
-        solid = ndimage.binary_closing(
-            ndimage.binary_opening(pad_art[..., 3] > 128, iterations=3), iterations=3) & inside
-        lab, n = ndimage.label(solid)
-        if n > 1:  # just the cross, no stray specks
-            solid = lab == 1 + int(np.argmax(ndimage.sum(solid, lab, range(1, n + 1))))
-        pad_art[..., 3] = (ndimage.gaussian_filter(solid.astype(np.float32), 0.9) * 255).astype(np.uint8)
-    save(Image.fromarray(idle), 'ui/dpad.png')
-    save(Image.fromarray(pressed), 'ui/dpad_pressed.png')
 
 
 # ── self-check ──────────────────────────────────────────────────────────────
@@ -681,9 +648,8 @@ EXPECT = {  # rel path: (frame width, frame height, frames)
     'fx/wisp.png': (96, 96, 4), 'fx/drip.png': (48, 128, 4), 'fx/flip.png': (128, 128, 6),
     'fx/dust.png': (64, 64, 4),
     **{f'ui/icon_{i}.png': (96, 96, 1) for i in ICONS},
-    'ui/button.png': (128, 128, 1), 'ui/button_pressed.png': (128, 128, 1), 'ui/knob.png': (160, 160, 1),
-    'ui/joystick.png': (384, 384, 1), 'ui/medallion.png': (320, 320, 1), 'ui/timebar.png': (512, 128, 1),
-    'ui/bone_arrow.png': (160, 96, 1), 'ui/dpad.png': (384, 384, 1), 'ui/dpad_pressed.png': (384, 384, 1),
+    'ui/button.png': (128, 128, 1), 'ui/button_pressed.png': (128, 128, 1),
+    'ui/medallion.png': (320, 320, 1), 'ui/timebar.png': (512, 128, 1), 'ui/bone_arrow.png': (160, 96, 1),
 }
 KEYED = [p for p in EXPECT if not p.startswith('tiles/') and p not in (
     'objects/start.png', 'objects/exit_wake.png', 'objects/exit_nightmare.png',

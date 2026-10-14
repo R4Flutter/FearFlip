@@ -15,13 +15,19 @@ class MazeCamera {
   static const double visibleTiles = 11;
 
   /// A camera centred on [focus] (a cell position, fractional while moving),
-  /// clamped so it never shows past the maze's outer wall.
+  /// clamped so it never shows past the maze's outer wall. The short side
+  /// shows [visibleTiles]; a maze smaller than the full-screen view is zoomed
+  /// until it fills it, so there are never empty bars beside it.
   factory MazeCamera.follow({
     required Size viewport,
     required MazeGrid maze,
     required Offset focus,
   }) {
-    final tileSize = min(viewport.width, viewport.height) / visibleTiles;
+    final tileSize = [
+      min(viewport.width, viewport.height) / visibleTiles,
+      viewport.width / (2 * maze.cols + 1),
+      viewport.height / (2 * maze.rows + 1),
+    ].reduce(max);
 
     double axis(double view, int cells, double focusCell) {
       final world = (2 * cells + 1) * tileSize;

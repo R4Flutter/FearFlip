@@ -35,13 +35,16 @@ on a new delivery; the crop boxes in it are measured on this one.
 exit (gold in WAKE, red eyes in NIGHTMARE: `extra_devil_eyes_exit`), spirit-candle safe zones, both trap sheets,
 torches, both prop sheets, smoke (the Devil appears/vanishes), debris (trap collapse), sparkles (exit), wisps and
 drips (NIGHTMARE), flip (the world flips), dust (footsteps), the bone arrow (`extra_bloody_bone`, the off-screen
-exit pointer), all 16 icons, the timebar, pause button, d-pad, joystick and knob, and `ui_textbox` (round, so it
-became the medallion on every in-run dialog). The maze is dark with light around the runner, torches, the exit
-and safe zones (code).
+exit pointer), all 16 icons, the timebar, the pause button, and `ui_textbox` (round, so it became the medallion
+on every in-run dialog). The maze is dark with light around the runner, torches, the exit and safe zones (code).
+
+**Layout (user, 14 Oct 2026):** a run is landscape only and the maze fills the whole screen like Pokémon Ash Gray
+(no box); the HUD sits on top of it. The d-pad and joystick are drawn in code, see-through and fixed in place, so
+`ui_dpad`, `ui_joystick` and `ui_knob` are deliberately not used.
 
 **Still to deliver:** every runner and devil sheet and portrait (§7, §8: the runner is still a lantern glow and
-the Devil a shadow with eyes), `fx_emotes`, `obj_salt_circle` (the spirit-candle tile stands in), `ui_dpad_press`
-(the d-pad's idle look is made from the pressed one), `ui_sign`, `ui_cursor`, and the two fonts (numbers use the
+the Devil a shadow with eyes), `fx_emotes`, `obj_salt_circle` (the spirit-candle tile stands in), `ui_sign`,
+`ui_cursor`, and the two fonts (numbers use the
 system font with a dark outline until Press Start 2P is bundled).
 
 ---

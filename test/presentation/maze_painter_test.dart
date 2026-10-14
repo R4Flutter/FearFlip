@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fearflipgame/domain/entities/direction4.dart';
 import 'package:fearflipgame/presentation/gameplay/maze_art.dart';
+import 'package:fearflipgame/presentation/gameplay/maze_camera.dart';
 import 'package:fearflipgame/presentation/gameplay/maze_generator.dart';
 import 'package:fearflipgame/presentation/gameplay/maze_painter.dart';
 
@@ -67,11 +68,17 @@ Future<Color> _pixel(MazePainter painter, Offset at) async {
   );
 }
 
+/// The camera the painter uses (runner in cell 0,0) for [maze] in [_view].
+MazeCamera _camera(MazeGrid maze) =>
+    MazeCamera.follow(viewport: _view, maze: maze, focus: Offset.zero);
+
+/// Where (fractional) cell ([x], [y]) of [maze] is drawn.
+Offset _at(MazeGrid maze, double x, double y) =>
+    _camera(maze).cellCenter(Offset(x, y));
+
 void main() {
-  // The 9×9-tile maze is centred in the 11-tile view (a one-tile margin), so
-  // cell (1, 0) sits on block tile (3, 1) at pixels 80..100 × 40..60, clear
-  // of the start, the runner and the edge arrows.
-  const floorPixel = Offset(90, 50);
+  // Cell (1, 0): a floor tile clear of the start, the runner and the arrows.
+  final floorPixel = _at(_maze(), 1, 0);
 
   testWidgets('without art the floor keeps its stand-in colour', (
     tester,
@@ -110,8 +117,7 @@ void main() {
     expect(nightmare!.r, greaterThan(nightmare.b));
   });
 
-  // The exit, cell (3, 3), is block tile (7, 7): pixels 160..180 square.
-  const exitPixel = Offset(170, 170);
+  final exitPixel = _at(_maze(), 3, 3);
 
   testWidgets('the exit shows its stairway art, a different one per world', (
     tester,
@@ -141,7 +147,12 @@ void main() {
     // 25×25 tiles, camera on the top-left: the exit is far off the bottom
     // right, so the pointer sits on the view's corner, 0.55 tile in.
     final maze = _bigMaze(12);
-    const corner = Offset(208, 208);
+    final camera = _camera(maze);
+    final corner = MazeCamera.offscreenPointer(
+      _view,
+      camera.cellCenter(const Offset(11, 11)),
+      camera.tileSize * 0.55,
+    )!;
     final standIn = await tester.runAsync(
       () => _pixel(_painter(maze, const MazeArt.none()), corner),
     );
@@ -157,9 +168,9 @@ void main() {
     final art = (await tester.runAsync(MazeArt.load))!;
     addTearDown(art.dispose);
     final maze = _maze();
-    // A tile below-right of the runner (cell 0,0 at pixels 40..60): inside
-    // the 3-tile burst, clear of the runner's own glow.
-    const nearRunner = Offset(66, 66);
+    // About a tile below-right of the runner: inside the burst's rays, clear
+    // of the runner's own glow.
+    final nearRunner = _at(maze, 0.35, 0.35);
     final calm = await tester.runAsync(
       () => _pixel(_painter(maze, art, time: 0.3), nearRunner),
     );
@@ -185,13 +196,9 @@ void main() {
     final maze = _bigMaze(12);
     final painter = _painter(maze, const MazeArt.none());
     // Cell (1, 0), two tiles from the runner: fully lit.
-    final near = await tester.runAsync(
-      () => _pixel(painter, const Offset(70, 30)),
-    );
+    final near = await tester.runAsync(() => _pixel(painter, _at(maze, 1, 0)));
     // Cell (4, 4), over eleven tiles away: deep in the dark.
-    final far = await tester.runAsync(
-      () => _pixel(painter, const Offset(190, 190)),
-    );
+    final far = await tester.runAsync(() => _pixel(painter, _at(maze, 4, 4)));
     expect(near, const Color(0xFF3B4660));
     double lum(Color c) => c.r + c.g + c.b;
     expect(lum(far!), lessThan(lum(near!) * 0.5));
