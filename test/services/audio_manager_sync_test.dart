@@ -95,6 +95,35 @@ void main() {
   });
 
   group('AudioManager sync integration', () {
+    test('menu theme plays in menus and pauses for a match', () async {
+      await manager.setMenuThemeActive(true);
+      expect(manager.isMenuThemePlaying, isTrue);
+
+      await manager.setMenuThemeActive(false);
+      expect(manager.isMenuThemePlaying, isFalse);
+
+      // and comes back after the run
+      await manager.setMenuThemeActive(true);
+      expect(manager.isMenuThemePlaying, isTrue);
+      await manager.setMenuThemeActive(false);
+    });
+
+    test('flip still plays while the low-time alarm loops', () async {
+      await manager.handlePayload(GameAudioEventPayload.matchStart());
+      await manager.handlePayload(
+        GameAudioEventPayload.timeChanged(secondsLeft: 8),
+      );
+      expect(manager.isAlarmPlaying, isTrue);
+
+      await manager
+          .handlePayload(GameAudioEventPayload.flipTriggered(frameId: 777))
+          .timeout(const Duration(seconds: 2));
+      expect(
+        _hasSourceUrlContaining(fakeAudioPlatform, 'flippingtime.mp3'),
+        isTrue,
+      );
+    });
+
     test('matchStart -> calm starts (delay policy)', () async {
       await manager.handlePayload(GameAudioEventPayload.matchStart());
 
@@ -422,18 +451,31 @@ void main() {
     });
 
     test(
-      'trap reveal plays glass break and trap collapse plays loss',
+      'trap step creaks, reveal cracks, fall/impact use their own clips',
       () async {
         await manager.handlePayload(GameAudioEventPayload.matchStart());
 
         await manager.handlePayload(
           const GameAudioEventPayload(GameAudioEvent.trapStepWarning),
         );
-
-        expect(
-          _hasSourceUrlContaining(fakeAudioPlatform, 'glass_break.mp3'),
-          isTrue,
+        await manager.handlePayload(
+          const GameAudioEventPayload(GameAudioEvent.trapCrackReveal),
         );
+        await manager.handlePayload(
+          const GameAudioEventPayload(GameAudioEvent.trapDeathFall),
+        );
+        await manager.handlePayload(
+          const GameAudioEventPayload(GameAudioEvent.trapDeathImpact),
+        );
+
+        for (final clip in <String>[
+          'trap_creak.mp3',
+          'glass_break.mp3',
+          'trap_fall.mp3',
+          'trap_impact.mp3',
+        ]) {
+          expect(_hasSourceUrlContaining(fakeAudioPlatform, clip), isTrue);
+        }
         expect(
           _hasAnySourceUrlContaining(fakeAudioPlatform, const <String>[
             'gamelost_soundeffect.mp3',
@@ -831,15 +873,26 @@ class _FakeJustAudioPlayer extends AudioPlayerPlatform {
     return LoadResponse(duration: _duration);
   }
 
+  // Like the native plugins: a play request is only answered once playback
+  // pauses, stops or the player is disposed, so `await player.play()` blocks.
+  Completer<void>? _playing;
+
+  void _endPlay() {
+    _playing?.complete();
+    _playing = null;
+  }
+
   @override
   Future<PlayResponse> play(PlayRequest request) async {
     _dataController.add(PlayerDataMessage(playing: true));
     _emitPlaybackEvent();
+    await (_playing ??= Completer<void>()).future;
     return PlayResponse();
   }
 
   @override
   Future<PauseResponse> pause(PauseRequest request) async {
+    _endPlay();
     _dataController.add(PlayerDataMessage(playing: false));
     _emitPlaybackEvent();
     return PauseResponse();
@@ -939,6 +992,7 @@ class _FakeJustAudioPlayer extends AudioPlayerPlatform {
 
   @override
   Future<DisposeResponse> dispose(DisposeRequest request) async {
+    _endPlay();
     _processingState = ProcessingStateMessage.idle;
     _emitPlaybackEvent();
     await _eventController.close();
