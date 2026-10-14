@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import '../../theme/app_palette.dart';
+import '../../theme/night_hud.dart';
 import '../../../domain/entities/direction4.dart';
 
+/// The bloody cross-in-a-ring base with the pearl knob; drag to steer.
 class Joystick extends StatefulWidget {
   const Joystick({
     required this.size,
@@ -24,40 +25,26 @@ class _JoystickState extends State<Joystick> {
 
   @override
   Widget build(BuildContext context) {
+    final knob = widget.size * 0.36;
     return Center(
       child: GestureDetector(
         onPanDown: (details) => _handleDrag(details.localPosition),
         onPanUpdate: (details) => _handleDrag(details.localPosition),
         onPanEnd: (_) => _resetKnob(),
         onPanCancel: _resetKnob,
-        child: Container(
+        child: SizedBox(
           width: widget.size,
           height: widget.size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppPalette.surfaceAlt,
-            border: Border.all(
-              color: AppPalette.accentPurple.withAlpha(170),
-              width: 2.6,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x33000000),
-                blurRadius: 8,
-                offset: Offset(0, 3),
-              ),
-            ],
-          ),
           child: Stack(
             children: [
               Positioned.fill(
-                child: Center(
-                  child: Container(
-                    width: 8,
-                    height: 8,
+                child: NightHud.art(
+                  'joystick',
+                  width: widget.size,
+                  fallback: const DecoratedBox(
                     decoration: BoxDecoration(
-                      color: AppPalette.neonGreen.withAlpha(90),
                       shape: BoxShape.circle,
+                      color: NightHud.slate,
                     ),
                   ),
                 ),
@@ -66,18 +53,14 @@ class _JoystickState extends State<Joystick> {
                 child: Transform.translate(
                   offset: _knobOffset,
                   child: Center(
-                    child: Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: AppPalette.neonGreen,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.black, width: 1.2),
-                      ),
-                      child: const Icon(
-                        Icons.control_camera,
-                        size: 18,
-                        color: Colors.black,
+                    child: NightHud.art(
+                      'knob',
+                      width: knob,
+                      fallback: const DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: NightHud.bone,
+                        ),
                       ),
                     ),
                   ),
@@ -132,7 +115,10 @@ class _JoystickState extends State<Joystick> {
   }
 }
 
-class ArrowPad extends StatelessWidget {
+/// The carved stone cross. Holding an arm moves that way; the stone shows
+/// that arm pressed in (the pressed art has its socket on the up arm, so it
+/// turns a quarter per direction).
+class ArrowPad extends StatefulWidget {
   const ArrowPad({
     required this.size,
     required this.onDirection,
@@ -140,14 +126,43 @@ class ArrowPad extends StatelessWidget {
     super.key,
   });
 
+  static const artKey = ValueKey<String>('arrow_pad_art');
+
   final double size;
   final ValueChanged<Direction4?> onDirection;
   final VoidCallback onEnd;
 
   @override
+  State<ArrowPad> createState() => _ArrowPadState();
+}
+
+class _ArrowPadState extends State<ArrowPad> {
+  Direction4? _held;
+
+  static const _arms = [
+    (Direction4.up, Alignment.topCenter),
+    (Direction4.down, Alignment.bottomCenter),
+    (Direction4.left, Alignment.centerLeft),
+    (Direction4.right, Alignment.centerRight),
+  ];
+
+  void _press(Direction4 direction) {
+    setState(() => _held = direction);
+    widget.onDirection(direction);
+  }
+
+  void _release() {
+    if (_held != null) {
+      setState(() => _held = null);
+    }
+    widget.onEnd();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final padSize = (size * 1.08).clamp(104.0, 188.0);
-    final buttonSize = padSize * 0.34;
+    final padSize = (widget.size * 1.08).clamp(104.0, 188.0);
+    final arm = padSize * 0.34;
+    final held = _held;
 
     return SizedBox(
       width: padSize,
@@ -155,76 +170,36 @@ class ArrowPad extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          _ArrowButton(
-            alignment: Alignment.topCenter,
-            icon: Icons.keyboard_arrow_up,
-            size: buttonSize,
-            onDown: () => onDirection(Direction4.up),
-            onUp: onEnd,
-          ),
-          _ArrowButton(
-            alignment: Alignment.bottomCenter,
-            icon: Icons.keyboard_arrow_down,
-            size: buttonSize,
-            onDown: () => onDirection(Direction4.down),
-            onUp: onEnd,
-          ),
-          _ArrowButton(
-            alignment: Alignment.centerLeft,
-            icon: Icons.keyboard_arrow_left,
-            size: buttonSize,
-            onDown: () => onDirection(Direction4.left),
-            onUp: onEnd,
-          ),
-          _ArrowButton(
-            alignment: Alignment.centerRight,
-            icon: Icons.keyboard_arrow_right,
-            size: buttonSize,
-            onDown: () => onDirection(Direction4.right),
-            onUp: onEnd,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ArrowButton extends StatelessWidget {
-  const _ArrowButton({
-    required this.alignment,
-    required this.icon,
-    required this.size,
-    required this.onDown,
-    required this.onUp,
-  });
-
-  final Alignment alignment;
-  final IconData icon;
-  final double size;
-  final VoidCallback onDown;
-  final VoidCallback onUp;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: alignment,
-      child: GestureDetector(
-        onTapDown: (_) => onDown(),
-        onTapUp: (_) => onUp(),
-        onTapCancel: onUp,
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: AppPalette.surfaceAlt,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppPalette.accentPurple.withAlpha(170),
-              width: 1.3,
+          RotatedBox(
+            key: ArrowPad.artKey,
+            quarterTurns: switch (held) {
+              null || Direction4.up => 0,
+              Direction4.right => 1,
+              Direction4.down => 2,
+              Direction4.left => 3,
+            },
+            child: NightHud.art(
+              held == null ? 'dpad' : 'dpad_pressed',
+              width: padSize,
+              fallback: Icon(
+                Icons.gamepad_rounded,
+                color: NightHud.bone,
+                size: padSize * 0.8,
+              ),
             ),
           ),
-          child: Icon(icon, color: AppPalette.neonGreen, size: size * 0.68),
-        ),
+          for (final (direction, alignment) in _arms)
+            Align(
+              alignment: alignment,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (_) => _press(direction),
+                onTapUp: (_) => _release(),
+                onTapCancel: _release,
+                child: SizedBox(width: arm, height: arm),
+              ),
+            ),
+        ],
       ),
     );
   }
