@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../theme/app_palette.dart';
 import '../../config/app_runtime_config.dart';
 import '../../game/trap/trap_analytics.dart';
 import '../../game/trap/trap_audio_controller.dart';
@@ -1731,7 +1730,7 @@ class _GameScreenState extends State<GameScreen>
               clipBehavior: Clip.none,
               children: [
                 Positioned.fill(
-                  child: RealityGlassPanel(color: AppPalette.accentPurple),
+                  child: RealityGlassPanel(color: NightHud.boneDim),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(
@@ -1745,14 +1744,15 @@ class _GameScreenState extends State<GameScreen>
                         title: 'BREAK CYCLE?',
                         subtitle: 'EXTERNAL REALITY DETECTED',
                         icon: Icons.exit_to_app_rounded,
-                        color: AppPalette.accentPurple,
+                        color: NightHud.boneDim,
+                        emblem: 'house',
                       ),
                       const SizedBox(height: 32),
                       const Text(
                         'LEAVING WILL PURGE UNSAVED PROGRESS',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: AppPalette.danger,
+                          color: NightHud.blood,
                           fontWeight: FontWeight.w900,
                           fontSize: 11,
                           letterSpacing: 1.5,
@@ -1761,14 +1761,14 @@ class _GameScreenState extends State<GameScreen>
                       const SizedBox(height: 32),
                       FearButton(
                         label: 'STAY IN HELL',
-                        color: AppPalette.neonGreen,
+                        color: NightHud.amber,
                         onPressed: () => Navigator.pop(context, false),
                         isPrimary: true,
                       ),
                       const SizedBox(height: 12),
                       FearButton(
                         label: 'CONFIRM ABORT',
-                        color: AppPalette.danger,
+                        color: NightHud.blood,
                         onPressed: () => Navigator.pop(context, true),
                       ),
                     ],
@@ -1843,7 +1843,7 @@ class _GameScreenState extends State<GameScreen>
     final showTouchControls = !kIsWeb;
 
     final gameContent = Material(
-      color: AppPalette.backgroundDark,
+      color: NightHud.ink,
       child: SafeArea(
         child: Padding(
           padding: EdgeInsets.symmetric(
@@ -1862,13 +1862,13 @@ class _GameScreenState extends State<GameScreen>
                         child: Container(
                           padding: EdgeInsets.all(mazeFramePadding),
                           decoration: BoxDecoration(
-                            color: AppPalette.surface,
+                            color: NightHud.ink,
                             borderRadius: BorderRadius.circular(
                               (18 * uiScale).clamp(14.0, 22.0),
                             ),
                             border: Border.all(
-                              color: AppPalette.accentPurple.withAlpha(160),
-                              width: 1.3,
+                              color: NightHud.boneDim.withAlpha(150),
+                              width: 2,
                             ),
                             boxShadow: const [
                               BoxShadow(

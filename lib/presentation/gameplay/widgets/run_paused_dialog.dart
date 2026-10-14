@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../theme/app_palette.dart';
+import '../../theme/night_hud.dart';
 import 'cyber_horror_ui_components.dart';
 
 class RunPausedDialog extends StatefulWidget {
@@ -79,7 +79,7 @@ class _RunPausedDialogState extends State<RunPausedDialog>
           alignment: Alignment.center,
           children: [
             const Positioned.fill(
-              child: RealityGlassPanel(color: AppPalette.accentPurple),
+              child: RealityGlassPanel(color: NightHud.boneDim),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
@@ -92,7 +92,8 @@ class _RunPausedDialogState extends State<RunPausedDialog>
                     title: 'FEAR CYCLE',
                     subtitle: 'REALITY SHIFT IN STASIS',
                     icon: Icons.security_rounded,
-                    color: AppPalette.accentPurple,
+                    color: NightHud.boneDim,
+                    emblem: 'pause',
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -101,7 +102,7 @@ class _RunPausedDialogState extends State<RunPausedDialog>
                         child: HorrorStatBox(
                           label: 'STAGE',
                           value: '${widget.stage}',
-                          color: AppPalette.accentPurple,
+                          color: NightHud.boneDim,
                           icon: Icons.layers_rounded,
                         ),
                       ),
@@ -110,7 +111,7 @@ class _RunPausedDialogState extends State<RunPausedDialog>
                         child: HorrorStatBox(
                           label: 'REMAINING',
                           value: widget.timeRemainingLabel,
-                          color: AppPalette.neonGreen,
+                          color: NightHud.amber,
                           icon: Icons.timer_rounded,
                         ),
                       ),
@@ -120,7 +121,7 @@ class _RunPausedDialogState extends State<RunPausedDialog>
                   HorrorStatBox(
                     label: 'REALITY LAYER',
                     value: widget.modeLabel.toUpperCase(),
-                    color: const Color(0xFF87ECFF),
+                    color: NightHud.spirit,
                     isWide: true,
                   ),
                   const SizedBox(height: 32),
@@ -132,13 +133,13 @@ class _RunPausedDialogState extends State<RunPausedDialog>
                           Text(
                             'BREAK THE LOOP?',
                             style: TextStyle(
-                              color: AppPalette.textPrimary,
+                              color: NightHud.bone,
                               fontSize: 28,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 2,
                               shadows: [
                                 Shadow(
-                                  color: AppPalette.neonGreen.withValues(alpha: _glowPulse.value),
+                                  color: NightHud.amber.withValues(alpha: _glowPulse.value),
                                   blurRadius: 15 * _glowPulse.value,
                                 ),
                               ],
@@ -149,7 +150,7 @@ class _RunPausedDialogState extends State<RunPausedDialog>
                             widget.checkpointText.toUpperCase(),
                             textAlign: TextAlign.center,
                             style: const TextStyle(
-                              color: AppPalette.textMuted,
+                              color: NightHud.boneDim,
                               fontSize: 11,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 1.5,
@@ -163,14 +164,14 @@ class _RunPausedDialogState extends State<RunPausedDialog>
                   FearButton(
                     label: 'RESUME SURVIVAL',
                     onPressed: widget.onResumePressed,
-                    color: AppPalette.neonGreen,
+                    color: NightHud.amber,
                     isPrimary: true,
                   ),
                   const SizedBox(height: 12),
                   FearButton(
                     label: 'ABANDON RUN',
                     onPressed: () => unawaited(widget.onExitPressed()),
-                    color: AppPalette.danger,
+                    color: NightHud.blood,
                   ),
                 ],
               ),
