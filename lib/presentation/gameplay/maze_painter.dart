@@ -148,8 +148,6 @@ class MazePainter extends CustomPainter {
       canvas.drawRect(endTileRect, endBorder);
     }
 
-    _paintSparkles(canvas, camera);
-
     final safe = art.safe;
     for (final entry in safeZones.entries) {
       final strength = entry.value.clamp(0.0, 1.0);
@@ -235,22 +233,23 @@ class MazePainter extends CustomPainter {
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
         );
         canvas.drawCircle(devilCenter, cellSize * 0.32, Paint()..color = _void);
-        final eye = Paint()..color = _danger;
-        final eyeY = devilCenter.dy - cellSize * 0.05;
-        canvas.drawCircle(
-          Offset(devilCenter.dx - cellSize * 0.1, eyeY),
-          cellSize * 0.05,
-          eye,
-        );
-        canvas.drawCircle(
-          Offset(devilCenter.dx + cellSize * 0.1, eyeY),
-          cellSize * 0.05,
-          eye,
-        );
       }
     }
 
     _paintEffects(canvas, camera, MazeFxKind.smoke);
+    _paintDarkness(canvas, size, camera, playerCenter);
+
+    // Above the dark: the Devil's eyes (seen before its body), the exit's
+    // sparkles and the ghost wisps glow on their own.
+    if (devil != null) {
+      final eyes = camera
+          .cellCenter(_offsetOf(devil))
+          .translate(0, sin(time * 3.4) * cellSize * 0.07 - cellSize * 0.05);
+      final eye = Paint()..color = _danger;
+      canvas.drawCircle(eyes.translate(-cellSize * 0.1, 0), cellSize * 0.05, eye);
+      canvas.drawCircle(eyes.translate(cellSize * 0.1, 0), cellSize * 0.05, eye);
+    }
+    _paintSparkles(canvas, camera);
     _paintWisps(canvas, size, camera);
 
     // The camera hides most of the maze, so point at what matters off screen:
@@ -492,6 +491,63 @@ class MazePainter extends CustomPainter {
       }
       _drawFrame(canvas, strip, frame, rect);
     }
+  }
+
+  /// The runner's light: fully lit within [_lightInner] tiles, fading to
+  /// [_darkness] by [_lightOuter]. The view is 11 tiles across, so only its
+  /// edges and corners sink into the dark.
+  static const double _lightInner = 2.5;
+  static const double _lightOuter = 5;
+  static const double _darkness = 0.78;
+
+  /// The maze is dark: cold in WAKE, blood-red in NIGHTMARE. Light cuts
+  /// through it around the runner, under torches, at the exit and the safe
+  /// zones.
+  void _paintDarkness(Canvas canvas, Size size, MazeCamera camera, Offset runner) {
+    final t = camera.tileSize;
+    final view = Offset.zero & size;
+    canvas.saveLayer(view, Paint());
+    canvas.drawRect(
+      view,
+      Paint()
+        ..color = (isFlippedMode ? const Color(0xFF12030A) : const Color(0xFF05060C))
+            .withValues(alpha: _darkness),
+    );
+    void light(Offset at, double inner, double outer, [double strength = 1]) {
+      final core = Color.fromRGBO(0, 0, 0, strength);
+      canvas.drawCircle(
+        at,
+        outer,
+        Paint()
+          ..blendMode = BlendMode.dstOut
+          ..shader = ui.Gradient.radial(
+            at,
+            outer,
+            [core, core, const Color(0x00000000)],
+            [0, inner / outer, 1],
+          ),
+      );
+    }
+
+    light(runner, t * _lightInner, t * _lightOuter);
+    if (art.torch != null) {
+      final (firstCol, firstRow, lastCol, lastRow) = _visibleTiles(size, camera);
+      bool wall(int col, int row) => isWallTile(maze, col, row);
+      for (var row = firstRow; row <= lastRow; row++) {
+        for (var col = firstCol; col <= lastCol; col++) {
+          if (hasTorch(wall, col, row)) {
+            final rect = camera.tileRect(col, row);
+            final flicker = 1 + 0.06 * sin(time * 9 + tileHash(col, row) % 7);
+            light(Offset(rect.center.dx, rect.bottom - t * 0.75), t * 0.3, t * 1.7 * flicker, 0.85);
+          }
+        }
+      }
+    }
+    light(camera.cellCenter(_offsetOf(maze.end)), t * 0.45, t * 1.4); // the goal glows
+    for (final cell in safeZones.keys) {
+      light(camera.cellCenter(_offsetOf(cell)), t * 0.3, t * 1.2, 0.8);
+    }
+    canvas.restore();
   }
 
   static const _stoneDust = ColorFilter.mode(Color(0xFFA89C8A), BlendMode.modulate);
