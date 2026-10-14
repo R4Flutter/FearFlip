@@ -93,4 +93,27 @@ void main() {
     // NIGHTMARE floors are blood-red: red leads the other channels.
     expect(nightmare!.r, greaterThan(nightmare.b));
   });
+
+  // The exit, cell (3, 3), is block tile (7, 7): pixels 160..180 square.
+  const exitPixel = Offset(170, 170);
+
+  testWidgets('the exit shows its stairway art, a different one per world', (
+    tester,
+  ) async {
+    final art = (await tester.runAsync(MazeArt.load))!;
+    addTearDown(art.dispose);
+    final maze = _maze();
+    final standIn = await tester.runAsync(
+      () => _pixel(_painter(maze, const MazeArt.none()), exitPixel),
+    );
+    final wake = await tester.runAsync(
+      () => _pixel(_painter(maze, art), exitPixel),
+    );
+    final nightmare = await tester.runAsync(
+      () => _pixel(_painter(maze, art, flipped: true), exitPixel),
+    );
+    expect(standIn, const Color(0xFFFFC83D)); // the flat gold stand-in
+    expect(wake, isNot(standIn));
+    expect(nightmare, isNot(wake));
+  });
 }

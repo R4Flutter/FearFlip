@@ -82,30 +82,30 @@ class MazePainter extends CustomPainter {
     );
     final cellSize = camera.tileSize;
     _paintTiles(canvas, size, camera);
+    _paintTorches(canvas, size, camera);
+    _paintProps(canvas, size, camera);
+    _paintTraps(canvas, camera);
 
-    // ── Trap tiles (rendered between walls and entities) ──
-    if (trapTiles.isNotEmpty) {
-      const trapRenderer = TrapFxRenderer();
-      trapRenderer.renderTiles(
-        canvas,
-        origin: camera.cellOrigin,
-        cellSize: cellSize,
-        cellStride: cellSize * 2,
-        tiles: trapTiles,
-        // Both worlds have dark floors now, so the dark-floor look fits both.
-        isFlippedMode: false,
-        hiddenCueLevel: trapHiddenCueLevel,
+    final start = art.start;
+    if (start != null) {
+      _drawFrame(canvas, start, start.loop(time, 6), camera.cellRect(maze.start));
+    } else {
+      final startRing = Paint()
+        ..color = _amber.withValues(alpha: 0.75)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(1.5, cellSize * 0.07);
+      canvas.drawCircle(
+        camera.cellCenter(_offsetOf(maze.start)),
+        cellSize * (0.3 + pulse * 0.04),
+        startRing,
       );
     }
 
-    final startCenter = camera.cellCenter(_offsetOf(maze.start));
-    final startRing = Paint()
-      ..color = _amber.withValues(alpha: 0.75)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = max(1.5, cellSize * 0.07);
-    canvas.drawCircle(startCenter, cellSize * (0.3 + pulse * 0.04), startRing);
-
-    {
+    // WAKE: stairs down into warm light. NIGHTMARE: something waits below.
+    final exit = isFlippedMode ? art.exitNightmare : art.exitWake;
+    if (exit != null) {
+      _drawFrame(canvas, exit, exit.loop(time, 6), camera.cellRect(maze.end));
+    } else {
       final endTileRect = camera.cellRect(maze.end).deflate(cellSize * 0.14);
       final endGlow = Paint()
         ..color = _gold.withValues(alpha: 0.65)
@@ -120,23 +120,32 @@ class MazePainter extends CustomPainter {
       canvas.drawRect(endTileRect, endBorder);
     }
 
-    if (safeZones.isNotEmpty) {
-      for (final entry in safeZones.entries) {
-        final zoneRect = camera.cellRect(entry.key).deflate(cellSize * 0.14);
-        final strength = entry.value.clamp(0.0, 1.0);
-        final glow = Paint()
-          ..color = _spirit.withValues(alpha: 0.2 + strength * 0.45)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
-        final core = Paint()
-          ..color = _spirit.withValues(alpha: 0.15 + strength * 0.35);
-        final border = Paint()
-          ..color = _spirit.withValues(alpha: 0.5 + strength * 0.5)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = max(1.6, cellSize * 0.06);
-        canvas.drawRect(zoneRect.inflate(cellSize * 0.06), glow);
-        canvas.drawRect(zoneRect, core);
-        canvas.drawRect(zoneRect, border);
+    final safe = art.safe;
+    for (final entry in safeZones.entries) {
+      final strength = entry.value.clamp(0.0, 1.0);
+      if (safe != null) {
+        // The spirit candle flickers; a fading zone fades with it.
+        _drawFrame(
+          canvas,
+          safe,
+          safe.loop(time + entry.key.x * 0.37, 8),
+          camera.cellRect(entry.key),
+          opacity: 0.4 + strength * 0.6,
+        );
+        continue;
       }
+      final zoneRect = camera.cellRect(entry.key).deflate(cellSize * 0.14);
+      final glow = Paint()
+        ..color = _spirit.withValues(alpha: 0.2 + strength * 0.45)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
+      final core = Paint()..color = _spirit.withValues(alpha: 0.15 + strength * 0.35);
+      final border = Paint()
+        ..color = _spirit.withValues(alpha: 0.5 + strength * 0.5)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(1.6, cellSize * 0.06);
+      canvas.drawRect(zoneRect.inflate(cellSize * 0.06), glow);
+      canvas.drawRect(zoneRect, core);
+      canvas.drawRect(zoneRect, border);
     }
 
     final playerCenter = camera.cellCenter(playerCellPosition);
@@ -234,17 +243,7 @@ class MazePainter extends CustomPainter {
       ..color = world.wallFace
       ..isAntiAlias = false;
 
-    final firstCol = max(0, (-camera.origin.dx / tile).floor());
-    final firstRow = max(0, (-camera.origin.dy / tile).floor());
-    final lastCol = min(
-      2 * maze.cols,
-      ((size.width - camera.origin.dx) / tile).ceil(),
-    );
-    final lastRow = min(
-      2 * maze.rows,
-      ((size.height - camera.origin.dy) / tile).ceil(),
-    );
-
+    final (firstCol, firstRow, lastCol, lastRow) = _visibleTiles(size, camera);
     bool wall(int col, int row) => isWallTile(maze, col, row);
     final transforms = <RSTransform>[];
     final sources = <Rect>[];
@@ -304,6 +303,139 @@ class MazePainter extends CustomPainter {
             const [Color(0x88000000), Color(0x00000000)],
           ),
       );
+    }
+  }
+
+  /// Block tiles in view: first and last column and row, clamped to the maze.
+  (int, int, int, int) _visibleTiles(Size size, MazeCamera camera) {
+    final tile = camera.tileSize;
+    return (
+      max(0, (-camera.origin.dx / tile).floor()),
+      max(0, (-camera.origin.dy / tile).floor()),
+      min(2 * maze.cols, ((size.width - camera.origin.dx) / tile).ceil()),
+      min(2 * maze.rows, ((size.height - camera.origin.dy) / tile).ceil()),
+    );
+  }
+
+  /// Frame [frame] of [strip] stretched over [dst] (a hair wider, so a full
+  /// tile never leaves a seam).
+  void _drawFrame(
+    Canvas canvas,
+    SpriteStrip strip,
+    int frame,
+    Rect dst, {
+    double opacity = 1,
+    ColorFilter? tint,
+  }) {
+    canvas.drawImageRect(
+      strip.image,
+      strip.frame(frame),
+      dst.inflate(0.3),
+      Paint()
+        ..filterQuality = FilterQuality.medium
+        ..color = Color.fromRGBO(0, 0, 0, opacity)
+        ..colorFilter = tint,
+    );
+  }
+
+  /// Torches on some rock faces, each flickering on its own beat; in
+  /// NIGHTMARE they burn red.
+  void _paintTorches(Canvas canvas, Size size, MazeCamera camera) {
+    final torch = art.torch;
+    if (torch == null) {
+      return;
+    }
+    final t = camera.tileSize;
+    final (firstCol, firstRow, lastCol, lastRow) = _visibleTiles(size, camera);
+    bool wall(int col, int row) => isWallTile(maze, col, row);
+    final tint = isFlippedMode ? _redFlame : null;
+    for (var row = firstRow; row <= lastRow; row++) {
+      for (var col = firstCol; col <= lastCol; col++) {
+        if (!hasTorch(wall, col, row)) {
+          continue;
+        }
+        final rect = camera.tileRect(col, row);
+        _drawFrame(
+          canvas,
+          torch,
+          torch.loop(time + tileHash(col, row) % 97 / 13, 8),
+          Rect.fromCenter(
+            center: Offset(rect.center.dx, rect.bottom - t * 0.52),
+            width: t * 0.5,
+            height: t,
+          ),
+          tint: tint,
+        );
+      }
+    }
+  }
+
+  static const _redFlame = ColorFilter.mode(Color(0xFFFF5A4A), BlendMode.modulate);
+
+  /// Bones, dolls, crates... on dead ends (landmarks) and now and then in a
+  /// corridor; never on the start, the exit, a safe zone or a trap.
+  void _paintProps(Canvas canvas, Size size, MazeCamera camera) {
+    final sheet = isFlippedMode ? art.propsNightmare : art.propsWake;
+    if (sheet == null) {
+      return;
+    }
+    final view = Offset.zero & size;
+    final keepClear = {...safeZones.keys, for (final t in trapTiles) t.cell};
+    for (var y = 0; y < maze.rows; y++) {
+      for (var x = 0; x < maze.cols; x++) {
+        final cell = Point<int>(x, y);
+        final rect = camera.cellRect(cell);
+        if (!rect.overlaps(view)) {
+          continue;
+        }
+        final prop = propAt(maze, cell, keepClear: keepClear);
+        if (prop != null) {
+          _drawFrame(canvas, sheet, prop, rect.deflate(rect.width * 0.14));
+        }
+      }
+    }
+  }
+
+  /// Revealed traps as the world's crumbling-slab frames (a red pulse under a
+  /// critical one); hidden ones keep only the renderer's faint cue. Without
+  /// the art the renderer draws everything.
+  void _paintTraps(Canvas canvas, MazeCamera camera) {
+    if (trapTiles.isEmpty) {
+      return;
+    }
+    final strip = isFlippedMode ? art.trapNightmare : art.trapWake;
+    final tile = camera.tileSize;
+    const TrapFxRenderer().renderTiles(
+      canvas,
+      origin: camera.cellOrigin,
+      cellSize: tile,
+      cellStride: tile * 2,
+      tiles: strip == null
+          ? trapTiles
+          : [for (final t in trapTiles) if (t.state == TrapState.hidden) t],
+      // Both worlds have dark floors now, so the dark-floor look fits both.
+      isFlippedMode: false,
+      hiddenCueLevel: trapHiddenCueLevel,
+    );
+    if (strip == null) {
+      return;
+    }
+    for (final trap in trapTiles) {
+      final frame = trapFrame(trap.state, strip.frames, time);
+      if (frame == null) {
+        continue;
+      }
+      final rect = camera.cellRect(trap.cell);
+      if (trap.state == TrapState.critical) {
+        final beat = 0.35 + (sin(trap.pulsePhase * 4 * pi) + 1) * 0.2;
+        canvas.drawRect(
+          rect.inflate(tile * 0.08),
+          Paint()
+            ..color = _danger.withValues(alpha: beat * 0.6)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        );
+      }
+      _drawFrame(canvas, strip, frame, rect);
     }
   }
 

@@ -1,3 +1,9 @@
+import 'dart:math';
+
+import '../../domain/entities/direction4.dart';
+import '../../game/trap/trap_tile.dart';
+import 'maze_generator.dart';
+
 /// Slots of the `tiles/<world>_tiles.png` atlases (tool/process_2d_assets.py).
 /// Every slot is a full tile; rims, corners and faces are transparent outside
 /// their strip, so a wall is drawn by stacking slots on the same tile rect.
@@ -50,3 +56,37 @@ List<int> tileLayers(bool Function(int col, int row) wall, int col, int row) {
     if (!s) TileSlot.face0 + (h >> 1) % 2,
   ];
 }
+
+/// Whether a torch hangs on block tile ([col], [row]): only on a rock face
+/// (a wall with floor below), about one face in seven.
+bool hasTorch(bool Function(int col, int row) wall, int col, int row) =>
+    wall(col, row) && !wall(col, row + 1) && tileHash(col, row) % 7 == 3;
+
+/// The prop (0..7 of the world's sheet) lying in [cell], or null. Dead ends
+/// always get one, so they double as landmarks; corridors one in eleven. The
+/// start, the exit and [keepClear] (safe zones, traps) stay bare.
+int? propAt(
+  MazeGrid maze,
+  Point<int> cell, {
+  Set<Point<int>> keepClear = const {},
+}) {
+  if (cell == maze.start || cell == maze.end || keepClear.contains(cell)) {
+    return null;
+  }
+  final h = tileHash(cell.x * 2 + 1, cell.y * 2 + 1);
+  final deadEnd = Direction4.values.where((d) => maze.canMove(cell, d)).length == 1;
+  if (!deadEnd && h % 11 != 5) {
+    return null;
+  }
+  return (h >> 3) % 8;
+}
+
+/// Which frame of a trap strip shows a trap in [state]: frame 1 cracked, the
+/// last one collapsed; critical crumbles (on longer strips it shakes between
+/// two frames). Hidden traps show nothing.
+int? trapFrame(TrapState state, int frames, double time) => switch (state) {
+  TrapState.hidden => null,
+  TrapState.cracked => 1,
+  TrapState.critical => frames > 4 ? 2 + (time * 8).floor() % 2 : 2,
+  TrapState.collapsed => frames - 1,
+};
