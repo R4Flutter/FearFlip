@@ -47,6 +47,10 @@ app.*.map.json
 # Local release secrets
 /android/key.properties
 /keystore/
+*.jks
+
+# Cloud Functions dependencies (npm install recreates them)
+/functions/node_modules/
 
 # Local git worktrees
 .worktrees/
