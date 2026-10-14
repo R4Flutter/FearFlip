@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../theme/app_palette.dart';
+import '../../theme/night_hud.dart';
 
+/// The in-run dialog panel: a Pokémon-style text box, dark slate inside a
+/// double frame, its outer line in the dialog's (tamed) accent.
 class RealityGlassPanel extends StatelessWidget {
   const RealityGlassPanel({required this.color, super.key});
   final Color color;
@@ -10,58 +12,32 @@ class RealityGlassPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF0A0C16).withValues(alpha: 0.95),
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(40),
-          bottomRight: Radius.circular(40),
-          topRight: Radius.circular(4),
-          bottomLeft: Radius.circular(4),
-        ),
-        border: Border.all(color: color.withValues(alpha: 0.6), width: 2),
-        boxShadow: [
+        color: NightHud.ink.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: NightHud.tame(color), width: 3),
+        boxShadow: const [
           BoxShadow(
-            color: color.withValues(alpha: 0.2),
-            blurRadius: 40,
-            spreadRadius: 2,
+            color: Color(0xAA000000),
+            blurRadius: 24,
+            offset: Offset(0, 8),
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(38),
-          bottomRight: Radius.circular(38),
-        ),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: CustomPaint(
-                painter: CyberGridPainter(color: color),
-              ),
-            ),
-            Positioned(
-              top: -30,
-              right: -30,
-              child: Container(
-                width: 140,
-                height: 140,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      color.withValues(alpha: 0.15),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
+      child: Container(
+        margin: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: NightHud.boneDim.withValues(alpha: 0.35),
+            width: 1.5,
+          ),
         ),
       ),
     );
   }
 }
 
+/// A faint grid in [color] (the stage-100 dialog's gold backdrop).
 class CyberGridPainter extends CustomPainter {
   CyberGridPainter({required this.color});
   final Color color;
@@ -71,7 +47,6 @@ class CyberGridPainter extends CustomPainter {
     final paint = Paint()
       ..color = color.withValues(alpha: 0.08)
       ..strokeWidth = 1;
-
     const spacing = 32.0;
     for (double i = 0; i <= size.width; i += spacing) {
       canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
@@ -91,27 +66,41 @@ class HorrorHeader extends StatelessWidget {
     required this.subtitle,
     required this.icon,
     required this.color,
+    this.emblem,
     super.key,
   });
 
   final String title;
   final String subtitle;
+
+  /// Shown when there's no [emblem].
   final IconData icon;
   final Color color;
 
+  /// A UI icon name (`assets/images/2d/ui/icon_<emblem>.png`) shown in the bone
+  /// medallion.
+  final String? emblem;
+
   @override
   Widget build(BuildContext context) {
+    final accent = NightHud.tame(color);
     return Row(
       children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            border: Border.all(color: color.withValues(alpha: 0.5), width: 1.5),
-            shape: BoxShape.circle,
+        if (emblem != null)
+          NightHud.medallion(emblem!)
+        else
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.1),
+              border: Border.all(
+                color: accent.withValues(alpha: 0.5),
+                width: 1.5,
+              ),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: accent, size: 28),
           ),
-          child: Icon(icon, color: color, size: 28),
-        ),
         const SizedBox(width: 16),
         Expanded(
           child: Column(
@@ -120,16 +109,19 @@ class HorrorHeader extends StatelessWidget {
               Text(
                 title,
                 style: TextStyle(
-                  color: color,
+                  color: accent,
                   fontSize: 24,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 4,
+                  shadows: const [
+                    Shadow(color: NightHud.ink, offset: Offset(2, 2)),
+                  ],
                 ),
               ),
               Text(
                 subtitle,
-                style: TextStyle(
-                  color: AppPalette.textMuted,
+                style: const TextStyle(
+                  color: NightHud.boneDim,
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 2,
@@ -161,12 +153,13 @@ class HorrorStatBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = NightHud.tame(color);
     return Container(
       width: isWide ? double.infinity : null,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        border: Border(left: BorderSide(color: color, width: 4)),
+        color: NightHud.slate.withValues(alpha: 0.7),
+        border: Border(left: BorderSide(color: accent, width: 4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,35 +167,37 @@ class HorrorStatBox extends StatelessWidget {
           Row(
             children: [
               if (icon != null) ...[
-                Icon(icon, color: color.withValues(alpha: 0.7), size: 12),
+                Icon(icon, color: accent.withValues(alpha: 0.7), size: 12),
                 const SizedBox(width: 6),
               ],
-              Text(
-                label,
-                style: TextStyle(
-                  color: color.withValues(alpha: 0.9),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
+              // Long labels shrink to fit a half-width box on small phones.
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: accent.withValues(alpha: 0.9),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2,
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
+          Text(value, style: NightHud.number(22)),
         ],
       ),
     );
   }
 }
 
+/// A text-box option: dark stone with a frame in its (tamed) accent; the
+/// primary one is lit.
 class FearButton extends StatefulWidget {
   const FearButton({
     required this.label,
@@ -226,6 +221,7 @@ class _FearButtonState extends State<FearButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = NightHud.tame(widget.color);
     return GestureDetector(
       onTapDown: (_) => setState(() => _isPressed = true),
       onTapUp: (_) {
@@ -241,24 +237,26 @@ class _FearButtonState extends State<FearButton> {
           height: 60,
           width: double.infinity,
           decoration: BoxDecoration(
-            color: widget.isPrimary ? widget.color : Colors.black.withValues(alpha: 0.3),
-            border: Border.all(color: widget.color, width: 2),
-            boxShadow: widget.isPrimary ? [
-              BoxShadow(
-                color: widget.color.withValues(alpha: 0.4),
-                blurRadius: 20,
-                offset: const Offset(0, 6),
-              ),
-            ] : null,
+            color: widget.isPrimary
+                ? accent.withValues(alpha: 0.2)
+                : NightHud.slate.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: widget.isPrimary ? accent : accent.withValues(alpha: 0.6),
+              width: 2,
+            ),
           ),
           alignment: Alignment.center,
           child: Text(
             widget.label,
             style: TextStyle(
-              color: widget.isPrimary ? Colors.black : widget.color,
+              color: widget.isPrimary ? NightHud.bone : accent,
               fontWeight: FontWeight.w900,
               fontSize: 18,
               letterSpacing: 3,
+              shadows: const [
+                Shadow(color: NightHud.ink, offset: Offset(1.5, 1.5)),
+              ],
             ),
           ),
         ),

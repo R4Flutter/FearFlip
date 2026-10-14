@@ -47,3 +47,6 @@ app.*.map.json
 # Local release secrets
 /android/key.properties
 /keystore/
+
+# Local git worktrees
+.worktrees/

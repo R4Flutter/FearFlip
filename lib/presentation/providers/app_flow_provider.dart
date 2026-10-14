@@ -35,8 +35,7 @@ class AppFlowProvider extends ChangeNotifier {
   static const double maxJoystickSize = 170;
   static const double defaultJoystickSize = 140;
   // 3 selectable characters: Steel Sentinel (0), Green Phantom (1),
-  // Void Ripper (2). Must match _characterOptions in fear_flip_app.dart and
-  // _characterFramePrefix in game_screen.dart.
+  // Void Ripper (2). Must match _characterOptions in fear_flip_app.dart.
   static const int characterCount = 3;
   static const int defaultCharacterIndex = 0;
 

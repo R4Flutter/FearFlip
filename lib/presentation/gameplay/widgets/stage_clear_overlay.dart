@@ -1,6 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import '../../theme/app_palette.dart';
+import '../../theme/night_hud.dart';
 
 class StageClearOverlay extends StatelessWidget {
   const StageClearOverlay({
@@ -107,52 +107,25 @@ class _ClearCard extends StatelessWidget {
       width: 300,
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 28),
       decoration: BoxDecoration(
-        color: const Color(0xFF080808),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppPalette.neonGreen, width: 2),
+        color: NightHud.ink.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: NightHud.gold, width: 3),
         boxShadow: [
           BoxShadow(
-            color: AppPalette.neonGreen.withValues(alpha: 0.4),
+            color: NightHud.amber.withValues(alpha: 0.35),
             blurRadius: 32,
             spreadRadius: 4,
-          ),
-          BoxShadow(
-            color: AppPalette.accentPurple.withValues(alpha: 0.2),
-            blurRadius: 48,
-            spreadRadius: 8,
           ),
         ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppPalette.neonGreen.withValues(alpha: 0.1),
-              border: Border.all(
-                color: AppPalette.neonGreen.withValues(alpha: 0.6),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppPalette.neonGreen.withValues(alpha: 0.3),
-                  blurRadius: 16,
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.emoji_events_rounded,
-              color: AppPalette.neonGreen,
-              size: 32,
-            ),
-          ),
+          NightHud.medallion('trophy', size: 84),
           const SizedBox(height: 16),
           ShaderMask(
             shaderCallback: (r) => const LinearGradient(
-              colors: [AppPalette.neonGreen, AppPalette.accentPurple],
+              colors: [NightHud.gold, NightHud.amber],
             ).createShader(r),
             child: const Text(
               'STAGE CLEARED',
@@ -167,7 +140,7 @@ class _ClearCard extends StatelessWidget {
           const SizedBox(height: 6),
           ShaderMask(
             shaderCallback: (r) => const LinearGradient(
-              colors: [Colors.white, AppPalette.neonGreen],
+              colors: [NightHud.bone, NightHud.gold],
             ).createShader(r),
             child: Text(
               '$stage',
@@ -196,16 +169,16 @@ class _ClearCard extends StatelessWidget {
                       vertical: 5,
                     ),
                     decoration: BoxDecoration(
-                      color: AppPalette.accentPurple.withValues(alpha: 0.1),
+                      color: NightHud.slate.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(99),
                       border: Border.all(
-                        color: AppPalette.accentPurple.withValues(alpha: 0.5),
+                        color: NightHud.boneDim.withValues(alpha: 0.6),
                       ),
                     ),
                     child: const Text(
                       'NEXT STAGE LOADING…',
                       style: TextStyle(
-                        color: AppPalette.accentPurple,
+                        color: NightHud.bone,
                         fontWeight: FontWeight.w800,
                         fontSize: 10,
                         letterSpacing: 1.8,
@@ -239,12 +212,12 @@ class _MiniStat extends StatelessWidget {
   Widget build(BuildContext ctx) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: AppPalette.neonGreen, size: 13),
+          Icon(icon, color: NightHud.gold, size: 13),
           const SizedBox(width: 4),
           Text(
             label,
             style: const TextStyle(
-              color: AppPalette.textMuted,
+              color: NightHud.boneDim,
               fontWeight: FontWeight.w800,
               fontSize: 10,
               letterSpacing: 0.8,
@@ -268,7 +241,7 @@ class _BurstPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3
-        ..color = AppPalette.accentPurple.withValues(alpha: (1 - t) * 0.8),
+        ..color = NightHud.boneDim.withValues(alpha: (1 - t) * 0.8),
     );
     canvas.drawCircle(
       Offset(cx, cy),
@@ -276,12 +249,12 @@ class _BurstPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
-        ..color = AppPalette.neonGreen.withValues(alpha: (1 - t) * 0.7),
+        ..color = NightHud.amber.withValues(alpha: (1 - t) * 0.7),
     );
     const rays = 12;
     final rp = Paint()
       ..strokeWidth = 1.5
-      ..color = AppPalette.neonGreen.withValues(alpha: (1 - t) * 0.5);
+      ..color = NightHud.amber.withValues(alpha: (1 - t) * 0.5);
     for (int i = 0; i < rays; i++) {
       final a = (i / rays) * pi * 2;
       canvas.drawLine(
@@ -296,7 +269,7 @@ class _BurstPainter extends CustomPainter {
       Paint()
         ..shader = RadialGradient(
           colors: [
-            AppPalette.neonGreen.withValues(alpha: (1 - t) * 0.3),
+            NightHud.amber.withValues(alpha: (1 - t) * 0.3),
             Colors.transparent,
           ],
         ).createShader(
@@ -318,7 +291,7 @@ class _ScanPainter extends CustomPainter {
     canvas.drawRect(
       Rect.fromLTWH(0, y - 2, size.width, 3),
       Paint()
-        ..color = AppPalette.neonGreen.withValues(alpha: 0.2)
+        ..color = NightHud.amber.withValues(alpha: 0.2)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
     );
     final p = Paint()
@@ -353,10 +326,10 @@ class _ParticlePainter extends CustomPainter {
       final alpha = (1 - t) * 0.8;
       final radius = (2.5 + seed * 3.0) * (1 - t * 0.5);
       final color = i % 3 == 0
-          ? AppPalette.neonGreen.withValues(alpha: alpha)
+          ? NightHud.amber.withValues(alpha: alpha)
           : i % 3 == 1
-              ? AppPalette.accentPurple.withValues(alpha: alpha)
-              : AppPalette.accentPink.withValues(alpha: alpha);
+              ? NightHud.boneDim.withValues(alpha: alpha)
+              : NightHud.blood.withValues(alpha: alpha);
       canvas.drawCircle(
         Offset(cx + r * cos(angle), cy + r * sin(angle)),
         radius,

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../theme/app_palette.dart';
+import '../../theme/night_hud.dart';
 import 'cyber_horror_ui_components.dart';
 
 class RunFailedDialog extends StatefulWidget {
@@ -60,9 +60,6 @@ class _RunFailedDialogState extends State<RunFailedDialog>
   late AnimationController _entryController;
   late Animation<double> _pulse;
 
-  static const Color _kHeartFull = Color(0xFFFF3D8B);
-  static const Color _kHeartEmpty = Color(0x44FF3D8B);
-
   @override
   void initState() {
     super.initState();
@@ -102,8 +99,8 @@ class _RunFailedDialogState extends State<RunFailedDialog>
             widget._livesExhausted ? 'NO REVIVES LEFT' : 'REVIVES REMAINING',
             style: TextStyle(
               color: widget._livesExhausted
-                  ? AppPalette.danger
-                  : _kHeartFull.withValues(alpha: 0.85),
+                  ? NightHud.blood
+                  : NightHud.bone.withValues(alpha: 0.85),
               fontSize: 9,
               fontWeight: FontWeight.w900,
               letterSpacing: 1.4,
@@ -116,20 +113,15 @@ class _RunFailedDialogState extends State<RunFailedDialog>
               final isFilled = i < widget.livesRemaining;
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 3),
-                child: Icon(
-                  isFilled
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  color: isFilled ? _kHeartFull : _kHeartEmpty,
-                  size: widget.maxLives <= 3 ? 22 : 18,
-                  shadows: isFilled
-                      ? [
-                          Shadow(
-                            color: _kHeartFull.withValues(alpha: 0.6),
-                            blurRadius: 10,
-                          ),
-                        ]
-                      : null,
+                child: NightHud.art(
+                  isFilled ? 'icon_heart' : 'icon_heart_empty',
+                  width: widget.maxLives <= 3 ? 28 : 22,
+                  fallback: Icon(
+                    isFilled
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    color: isFilled ? NightHud.blood : NightHud.boneDim,
+                  ),
                 ),
               );
             }),
@@ -148,17 +140,19 @@ class _RunFailedDialogState extends State<RunFailedDialog>
   }
 
   Color _reviveColor() {
-    if (widget._livesExhausted) return const Color(0xFF555555);
-    return AppPalette.neonGreen;
+    if (widget._livesExhausted) return NightHud.stone;
+    return NightHud.amber;
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final criticalColor = widget.lostByTrap
-        ? const Color(0xFFFF4D4D)
-        : (widget.lostByTime ? AppPalette.danger : const Color(0xFFFF6B6B));
+    final criticalColor = widget.lostByTime ? NightHud.amber : NightHud.blood;
+    // What got you: the floor, the clock or the Devil.
+    final emblem = widget.lostByTrap
+        ? 'cross'
+        : (widget.lostByTime ? 'hourglass' : 'skull');
 
     return ScaleTransition(
       scale: CurvedAnimation(
@@ -186,6 +180,7 @@ class _RunFailedDialogState extends State<RunFailedDialog>
                     subtitle: widget.lossReason.toUpperCase(),
                     icon: Icons.dangerous_rounded,
                     color: criticalColor,
+                    emblem: emblem,
                   ),
                   const SizedBox(height: 24),
 
@@ -204,7 +199,7 @@ class _RunFailedDialogState extends State<RunFailedDialog>
                         child: HorrorStatBox(
                           label: 'PERSONAL BEST',
                           value: '${widget.maxStage}',
-                          color: AppPalette.accentPurple,
+                          color: NightHud.boneDim,
                         ),
                       ),
                     ],
@@ -213,7 +208,7 @@ class _RunFailedDialogState extends State<RunFailedDialog>
                   HorrorStatBox(
                     label: 'SURVIVAL PERCENT',
                     value: '${widget.escapePercent}%',
-                    color: AppPalette.neonGreen,
+                    color: NightHud.amber,
                     isWide: true,
                   ),
                   const SizedBox(height: 20),
@@ -235,7 +230,7 @@ class _RunFailedDialogState extends State<RunFailedDialog>
                         '"${widget.trapDeathQuote}"',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          color: AppPalette.textPrimary,
+                          color: NightHud.bone,
                           fontSize: 12,
                           fontStyle: FontStyle.italic,
                           fontWeight: FontWeight.w600,
@@ -287,7 +282,7 @@ class _RunFailedDialogState extends State<RunFailedDialog>
                         ? 'RESETTING...'
                         : 'CHECKPOINT RESTART',
                     onPressed: widget.onRestartPressed,
-                    color: AppPalette.accentPink,
+                    color: NightHud.blood,
                   ),
                 ],
               ),

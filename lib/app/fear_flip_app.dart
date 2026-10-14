@@ -30,8 +30,8 @@ class _CharacterOption {
   final String title;
   final Color color;
 
-  /// Frame-folder prefix under assets/images/. Must match the order/prefixes
-  /// in game_screen.dart `_characterFramePrefix`.
+  /// Frame-folder prefix under assets/images/ for the picker preview (falls
+  /// back to an icon; the in-run runner is a stand-in until its sheets land).
   final String framePrefix;
 }
 

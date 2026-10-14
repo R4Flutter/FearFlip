@@ -1,12 +1,10 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../theme/app_palette.dart';
 import '../../config/app_runtime_config.dart';
 import '../../game/trap/trap_analytics.dart';
 import '../../game/trap/trap_audio_controller.dart';
@@ -19,6 +17,8 @@ import '../../services/audio_manager.dart';
 import '../../services/error_reporter.dart';
 import '../../services/game_audio_event.dart';
 import 'glitch_effect_controller.dart';
+import 'maze_art.dart';
+import 'maze_camera.dart';
 import 'maze_generator.dart';
 import 'maze_painter.dart';
 import 'maze_shift_manager.dart';
@@ -95,10 +95,10 @@ class _GameScreenState extends State<GameScreen>
   late AnimationController _stageClearController;
   late final TrapAudioController _trapAudioController;
   late final TrapDeathSequence _trapDeathSequence;
-  List<ui.Image>? _playerFrames;
-  List<ui.Image>? _devilFrames;
-  ui.Image? _breakingTrapTexture;
-  ui.Image? _exitPortalSprite;
+  MazeArt _art = const MazeArt.none();
+
+  /// One-shot effects playing in the maze (smoke, the flip's crack burst).
+  final List<MazeFx> _fx = <MazeFx>[];
   static const int _animationFrameCount = 7;
   static const int _maxStage = 100;
   static const int _maxPlayableMazeSize = 17;
@@ -208,17 +208,40 @@ class _GameScreenState extends State<GameScreen>
     }
     _startCountdown();
     _startStageLoop();
-    _loadCharactersSprite();
-    _loadDevilSprite();
-    _loadBreakingTrapTexture();
-    _loadExitPortalSprite();
+    unawaited(_loadArt());
+    if (widget.isActive) {
+      _lockOrientation(playing: true);
+    }
     _requestKeyboardFocusIfNeeded();
+  }
+
+  /// A run plays in landscape, like the GBA; the menus stay portrait (as
+  /// main.dart sets them).
+  static const _playOrientations = [
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ];
+  static const _menuOrientations = [
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ];
+
+  void _lockOrientation({required bool playing}) {
+    if (kIsWeb) {
+      return;
+    }
+    unawaited(
+      SystemChrome.setPreferredOrientations(
+        playing ? _playOrientations : _menuOrientations,
+      ),
+    );
   }
 
   @override
   void didUpdateWidget(covariant GameScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isActive != widget.isActive) {
+      _lockOrientation(playing: widget.isActive);
       _handleExternalActivityChange(widget.isActive);
       if (widget.isActive) {
         _requestKeyboardFocusIfNeeded();
@@ -248,10 +271,10 @@ class _GameScreenState extends State<GameScreen>
 
   @override
   void dispose() {
-    _disposeFrames(_playerFrames);
-    _disposeFrames(_devilFrames);
-    _breakingTrapTexture?.dispose();
-    _exitPortalSprite?.dispose();
+    if (widget.isActive) {
+      _lockOrientation(playing: false);
+    }
+    _art.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _clearKeyboardMovement(stopPlayer: false);
     _keyboardFocusNode.dispose();
@@ -626,6 +649,13 @@ class _GameScreenState extends State<GameScreen>
 
     if (_stageElapsedSeconds >= _nextFlipAtSeconds) {
       _controlsInverted = !_controlsInverted;
+      _fx.add(
+        MazeFx(
+          MazeFxKind.flip,
+          _playerController.renderPosition,
+          _stageElapsedSeconds,
+        ),
+      );
       _playerController.setControlsInverted(_controlsInverted);
       unawaited(
         _audioManager.handle(
@@ -711,6 +741,7 @@ class _GameScreenState extends State<GameScreen>
     if (_canSpawnDevilNow()) {
       _devilSpawned = true;
       _devilCell = _spawnDevilCell();
+      _addSmoke(_devilCell!);
     }
 
     if (_devilSpawned && _devilCell != null) {
@@ -796,10 +827,20 @@ class _GameScreenState extends State<GameScreen>
       unawaited(_onTrapCollapsed(pendingTrapCollapse));
     }
 
+    _fx.removeWhere((fx) => _stageElapsedSeconds - fx.start >= fx.duration);
+
     // Idle animations (exit gate, devil bob, breathing) are time-driven, so
     // the surface repaints every tick instead of only on state changes.
     _markGameSurfaceDirty();
   }
+
+  void _addSmoke(Point<int> cell) => _fx.add(
+    MazeFx(
+      MazeFxKind.smoke,
+      Offset(cell.x.toDouble(), cell.y.toDouble()),
+      _stageElapsedSeconds,
+    ),
+  );
 
   void _dispatchDevilDistance({
     required int distanceTiles,
@@ -892,6 +933,7 @@ class _GameScreenState extends State<GameScreen>
     );
     _resetSafeZones();
     _rebuildTrapTilesForCurrentStage();
+    _fx.clear();
     _showLossOverlay = false;
     _adActionInProgress = false;
     _lostByTime = false;
@@ -1184,8 +1226,8 @@ class _GameScreenState extends State<GameScreen>
 
     _queueTrapLossAudio();
 
-    final metrics = _trapSurfaceMetrics();
-    if (metrics == null) {
+    final camera = _surfaceCamera();
+    if (camera == null) {
       await _finalizeTrapDeath(withCinematic: false);
       return;
     }
@@ -1197,8 +1239,11 @@ class _GameScreenState extends State<GameScreen>
     });
 
     _trapDeathSequence.start(
-      trapCenter: _cellCenterOnSurface(tile.cell, metrics),
-      cellSize: metrics.cellSize,
+      trapCenter: camera.cellCenter(
+        Offset(tile.cell.x.toDouble(), tile.cell.y.toDouble()),
+      ),
+      cellSize: camera.tileSize,
+      debris: _art.debris,
     );
   }
 
@@ -1249,7 +1294,8 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
-  _TrapSurfaceMetrics? _trapSurfaceMetrics() {
+  /// The same camera [MazePainter] draws with, so overlays line up with it.
+  MazeCamera? _surfaceCamera() {
     final context = _gameSurfaceSizeKey.currentContext;
     if (context == null) {
       return null;
@@ -1259,22 +1305,10 @@ class _GameScreenState extends State<GameScreen>
       return null;
     }
 
-    final size = renderObject.size;
-    final cellSize = min(size.width / _maze.cols, size.height / _maze.rows);
-    final mazeWidth = cellSize * _maze.cols;
-    final mazeHeight = cellSize * _maze.rows;
-    final origin = Offset(
-      (size.width - mazeWidth) * 0.5,
-      (size.height - mazeHeight) * 0.5,
-    );
-
-    return _TrapSurfaceMetrics(origin: origin, cellSize: cellSize);
-  }
-
-  Offset _cellCenterOnSurface(Point<int> cell, _TrapSurfaceMetrics metrics) {
-    return Offset(
-      metrics.origin.dx + (cell.x + 0.5) * metrics.cellSize,
-      metrics.origin.dy + (cell.y + 0.5) * metrics.cellSize,
+    return MazeCamera.follow(
+      viewport: renderObject.size,
+      maze: _maze,
+      focus: _playerController.renderPosition,
     );
   }
 
@@ -1310,6 +1344,10 @@ class _GameScreenState extends State<GameScreen>
 
     if (!_stageRule.devilEnabled) {
       return;
+    }
+    final banished = _devilCell;
+    if (banished != null) {
+      _addSmoke(banished);
     }
     _devilCell = null;
     _devilSpawned = false;
@@ -1721,7 +1759,7 @@ class _GameScreenState extends State<GameScreen>
               clipBehavior: Clip.none,
               children: [
                 Positioned.fill(
-                  child: RealityGlassPanel(color: AppPalette.accentPurple),
+                  child: RealityGlassPanel(color: NightHud.boneDim),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(
@@ -1735,14 +1773,15 @@ class _GameScreenState extends State<GameScreen>
                         title: 'BREAK CYCLE?',
                         subtitle: 'EXTERNAL REALITY DETECTED',
                         icon: Icons.exit_to_app_rounded,
-                        color: AppPalette.accentPurple,
+                        color: NightHud.boneDim,
+                        emblem: 'house',
                       ),
                       const SizedBox(height: 32),
                       const Text(
                         'LEAVING WILL PURGE UNSAVED PROGRESS',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: AppPalette.danger,
+                          color: NightHud.blood,
                           fontWeight: FontWeight.w900,
                           fontSize: 11,
                           letterSpacing: 1.5,
@@ -1751,14 +1790,14 @@ class _GameScreenState extends State<GameScreen>
                       const SizedBox(height: 32),
                       FearButton(
                         label: 'STAY IN HELL',
-                        color: AppPalette.neonGreen,
+                        color: NightHud.amber,
                         onPressed: () => Navigator.pop(context, false),
                         isPrimary: true,
                       ),
                       const SizedBox(height: 12),
                       FearButton(
                         label: 'CONFIRM ABORT',
-                        color: AppPalette.danger,
+                        color: NightHud.blood,
                         onPressed: () => Navigator.pop(context, true),
                       ),
                     ],
@@ -1810,146 +1849,15 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
-  Future<void> _loadCharactersSprite() async {
-    try {
-      final prefix = _characterFramePrefix(widget.selectedCharacterIndex);
-      final frames = <ui.Image>[];
-      for (var i = 1; i <= _animationFrameCount; i++) {
-        final assetPath = 'assets/images/${prefix}_frames/$prefix$i.png';
-        final data = await rootBundle.load(assetPath);
-        final codec = await ui.instantiateImageCodec(
-          data.buffer.asUint8List(),
-        );
-        final frameInfo = await codec.getNextFrame();
-        codec.dispose();
-        frames.add(frameInfo.image);
-        if (!mounted) {
-          for (final f in frames) {
-            f.dispose();
-          }
-          return;
-        }
-      }
-      _disposeFrames(_playerFrames);
-      _playerFrames = frames;
-      _markGameSurfaceDirty();
-    } catch (error, stackTrace) {
-      // Loud in the run console: a swallowed failure here shows up in-game as
-      // the green fallback blob. Usually a stale asset bundle — run
-      // `flutter clean` after adding frame folders to pubspec.
-      debugPrint('[GameScreen] player frames failed to load: $error');
-      ErrorReporter.report(
-        reason: 'game_character_frames_load_failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
-  Future<void> _loadDevilSprite() async {
-    try {
-      final frames = <ui.Image>[];
-      for (var i = 1; i <= _animationFrameCount; i++) {
-        final assetPath = 'assets/images/devil_frames/devil$i.png';
-        final data = await rootBundle.load(assetPath);
-        final codec = await ui.instantiateImageCodec(
-          data.buffer.asUint8List(),
-        );
-        final frameInfo = await codec.getNextFrame();
-        codec.dispose();
-        frames.add(frameInfo.image);
-        if (!mounted) {
-          for (final f in frames) {
-            f.dispose();
-          }
-          return;
-        }
-      }
-      _disposeFrames(_devilFrames);
-      _devilFrames = frames;
-      _markGameSurfaceDirty();
-    } catch (error, stackTrace) {
-      debugPrint('[GameScreen] devil frames failed to load: $error');
-      ErrorReporter.report(
-        reason: 'game_devil_frames_load_failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
-  void _disposeFrames(List<ui.Image>? frames) {
-    if (frames == null) {
+  Future<void> _loadArt() async {
+    final art = await MazeArt.load();
+    if (!mounted) {
+      art.dispose();
       return;
     }
-    for (final f in frames) {
-      f.dispose();
-    }
-  }
-
-  /// Maps the selected character index to its frame-folder prefix. Order must
-  /// match _characterOptions in fear_flip_app.dart: 0=Steel Sentinel,
-  /// 1=Green Phantom, 2=Void Ripper. Frames live at
-  /// `assets/images/{prefix}_frames/{prefix}{1..7}.png`.
-  String _characterFramePrefix(int index) {
-    switch (index) {
-      case 0:
-        return 'sentinel';
-      case 1:
-        return 'phantom';
-      case 2:
-        return 'void_ripper';
-      default:
-        return 'sentinel';
-    }
-  }
-
-  Future<void> _loadBreakingTrapTexture() async {
-    try {
-      final data = await rootBundle.load('assets/images/breaking_trap.png');
-      final bytes = data.buffer.asUint8List();
-      final codec = await ui.instantiateImageCodec(
-        bytes,
-        targetWidth: 128,
-        targetHeight: 128,
-      );
-      final frameInfo = await codec.getNextFrame();
-      codec.dispose();
-      if (!mounted) {
-        frameInfo.image.dispose();
-        return;
-      }
-      _breakingTrapTexture = frameInfo.image;
-      _markGameSurfaceDirty();
-    } catch (error, stackTrace) {
-      ErrorReporter.report(
-        reason: 'game_trap_texture_load_failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
-  Future<void> _loadExitPortalSprite() async {
-    try {
-      final data = await rootBundle.load('assets/images/exit_portal.png');
-      final bytes = data.buffer.asUint8List();
-      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 256);
-      final frameInfo = await codec.getNextFrame();
-      codec.dispose();
-      if (!mounted) {
-        frameInfo.image.dispose();
-        return;
-      }
-      _exitPortalSprite = frameInfo.image;
-      _markGameSurfaceDirty();
-    } catch (error, stackTrace) {
-      ErrorReporter.report(
-        reason: 'game_exit_portal_load_failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
+    _art.dispose();
+    _art = art;
+    _markGameSurfaceDirty();
   }
 
   @override
@@ -1957,187 +1865,136 @@ class _GameScreenState extends State<GameScreen>
     final screenSize = MediaQuery.sizeOf(context);
     final shortestSide = min(screenSize.width, screenSize.height);
     final uiScale = (shortestSide / 390).clamp(0.84, 1.2);
-    final mazeFramePadding = (6 * uiScale).clamp(4.0, 10.0);
     final horizontalPadding = (14 * uiScale).clamp(10.0, 20.0);
     final verticalPadding = (10 * uiScale).clamp(8.0, 16.0);
-    final controlsLift = (-44 * uiScale).clamp(-56.0, -30.0);
     final showTouchControls = !kIsWeb;
 
     final gameContent = Material(
-      color: AppPalette.backgroundDark,
-      child: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: horizontalPadding,
-            vertical: verticalPadding,
-          ),
-          child: Stack(
-            children: [
-              Column(
+      color: NightHud.ink,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // The maze is the whole screen, like the GBA: no box, no frame.
+          _buildGameSurface(),
+          SafeArea(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: horizontalPadding,
+                vertical: verticalPadding,
+              ),
+              child: Stack(
                 children: [
-                  SizedBox(height: (16 * uiScale).clamp(10.0, 22.0)),
-                  Expanded(
-                    child: Center(
-                      child: AspectRatio(
-                        aspectRatio: 1,
-                        child: Container(
-                          padding: EdgeInsets.all(mazeFramePadding),
-                          decoration: BoxDecoration(
-                            color: AppPalette.surface,
-                            borderRadius: BorderRadius.circular(
-                              (18 * uiScale).clamp(14.0, 22.0),
+                  GameHud(
+                    stage: _stage,
+                    remainingSeconds: _remainingSeconds,
+                    totalSeconds: _stageDurationSeconds,
+                    isPaused: _isPaused,
+                    onPauseTap: _togglePause,
+                    checkpoint: _checkpoint,
+                    livesRemaining: _livesRemaining,
+                    maxLives: _maxLivesForHud,
+                  ),
+                  // A fixed, see-through pad over the maze's bottom-left.
+                  if (showTouchControls)
+                    Positioned(
+                      left: 0,
+                      bottom: 0,
+                      child: widget.useArrowController
+                          ? ArrowPad(
+                              size: widget.joystickSize,
+                              onDirection: _holdInputDirection,
+                              onEnd: _endInput,
+                            )
+                          : Joystick(
+                              size: widget.joystickSize,
+                              onDirection: _holdInputDirection,
+                              onEnd: _endInput,
                             ),
-                            border: Border.all(
-                              color: AppPalette.accentPurple.withAlpha(160),
-                              width: 1.3,
-                            ),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x33000000),
-                                blurRadius: 12,
-                                offset: Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(
-                              (12 * uiScale).clamp(10.0, 16.0),
-                            ),
-                            child: _buildGameSurface(),
-                          ),
+                    ),
+                  if (AppRuntimeConfig.debugStageDropdownEnabled)
+                    Positioned(
+                      top: 4,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: DebugStageDropdown(
+                          currentStage: _stage,
+                          maxStage: _maxStage,
+                          onStageSelected: _jumpToStageForDebug,
                         ),
                       ),
                     ),
-                  ),
-                  if (showTouchControls) ...[
-                    SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
-                    Transform.translate(
-                      offset: Offset(0, controlsLift),
-                      child: Center(
-                        child: widget.useArrowController
-                            ? ArrowPad(
-                                size: widget.joystickSize,
-                                onDirection: _holdInputDirection,
-                                onEnd: _endInput,
-                              )
-                            : Joystick(
-                                size: widget.joystickSize,
-                                onDirection: _holdInputDirection,
-                                onEnd: _endInput,
-                              ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
-
-              GameHud(
-                stage: _stage,
-                remainingSeconds: _remainingSeconds,
-                isPaused: _isPaused,
-                onPauseTap: _togglePause,
-                checkpoint: _checkpoint,
-                livesRemaining: _livesRemaining,
-                maxLives: _maxLivesForHud,
-              ),
-
-              if (AppRuntimeConfig.debugStageDropdownEnabled)
-                Positioned(
-                  top: 4,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: DebugStageDropdown(
-                      currentStage: _stage,
-                      maxStage: _maxStage,
-                      onStageSelected: _jumpToStageForDebug,
-                    ),
-                  ),
-                ),
-
-              if (_isPaused)
-                Positioned.fill(
-                  child: Container(
-                    color: const Color(0xC0000000),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 460),
-                        child: RunPausedDialog(
-                          stage: _stage,
-                          checkpoint: _checkpoint,
-                          nextCheckpoint: _nextMilestoneStage(),
-                          checkpointText: _checkpointPushText(),
-                          modeLabel: _modeLabel,
-                          timeRemainingLabel: _timeLabel.replaceFirst(
-                            'TIME: ',
-                            '',
-                          ),
-                          onResumePressed: _togglePause,
-                          onExitPressed: _onExitPressed,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-              if (_isStageTransition)
-                StageClearOverlay(
-                  stage: _completedStage,
-                  controller: _stageClearController,
-                ),
-
-              if (_showLossOverlay)
-                Positioned.fill(
-                  child: Container(
-                    color: const Color(0xD9000000),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 460),
-                        child: RunFailedDialog(
-                          stage: _stage,
-                          maxStage: _maxStage,
-                          escapePercent: _escapePercent(),
-                          checkpointText: _checkpointPushText(),
-                          modeLabel: _modeLabel,
-                          timeRemainingLabel: _timeLabel.replaceFirst(
-                            'TIME: ',
-                            '',
-                          ),
-                          lossReason: _lossReasonText(),
-                          comebackHook: _comebackHookText(),
-                          lostByTime: _lostByTime,
-                          lostByTrap: _lostByTrap,
-                          trapDeathQuote: _trapDeathQuote,
-                          adActionInProgress: _adActionInProgress,
-                          livesRemaining: _livesRemaining,
-                          maxLives: _maxLivesForHud,
-                          onRevivePressed: _onReviveFromLoss,
-                          onRestartPressed: _onRestartFromLoss,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-              // ── Stage 100 crown victory overlay ───────────────────────────
-              if (_gameComplete)
-                Positioned.fill(
-                  child: Container(
-                    color: const Color(0xE6000000),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 460),
-                        child: Stage100WinDialog(
-                          onPlayAgain: _onGameCompletePlayAgain,
-                          onExit: widget.onExitToDashboard,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+            ),
           ),
-        ),
+
+          if (_isPaused)
+            Positioned.fill(
+              child: Container(
+                color: const Color(0xC0000000),
+                child: _fitted(
+                  RunPausedDialog(
+                    stage: _stage,
+                    checkpoint: _checkpoint,
+                    nextCheckpoint: _nextMilestoneStage(),
+                    checkpointText: _checkpointPushText(),
+                    modeLabel: _modeLabel,
+                    timeRemainingLabel: _timeLabel.replaceFirst('TIME: ', ''),
+                    onResumePressed: _togglePause,
+                    onExitPressed: _onExitPressed,
+                  ),
+                ),
+              ),
+            ),
+
+          if (_isStageTransition)
+            StageClearOverlay(
+              stage: _completedStage,
+              controller: _stageClearController,
+            ),
+
+          if (_showLossOverlay)
+            Positioned.fill(
+              child: Container(
+                color: const Color(0xD9000000),
+                child: _fitted(
+                  RunFailedDialog(
+                    stage: _stage,
+                    maxStage: _maxStage,
+                    escapePercent: _escapePercent(),
+                    checkpointText: _checkpointPushText(),
+                    modeLabel: _modeLabel,
+                    timeRemainingLabel: _timeLabel.replaceFirst('TIME: ', ''),
+                    lossReason: _lossReasonText(),
+                    comebackHook: _comebackHookText(),
+                    lostByTime: _lostByTime,
+                    lostByTrap: _lostByTrap,
+                    trapDeathQuote: _trapDeathQuote,
+                    adActionInProgress: _adActionInProgress,
+                    livesRemaining: _livesRemaining,
+                    maxLives: _maxLivesForHud,
+                    onRevivePressed: _onReviveFromLoss,
+                    onRestartPressed: _onRestartFromLoss,
+                  ),
+                ),
+              ),
+            ),
+
+          // ── Stage 100 crown victory overlay ───────────────────────────
+          if (_gameComplete)
+            Positioned.fill(
+              child: Container(
+                color: const Color(0xE6000000),
+                child: _fitted(
+                  Stage100WinDialog(
+                    onPlayAgain: _onGameCompletePlayAgain,
+                    onExit: widget.onExitToDashboard,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
 
@@ -2357,6 +2214,20 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  /// A run dialog, shrunk to fit the screen (a landscape phone is shorter
+  /// than the dialog), never grown.
+  Widget _fitted(Widget dialog) => SafeArea(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(width: 460, child: dialog),
+        ),
+      ),
+    ),
+  );
+
   Widget _buildGameSurface() {
     return RepaintBoundary(
       key: GameScreen.gameSurfaceKey,
@@ -2385,17 +2256,15 @@ class _GameScreenState extends State<GameScreen>
                     isMoving: _playerController.isMoving,
                     pulse: pulse,
                     time: _stageElapsedSeconds,
-                    playerFrames: _playerFrames,
-                    exitPortalSprite: _exitPortalSprite,
+                    art: _art,
                     devilCell: _devilCell,
-                    devilFrames: _devilFrames,
                     safeZones: _safeZones,
                     playerSafe: _playerSafe,
                     isFlippedMode: _controlsInverted,
                     trapTiles: trapTiles,
                     trapHiddenCueLevel: _trapStageConfig.hiddenCueLevel,
-                    breakingTrapTexture: _breakingTrapTexture,
                     hidePlayer: _trapDeathInProgress,
+                    effects: List<MazeFx>.unmodifiable(_fx),
                   ),
                 ),
                 if (_trapDeathInProgress)
@@ -2411,10 +2280,4 @@ class _GameScreenState extends State<GameScreen>
       ),
     );
   }
-}
-
-class _TrapSurfaceMetrics {
-  const _TrapSurfaceMetrics({required this.origin, required this.cellSize});
-  final Offset origin;
-  final double cellSize;
 }
