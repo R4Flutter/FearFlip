@@ -654,6 +654,16 @@ def build_ui():
     idle = pressed.copy()
     arm = pressed[y1 + 1:y1 + 1 + y0, x0:x1 + 1]  # the down arm next to the centre
     idle[0:arm.shape[0], x0:x1 + 1] = arm[::-1]
+    # keying left spikes and notches on the stone's edge: smooth the outline
+    # and keep it just inside the measured plus, so the arms stay straight
+    inside = ndimage.binary_erosion(plus > 0.5, iterations=2)
+    for pad_art in (idle, pressed):
+        solid = ndimage.binary_closing(
+            ndimage.binary_opening(pad_art[..., 3] > 128, iterations=3), iterations=3) & inside
+        lab, n = ndimage.label(solid)
+        if n > 1:  # just the cross, no stray specks
+            solid = lab == 1 + int(np.argmax(ndimage.sum(solid, lab, range(1, n + 1))))
+        pad_art[..., 3] = (ndimage.gaussian_filter(solid.astype(np.float32), 0.9) * 255).astype(np.uint8)
     save(Image.fromarray(idle), 'ui/dpad.png')
     save(Image.fromarray(pressed), 'ui/dpad_pressed.png')
 

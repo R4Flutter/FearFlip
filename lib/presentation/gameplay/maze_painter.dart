@@ -219,21 +219,22 @@ class MazePainter extends CustomPainter {
     }
 
     final devil = devilCell;
-    if (devil != null) {
-      final devilCenter = camera
-          .cellCenter(_offsetOf(devil))
-          .translate(0, sin(time * 3.4) * cellSize * 0.07);
-      {
-        // Stand-in until the devil sheets land: a shadow with burning eyes.
-        canvas.drawCircle(
-          devilCenter,
-          cellSize * 0.42,
-          Paint()
-            ..color = _danger.withValues(alpha: 0.35)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-        );
-        canvas.drawCircle(devilCenter, cellSize * 0.32, Paint()..color = _void);
-      }
+    final devilCenter = devil == null
+        ? null
+        : camera
+              .cellCenter(_offsetOf(devil))
+              .translate(0, sin(time * 3.4) * cellSize * 0.07);
+    if (devilCenter != null) {
+      // Stand-in until the devil sheets land: a shadow (its eyes burn above
+      // the dark, below).
+      canvas.drawCircle(
+        devilCenter,
+        cellSize * 0.42,
+        Paint()
+          ..color = _danger.withValues(alpha: 0.35)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      );
+      canvas.drawCircle(devilCenter, cellSize * 0.32, Paint()..color = _void);
     }
 
     _paintEffects(canvas, camera, MazeFxKind.smoke);
@@ -241,10 +242,8 @@ class MazePainter extends CustomPainter {
 
     // Above the dark: the Devil's eyes (seen before its body), the exit's
     // sparkles and the ghost wisps glow on their own.
-    if (devil != null) {
-      final eyes = camera
-          .cellCenter(_offsetOf(devil))
-          .translate(0, sin(time * 3.4) * cellSize * 0.07 - cellSize * 0.05);
+    if (devilCenter != null) {
+      final eyes = devilCenter.translate(0, -cellSize * 0.05);
       final eye = Paint()..color = _danger;
       canvas.drawCircle(eyes.translate(-cellSize * 0.1, 0), cellSize * 0.05, eye);
       canvas.drawCircle(eyes.translate(cellSize * 0.1, 0), cellSize * 0.05, eye);
