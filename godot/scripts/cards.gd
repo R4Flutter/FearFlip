@@ -93,7 +93,7 @@ const OMENS: Array[Dictionary] = [
 	{"id": "twin_flip", "name": "SOUND SLEEPER", "text": "Flipping Time comes a quarter less often.", "mods": {"flip_interval": 1.25}},
 	{"id": "feather_step", "name": "FEATHER STEP", "text": "Once a floor, a cracked floor holds when it should give way.", "mods": {"feather": 1}},
 	{"id": "cartographer", "name": "CARTOGRAPHER", "text": "The map marks hidden cracks within 6 cells.", "mods": {"crack_reveal": 6}},
-	{"id": "locksmith", "name": "LOCKSMITH", "text": "Keys glow brighter, and one more chest waits down a dead end.", "mods": {"key_glow": 2.0, "chests": 1}},
+	{"id": "locksmith", "name": "LOCKSMITH", "text": "Boxes that hold a key glint, and one more chest waits down a dead end.", "mods": {"key_glow": 2.0, "chests": 1}},
 	{"id": "blood_pact", "name": "BLOOD PACT", "text": "Half again the shards. It runs 10% faster.", "mods": {"shards": 1.5, "devil_speed": 1.1}},
 	{"id": "ghost_sight", "name": "GHOST SIGHT", "text": "You see its glow through the walls when it's within 10 cells.", "mods": {"ghost_sight": 1}},
 	{"id": "last_breath", "name": "LAST BREATH", "text": "Once a floor, a catch sends you back to your last safe circle.", "mods": {"last_breath": 1}},

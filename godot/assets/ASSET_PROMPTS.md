@@ -146,6 +146,15 @@ clean, readable silhouette from 5 m away; Godot adds the glow in the key's world
 > demon skull with one empty gem socket in its eye, and a bit with three square teeth; aged dark iron with worn gold
 > edges, bold simple shapes, dark fantasy style. Isolated on a plain white background, even studio lighting.
 
+**key_box.glb** (the boxes the keys hide in; replaces the code-built crate in `key_box.gd`). About 3k triangles max,
+0.7 m wide, 0.48 m deep, 0.47 m tall. Front faces +Z. The lid must be a separate object named `Lid`, hinged on its back
+edge, and the box needs a modelled hollow inside (players look into it). It must never read as the exit chest: no iron
+bands, no locks, no gold.
+> Game asset concept, three-quarter front view: a small plain wooden storage box with a flat hinged lid, rough dark
+> planks held by two darker wooden slats, a little rope handle on each side, dusty, cobwebbed, scratched, damp stains;
+> no metal, no lock, no treasure; dark horror style, semi-realistic. Isolated on a plain white background, even studio
+> lighting, no shadow on the background.
+
 **ceiling_lamp.glb** (replaces the glowing rectangles on the ceiling). About 1.5k triangles max, 0.35 m tall. The
 bulb is made emissive in Godot.
 > Game asset concept, three-quarter view: an old industrial caged ceiling lamp, a wire-mesh cage around a single
@@ -319,6 +328,12 @@ transparent or pure black, blank caps (Godot writes the letter on them).
 **The plate's icons** (world, flip, floor, chest, shards) and the remaining text spots (minimap readout, pops,
 grades, centre titles, control hints): prompts in `MISSING_ASSETS.md` §0 and §4. The menu's icons stand in until then.
 
+**icon_open.png** (new: shown just under the screen centre while a closed key box is in reach; the menu's treasure
+chest stands in, which wrongly hints at the exit chest). 256x256 PNG, transparent background.
+> Game UI icon of a small plain wooden box with its lid lifting open and a thin line of pale light escaping from the
+> gap, front view, bold simple shapes, worn bone and dark wood colours with a faint gold rim light, dark fantasy horror
+> style, centred, no text. Transparent background.
+
 ---
 
 ## 5. FX sprites
@@ -348,6 +363,8 @@ and never use meme or soundboard clips. Save over the same file in `godot/assets
 | `sfx_flip_denied.mp3` | Short dull negative thunk with a muffled buzz, like hitting a locked door, 0.3 s |
 | `sfx_flipping_warning.mp3` | Ominous warning: three accelerating heartbeat-like pulses under a distorted siren swell, 3 s |
 | `sfx_sigil.mp3` (key pickup) | Old iron key picked up: a bright metallic clink plus a short magical chime with sparkle, 0.6 s |
+| `sfx_box_open.mp3` (new slot; the floor creak stands in) | Old wooden box lid forced open: a stuck lid jerks, a short pause, then a long dry hinge creak as it swings up, 0.9 s |
+| `sfx_box_empty.mp3` (new slot; the floor crack, pitched down, stands in) | Empty wooden box: a hollow knock on bare planks and a soft puff of dust settling, disappointed silence after, 0.6 s |
 | `sfx_devil_approach.mp3` | Close monstrous breathing loop: wet raspy inhale and exhale over a low guttural growl, seamless 4-second loop |
 | `sfx_devil_wakes.mp3` | Distant demonic roar echoing down stone corridors, layered with a low rumble and rattling chains, 2.5 s |
 | `sfx_heartbeat.mp3` | Deep muffled human heartbeat, 80 BPM, no music, seamless 3-second loop |

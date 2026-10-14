@@ -136,7 +136,7 @@ const ACT_TINTS: Array[Color] = [Color(0.35, 0.6, 1.0), Color(0.95, 0.2, 0.15), 
 const HOW_TO := [
 	["WASD  ·  MOUSE", "Move and look. Shift sprints, F toggles the flashlight."],
 	["FLIPPING TIME", "At random, after a warning, the world flips to NIGHTMARE: the same maze, redder, and your controls invert until it lets go."],
-	["KEYS", "Find every key, then open the chest. Any key can be taken in either world."],
+	["KEYS", "Keys hide in boxes down dead ends; click a box to open it. Some are empty. Your map (M) shows every box. Find every key, then open the chest."],
 	["THE DEVIL", "It always finds you. Slower in WAKE and slower up close: keep moving, or stand in a safe circle."],
 	["THE DESCENT", "Five acts of ten floors. Escape floor 10, the Gate, to open the next act. Dying restarts the act."],
 	["ESC  ·  R R", "Pause. Press R twice to restart the act on a new maze."],

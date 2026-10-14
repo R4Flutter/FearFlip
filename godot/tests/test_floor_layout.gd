@@ -15,6 +15,7 @@ func test_same_seed_same_floor() -> void:
 	var b := FloorLayout.generate(1234, ROOMS)
 	assert_eq(a.walls, b.walls)
 	assert_eq(a.sigils, b.sigils)
+	assert_eq(a.boxes, b.boxes, "the same boxes, the keys in the same ones: a Daily is the same for everyone")
 	assert_eq(a.devil_spawn, b.devil_spawn)
 	assert_ne(FloorLayout.generate(1235, ROOMS).walls, a.walls, "different seeds should differ")
 
@@ -35,17 +36,48 @@ func test_1000_seeds_valid_and_fast() -> void:
 	assert_true(total_ms / 1000.0 < 50.0, "average %.1f ms (worst %.1f ms) over 50 ms budget" % [total_ms / 1000.0, worst_ms])
 
 
-## Fair keys: 2 of them, on the spawn -> exit route (no dead-end branch), in the half nearest the exit.
-func test_keys_on_route_near_exit() -> void:
-	for rooms in [ROOMS, StageRule.ROOMS_3D.x, StageRule.ROOMS_3D.y]:
+## Keys hide in boxes (user, 14 Oct 2026): 2 keys + 3 empty boxes, each in a cell of its own, down every dead end at most
+## BOX_MAX_DETOUR path tiles off the spawn -> exit route they can take while SPARE_DEAD_ENDS stay free (chests, the
+## Sanctuary's altar), the rest on the route. On the real floors nearly all of them go down dead ends.
+func test_keys_hide_in_boxes_down_short_dead_ends() -> void:
+	for rooms in [7, StageRule.ROOMS_3D.x, StageRule.ROOMS_3D.y]:
+		var routed := 0
 		for seed_value in 100:
-			var layout := FloorLayout.generate(seed_value, rooms)
+			var layout := FloorLayout.generate(seed_value, rooms, 2, 3)
 			var path := layout.route(layout.spawn, layout.exit)
-			assert_eq(layout.sigils.size(), 2)
+			var off := layout._distances_from(FloorLayout.ANY, path)
+			var dead_ends := 0
+			var short_ends: Array[Vector2i] = []
+			for y in range(1, layout.size, 2):
+				for x in range(1, layout.size, 2):
+					var cell := Vector2i(x, y)
+					if cell != layout.spawn and cell != layout.exit and _ways(layout, cell) == 1:
+						dead_ends += 1
+						if off[y * layout.size + x] <= FloorLayout.BOX_MAX_DETOUR:
+							short_ends.append(cell)
+			var down := layout.boxes.filter(func(cell: Vector2i) -> bool: return short_ends.has(cell)).size()
+			routed += layout.boxes.size() - down
+			var problem := "" if layout.boxes.size() == 5 and layout.sigils.size() == 2 else "%d boxes" % layout.boxes.size()
+			if down != mini(5, mini(short_ends.size(), maxi(dead_ends - FloorLayout.SPARE_DEAD_ENDS, 0))):
+				problem = "%d boxes down %d short dead ends of %d" % [down, short_ends.size(), dead_ends]
+			for cell in layout.boxes:
+				if layout.boxes.count(cell) > 1 or not (short_ends.has(cell) or path.has(cell)):
+					problem = "box %s is neither alone down a short dead end nor on the route" % cell
 			for key in layout.sigils:
-				var at := path.find(key)
-				assert_true(at >= 0, "rooms %d seed %d: key %s off the exit route" % [rooms, seed_value, key])
-				assert_true(at >= path.size() * (1.0 - FloorLayout.KEY_ROUTE_SHARE) - 1.0, "rooms %d seed %d: key %s far from exit" % [rooms, seed_value, key])
+				if not layout.boxes.has(key):
+					problem = "key %s outside the boxes" % key
+			if problem != "":
+				assert_true(false, "rooms %d seed %d: %s" % [rooms, seed_value, problem])
+				return
+		if rooms != 7:
+			assert_true(routed < 50, "rooms %d: %d of 500 boxes on the route" % [rooms, routed])
+
+
+func _ways(layout: FloorLayout, cell: Vector2i) -> int:
+	var ways := 0
+	for d in FloorLayout.DIRS:
+		ways += 1 if layout.is_open(FloorLayout.ANY, cell + d) else 0
+	return ways
 
 
 ## A flip never moves walls: WAKE and NIGHTMARE are the same maze.
@@ -91,10 +123,10 @@ func test_next_step_moves_closer() -> void:
 func test_key_count_is_a_parameter() -> void:
 	var valid := 0
 	for seed_value in 200:
-		var layout := FloorLayout.generate(seed_value, ROOMS + 2, Cards.MAX_KEYS)
-		if layout.sigils.size() == Cards.MAX_KEYS and layout.validate().is_empty():
+		var layout := FloorLayout.generate(seed_value, ROOMS + 2, Cards.MAX_KEYS, 3)
+		if layout.sigils.size() == Cards.MAX_KEYS and layout.boxes.size() == Cards.MAX_KEYS + 3 and layout.validate().is_empty():
 			valid += 1
-	assert_eq(valid, 200, "five keys placed and reachable on every seed")
+	assert_eq(valid, 200, "five keys in eight boxes, placed and reachable on every seed")
 
 
 func test_sanctuary_sized_floors_stay_valid() -> void:
@@ -108,12 +140,12 @@ func test_sanctuary_sized_floors_stay_valid() -> void:
 func test_detours_are_dead_ends_off_the_route() -> void:
 	var checked := 0
 	for seed_value in 100:
-		var layout := FloorLayout.generate(seed_value, ROOMS + 2)
+		var layout := FloorLayout.generate(seed_value, StageRule.ROOMS_3D.x)  # the real size: boxes take dead ends too
 		var route := layout.route(layout.spawn, layout.exit)
 		var every := layout.detours(999, [])
-		var problem := "" if layout.detours(3, layout.sigils).size() == 3 else "fewer than 3"
-		for cell in layout.detours(3, layout.sigils):
-			if layout.sigils.has(cell):
+		var problem := "" if layout.detours(3, layout.boxes).size() == 3 else "fewer than 3"
+		for cell in layout.detours(3, layout.boxes):
+			if layout.boxes.has(cell):
 				problem = "%s is excluded" % cell
 		for cell in every:
 			var ways := 0

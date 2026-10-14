@@ -1,5 +1,5 @@
 extends Control
-## Full maze of the current world, north-up, player arrow + view cone, sigils, exit, landmarks, and the Devil (a marker
+## Full maze of the current world, north-up, player arrow + view cone, boxes, exit, landmarks, and the Devil (a marker
 ## that pulses faster as it closes in). In game it is the paper map's sheet (paper = true: ink, no panel, no readout);
 ## the screen mode (with a danger readout) is the old corner map, kept for a tutorial floor.
 ## main.gd pushes state every frame while the map is up (positions are in grid cells, floats).
@@ -16,16 +16,14 @@ const PLAYER_COLOR := Color(0.92, 0.95, 1.0)
 ## Paper mode: wall ink and the red "you are here" (the delivered marker art, pointing up, turned to your facing).
 const INK := Color(0.17, 0.11, 0.07)
 const INK_PLAYER := Color(0.72, 0.08, 0.05)
-var key_icon := Art.key_icon()
+## The keys' boxes (never which hold one): ochre, inked darker on parchment.
+const BOX_COLOR := Color(0.9, 0.6, 0.15)
 var marker := Art.tex(Art.HUD + "map_marker.png")
-## Key icon size (px) on the map.
-const KEY_SIZE := 24.0
 
 ## The game's per-world palette, handed down by main.gd so the map matches the 3D look:
-## glowing wall lines on fog-dark corridors, keys in their world's colour.
+## glowing wall lines on fog-dark corridors.
 var fog_colors: Array[Color]
 var glow_colors: Array[Color]
-var sigil_colors: Array[Color]
 var layout: FloorLayout
 var world := 0
 var player_pos := Vector2.ZERO
@@ -36,7 +34,8 @@ var devil_pos := Vector2.ZERO
 var devil_distance := -1.0
 ## Path distance to the exit in metres, in the current world (-1 = no path here).
 var exit_distance := -1.0
-var sigil_collected: Array[bool] = []
+## Which of layout.boxes you've opened (main.gd's array, shared).
+var box_opened: Array[bool] = []
 var exit_open := false
 ## False until the Devil wakes on this floor (plans/05 §3.4 spawn gating).
 var devil_awake := false
@@ -93,10 +92,10 @@ func _draw() -> void:
 					draw_rect(Rect2(_axis(x), _axis(y), _span(x) + 0.5, _span(y) + 0.5), fog_colors[world])
 
 	_draw_exit(_to_map(Vector2(layout.exit), cell), cell)
-	for i in layout.sigils.size():
-		if i < sigil_collected.size() and sigil_collected[i]:
-			continue
-		_draw_key(_to_map(Vector2(layout.sigils[i]), cell), KEY_SIZE, sigil_colors[layout.sigil_worlds[i]])
+	for i in layout.boxes.size():
+		var opened := i < box_opened.size() and box_opened[i]
+		if not (opened and layout.sigils.has(layout.boxes[i])):  # once its key is yours, the box is done with
+			_draw_box(_to_map(Vector2(layout.boxes[i]), cell), cell, opened)
 	if circles != null:
 		for i in circles.cells.size():
 			var fill := circles.charge[i] / circles.capacity
@@ -219,11 +218,18 @@ func _draw_exit(at: Vector2, cell: float) -> void:
 	draw_string(ThemeDB.fallback_font, at + Vector2(-12, -half - 3), "EXIT", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, color)
 
 
-## The key icon tinted its world's colour, on a dark drop shadow so it reads on the glow lines.
-func _draw_key(at: Vector2, icon: float, color: Color) -> void:
-	var rect := Rect2(at - Vector2(icon, icon) * 0.5, Vector2(icon, icon))
-	draw_texture_rect(key_icon, Rect2(rect.position + Vector2(1, 1), rect.size), false, Color(0, 0, 0, 0.8))
-	draw_texture_rect(key_icon, rect, false, color.lightened(0.3))
+## A lidded box; crossed out once you've found it empty.
+func _draw_box(at: Vector2, cell: float, opened: bool) -> void:
+	var half := maxf(cell * 0.48, 5.0)
+	var color := _ink(BOX_COLOR)
+	var rect := Rect2(at - Vector2(half, half * 0.75), Vector2(half * 2.0, half * 1.5))
+	if not opened:
+		draw_rect(rect, Color(color, 0.6))
+	draw_rect(rect, color, false, 2.0)
+	draw_line(at + Vector2(-half, -half * 0.3), at + Vector2(half, -half * 0.3), color, 1.5)  # the lid's seam
+	if opened:
+		draw_line(at - Vector2(half, half), at + Vector2(half, half), color, 2.0)
+		draw_line(at + Vector2(-half, half), at + Vector2(half, -half), color, 2.0)
 
 
 func _draw_readout(font: Font, side: float) -> void:
@@ -252,8 +258,8 @@ func _draw_readout(font: Font, side: float) -> void:
 	draw_circle(Vector2(x + 4, y - 4), 4.5, Color(1.0, 0.15, 0.12))
 	draw_string(font, Vector2(x + 12, y), "DEVIL", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))
 	x += 58.0
-	_draw_key(Vector2(x + 4, y - 4), 12.0, sigil_colors[world])
-	draw_string(font, Vector2(x + 12, y), "KEY", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))
+	_draw_box(Vector2(x + 4, y - 4), 10.0, false)
+	draw_string(font, Vector2(x + 12, y), "BOX", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))
 	x += 56.0
 	draw_rect(Rect2(x, y - 8, 8, 8), exit_color, false, 1.5)
 	draw_string(font, Vector2(x + 12, y), "EXIT", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.7))

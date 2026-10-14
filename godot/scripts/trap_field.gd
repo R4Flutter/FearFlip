@@ -137,9 +137,9 @@ static func _dead_end_entrance(layout: FloorLayout, cell: Vector2i) -> bool:
 	return false
 
 
-## Fair: everything you must reach (sigils, exit) is on one side of this cell, so the tour crosses
-## it at most once. Crack it at the mouth of an empty branch and you can still back off. In a maze
-## with loops this also holds whenever there's a way around.
+## Fair: everything you may have to reach (every box, since any of them could hold a key, and the exit) is on one
+## side of this cell, so the tour crosses it at most once. Crack it at the mouth of an empty branch and you can still
+## back off. In a maze with loops this also holds whenever there's a way around.
 ## ponytail: O(cells) BFS per candidate; fine up to 25x25 tiles.
 static func _safe_to_crack(layout: FloorLayout, cell: Vector2i) -> bool:
 	var seen := {cell: true, layout.spawn: true}
@@ -153,7 +153,7 @@ static func _safe_to_crack(layout: FloorLayout, cell: Vector2i) -> bool:
 			if layout.is_open(FloorLayout.ANY, next) and not seen.has(next):
 				seen[next] = true
 				queue.append(next)
-	var targets: Array[Vector2i] = layout.sigils.duplicate()
+	var targets: Array[Vector2i] = layout.boxes.duplicate()
 	targets.append(layout.exit)
 	var behind := 0
 	for target in targets:

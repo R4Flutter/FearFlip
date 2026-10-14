@@ -54,9 +54,7 @@ func test_flip_swaps_collision_and_visuals() -> void:
 func test_all_keys_open_exit_then_win() -> void:
 	var main := _spawn_floor()
 	for i in main.layout.sigils.size():
-		main._apply_world(main.layout.sigil_worlds[i])
-		main.player_cell = main.layout.sigils[i]
-		main._collect_sigils()
+		main._take_key(i)
 	assert_true(main.exit_open)
 	main.player_cell = main.layout.exit
 	main.devil_cell = main.layout.devil_spawn
@@ -67,18 +65,44 @@ func test_all_keys_open_exit_then_win() -> void:
 	assert_eq(main.game_state, "won")
 
 
-func test_keys_collect_and_show_in_either_world() -> void:
+## Keys hide in boxes (user, 14 Oct 2026): unseen until their box opens (a flip never shows them), any key is taken in
+## either world.
+func test_keys_hide_in_boxes_until_opened() -> void:
 	var main := _spawn_floor()
+	assert_eq(main.box_nodes.size(), main.layout.boxes.size())
+	assert_true(main.layout.boxes.size() > main.layout.sigils.size(), "more boxes than keys")
 	main._apply_world(NIGHTMARE)
 	for i in main.layout.sigils.size():
-		assert_true(main.sigil_nodes[i].visible, "key %d visible in NIGHTMARE" % i)
+		assert_false(main.sigil_nodes[i].is_visible_in_tree(), "key %d hidden in its box, NIGHTMARE too" % i)
 		for w in [WAKE, NIGHTMARE]:
-			assert_true(main.layout.is_open(w, main.layout.sigils[i]), "key %d cell open in world %d" % [i, w])
+			assert_true(main.layout.is_open(w, main.layout.sigils[i]), "key %d's box open in world %d" % [i, w])
 	var nightmare_sigil: int = main.layout.sigil_worlds.find(NIGHTMARE)
 	main._apply_world(WAKE)
-	main.player_cell = main.layout.sigils[nightmare_sigil]
-	main._collect_sigils()
-	assert_eq(main.sigils_collected, 1, "a NIGHTMARE-coloured key is collectible in WAKE")
+	main._reveal_box(main.layout.boxes.find(main.layout.sigils[nightmare_sigil]))
+	assert_eq(main.sigils_collected, 1, "a NIGHTMARE-coloured key is taken in WAKE")
+
+
+## You open the box in your cell that you face; an empty one says so and stays open, keyless.
+func test_an_empty_box_says_so_and_opens_once() -> void:
+	var main := _spawn_floor()
+	var empty := -1
+	for i in main.layout.boxes.size():
+		if not main.layout.sigils.has(main.layout.boxes[i]):
+			empty = i
+	var box: KeyBox = main.box_nodes[empty]
+	main.player_cell = main.layout.boxes[empty]
+	main.player.global_position = box.global_position + box.global_transform.basis.z
+	main.player.rotation.y = box.rotation.y
+	assert_eq(main._box_in_reach(), empty, "in its cell, facing it")
+	main.player.rotation.y += PI
+	assert_eq(main._box_in_reach(), -1, "not with your back to it")
+	main.player.rotation.y -= PI
+	main._open_box(empty)
+	assert_true(main.box_opened[empty])
+	assert_eq(main._box_in_reach(), -1, "an open box is done with")
+	main._reveal_box(empty)  # what the lid's `opened` does once it's up
+	assert_eq(main.state_label.text, "EMPTY")
+	assert_eq(main.sigils_collected, 0, "nothing inside")
 
 
 ## The first wall multimesh of a world's wall set.
@@ -318,9 +342,7 @@ func test_flipping_time_inverts_movement() -> void:
 func test_keys_chest_and_floor_clear_pay_shards() -> void:
 	var main := _spawn_floor()
 	for i in main.layout.sigils.size():
-		main._apply_world(main.layout.sigil_worlds[i])
-		main.player_cell = main.layout.sigils[i]
-		main._collect_sigils()
+		main._take_key(i)
 	var keys := FloorLayout.SIGIL_COUNT * MetaState.SIGIL_SHARDS
 	assert_eq(main.floor_shards, keys, "every key pays")
 	main._on_chest_opened()
@@ -714,7 +736,7 @@ func test_the_sheet_is_this_floor_in_the_world_you_stand_in() -> void:
 	var sheet: Control = main.paper_map.sheet
 	assert_eq(sheet.layout, main.layout, "the generated maze itself, not a picture")
 	assert_eq(sheet.landmarks, main.landmarks, "the landmarks where they stand")
-	assert_true(is_same(sheet.sigil_collected, main.sigil_collected), "keys as you find them")
+	assert_true(is_same(sheet.box_opened, main.box_opened), "boxes as you open them")
 	assert_eq(sheet.circles, main.circles)
 	assert_eq(sheet.traps, main.traps)
 	_press(main, "map")
@@ -772,9 +794,7 @@ func test_a_floor_counts_what_you_did_for_the_challenges() -> void:
 	var main := _spawn_floor()
 	main._wake_devil()
 	for i in main.layout.sigils.size():
-		main._apply_world(main.layout.sigil_worlds[i])
-		main.player_cell = main.layout.sigils[i]
-		main._collect_sigils()
+		main._take_key(i)
 	main._pay_chest({"kind": "shards", "shards": 5})
 	main._close_call("CLOSE CALL")
 	Engine.time_scale = 1.0

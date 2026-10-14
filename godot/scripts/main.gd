@@ -141,8 +141,7 @@ const FALL_FOV_ZOOM := -16.0
 const FALL_END := 2.3
 ## Held camera roll while controls are inverted: a constant "something is wrong" cue.
 const INVERT_TILT_DEGREES := 6.0
-## Keys float this high (m). At the chest you stop this far from it (m) to watch it open.
-const KEY_HEIGHT := 1.2
+## At the chest you stop this far from it (m) to watch it open.
 const CHEST_VIEW_DISTANCE := 1.5
 const HEARTBEAT_TILES := 8
 
@@ -171,6 +170,15 @@ const ACT_HUES: Array[float] = [-1.0, 0.42, 0.76, 0.09, -1.0, 0.83]
 const ACT_SATURATION: Array[float] = [1.0, 1.0, 1.0, 1.0, 0.15, 0.5]
 ## Light on a chest waiting down a dead end, so it can be found in the dark.
 const DETOUR_CHEST_GLOW := 0.8
+## Keys hide in boxes (KeyBox): you open the one in your cell once it's within this angle of your view (degrees).
+const BOX_FACE_ANGLE := 50.0
+## A key in its box is drawn this much smaller than KeyPickup.LENGTH (sized to float in a corridor), so it fits.
+const BOX_KEY_SCALE := 0.55
+## A box stands this far (m) off the wall behind it.
+const BOX_WALL_GAP := 0.1
+## Delivered box sounds (assets/ASSET_PROMPTS.md §6); until then the floor creak and the floor crack stand in.
+const BOX_OPEN_SFX := "res://assets/audio/sfx_box_open.mp3"
+const BOX_EMPTY_SFX := "res://assets/audio/sfx_box_empty.mp3"
 ## The flashlight's shadow bias (depth, normal): lower brings back the stripes on far walls (shadow acne).
 const FLASHLIGHT_SHADOW_BIAS := Vector2(0.1, 2.0)
 ## Delivered art (Art; prompts in assets/ASSET_PROMPTS.md). Textured surfaces: how bright each world's textures show
@@ -432,6 +440,11 @@ var game_state := "playing"
 var sigil_nodes: Array[Node3D] = []
 var sigil_collected: Array[bool] = []
 var sigils_collected := 0
+## The boxes the keys hide in (layout.boxes order) and which you've opened (the paper map shares the array).
+var box_nodes: Array[KeyBox] = []
+var box_opened: Array[bool] = []
+## Shown while a closed box is in reach (_box_in_reach).
+var open_prompt: TextureRect
 var exit_open := false
 var env: Environment
 var world_lights: Array[OmniLight3D] = []
@@ -471,6 +484,8 @@ var lose_player: AudioStreamPlayer
 var flip_player: AudioStreamPlayer
 var warning_player: AudioStreamPlayer
 var sigil_player: AudioStreamPlayer
+var box_open_player: AudioStreamPlayer
+var box_empty_player: AudioStreamPlayer
 var devil_approach_player: AudioStreamPlayer
 var devil_approach_playing := false
 var camera: Camera3D
@@ -511,7 +526,7 @@ func _ready() -> void:
 	print("FearFlip floor %d seed: %d" % [rule.floor_number, seed_value])
 	_fold_cards()
 	layout = FloorLayout.generate(seed_value, rooms if rooms > 0 else roundi(RunState.mod("rooms", rule.rooms)),
-			roundi(RunState.mod("keys", FloorLayout.SIGIL_COUNT)))
+			roundi(RunState.mod("keys", FloorLayout.SIGIL_COUNT)), rule.box_empties)
 	flip = FlipSystem.new(seed_value)
 	flip.first_forced_at = RunState.mod("flip_interval", rule.first_forced_at)
 	flip.arm()  # no flip button: the first Flipping Time comes at a random moment
@@ -530,10 +545,10 @@ func _ready() -> void:
 	circles.capacity = RunState.mod("circle_time", rule.safe_circle_protect_s)
 	circles.single_use = rule.safe_circle_single_use
 	circles.place(route, roundi(RunState.mod("circles", rule.safe_circle_count)) + roundi(RunState.mod("extra_circles", 0.0)), func(cell: Vector2i) -> bool:
-		return layout.is_open(WAKE, cell) and layout.is_open(NIGHTMARE, cell) and not layout.sigils.has(cell) and cell != layout.devil_spawn)
+		return layout.is_open(WAKE, cell) and layout.is_open(NIGHTMARE, cell) and not layout.boxes.has(cell) and cell != layout.devil_spawn)
 	traps = TrapField.new()
 	var excluded: Array[Vector2i] = [layout.devil_spawn]
-	excluded.append_array(layout.sigils)
+	excluded.append_array(layout.boxes)
 	excluded.append_array(circles.cells)
 	var trap_rng := RandomNumberGenerator.new()
 	trap_rng.seed = seed_value
@@ -566,7 +581,7 @@ func _ready() -> void:
 	_build_maze()
 	_build_player()
 	_build_goal()
-	_build_sigils()
+	_build_boxes()
 	_build_circles()
 	_build_traps()
 	_build_detour_chests()
@@ -682,7 +697,6 @@ func _process(delta: float) -> void:
 	_tick_devil(delta)
 	if _devil_close():
 		chased_time += delta
-	_collect_sigils()
 	if not panic and time_left <= PANIC_TIME:
 		panic = true
 		alarm_player.play()
@@ -779,6 +793,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_apply_look(-motion.relative.x * feel.mouse_sensitivity, -motion.relative.y * feel.mouse_sensitivity)
 	elif event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	elif event.is_action_pressed("interact"):
+		var box := _box_in_reach()
+		if box >= 0:
+			_open_box(box)
 	elif event.is_action_pressed("flashlight"):
 		if flash_stuns > 0:
 			if not paper_map.is_up():  # both hands are on the map
@@ -953,8 +971,6 @@ func _apply_world(new_world: int) -> void:
 	for light in world_lights:
 		light.light_color = glow_colors[world]
 	devil.visible = devil_active
-	for i in sigil_nodes.size():
-		sigil_nodes[i].visible = not sigil_collected[i]
 	var tween := create_tween().set_parallel()
 	tween.tween_property(calm_player, "volume_db", -60.0 if nightmare else music_db, 0.6)
 	tween.tween_property(intense_player, "volume_db", music_db if nightmare else -60.0, 0.6)
@@ -1001,24 +1017,52 @@ func _move_devil_into_world() -> void:
 	prev_devil_cell = best
 	devil.position = _devil_world_position()  # teleport: never glide through a wall
 
-# --- Sigils, exit, Devil ----------------------------------------------------
+# --- Boxes, keys, exit, Devil ----------------------------------------------
 
-func _collect_sigils() -> void:
-	for i in layout.sigils.size():
-		if sigil_collected[i] or layout.sigils[i] != player_cell:
-			continue
-		sigil_collected[i] = true
-		(sigil_nodes[i] as KeyPickup).collect()
-		key_hud.fly_in(sigils_collected, _screen_point(sigil_nodes[i].global_position))
-		sigils_collected += 1
-		_count("sigils")
-		_earn(MetaState.SIGIL_SHARDS)
-		sigil_player.pitch_scale = 1.0
-		sigil_player.play()
-		if sigils_collected == layout.sigils.size():
-			key_hud.all_found()
-			_open_exit()
-		_refresh_minimap()
+## The closed box in your cell that you're facing (within BOX_FACE_ANGLE of your view: the grid decides, not physics),
+## else -1. None while both hands hold the map.
+func _box_in_reach() -> int:
+	var i := layout.boxes.find(player_cell)
+	if i < 0 or box_opened[i] or paper_map.is_up():
+		return -1
+	var forward := -camera.global_transform.basis.z
+	var to_box := box_nodes[i].global_position - camera.global_position
+	return i if Vector2(forward.x, forward.z).normalized().dot(Vector2(to_box.x, to_box.z).normalized()) > cos(deg_to_rad(BOX_FACE_ANGLE)) else -1
+
+## Click: the lid creaks loose (it hears that, if it's awake and near) and swings up; _reveal_box shows what's inside.
+func _open_box(i: int) -> void:
+	box_opened[i] = true
+	box_nodes[i].open()
+	box_open_player.play()
+	_noise(player_cell, DevilBrain.NOISE_BOX)
+
+## The lid is up: its key flies to you, or there's nothing but dust.
+func _reveal_box(i: int) -> void:
+	var key := layout.sigils.find(layout.boxes[i])
+	if key >= 0:
+		_take_key(key)
+		return
+	box_nodes[i].puff()
+	box_empty_player.play()
+	_flash_message("EMPTY")
+	_refresh_minimap()
+
+func _take_key(i: int) -> void:
+	if sigil_collected[i]:
+		return
+	sigil_collected[i] = true
+	sigil_nodes[i].visible = true
+	(sigil_nodes[i] as KeyPickup).collect()
+	key_hud.fly_in(sigils_collected, _screen_point(sigil_nodes[i].global_position))
+	sigils_collected += 1
+	_count("sigils")
+	_earn(MetaState.SIGIL_SHARDS)
+	sigil_player.pitch_scale = 1.0
+	sigil_player.play()
+	if sigils_collected == layout.sigils.size():
+		key_hud.all_found()
+		_open_exit()
+	_refresh_minimap()
 
 func _open_exit() -> void:
 	exit_open = true
@@ -1795,11 +1839,12 @@ func _shake(amount: float) -> void:
 func _screen_flash(color: Color) -> void:
 	flash_rect.color = Color(color, Settings.flash(color.a))
 
-## Spawn -> each sigil (nearest first) -> exit, in path tiles: what the clock budgets for.
+## Spawn -> every box (nearest first) -> exit, in path tiles: what the clock budgets for. Every box, not just the
+## keys': you can't know which hold them, so the clock is fair even when the last box you try is the one.
 func _tour_tiles() -> int:
 	var total := 0
 	var at := layout.spawn
-	var left: Array[Vector2i] = layout.sigils.duplicate()
+	var left: Array[Vector2i] = layout.boxes.duplicate()
 	while not left.is_empty():
 		var dist := layout.distances(FloorLayout.ANY, at)
 		var pick := left[0]
@@ -1845,6 +1890,11 @@ func _build_audio() -> void:
 	flip_player = _audio("FlipSfx", "res://assets/audio/sfx_flip.mp3", -6.0)
 	warning_player = _audio("FlippingTimeWarning", "res://assets/audio/sfx_flipping_warning.mp3", -4.0)
 	sigil_player = _audio("SigilSfx", "res://assets/audio/sfx_sigil.mp3", -6.0)
+	# Stand-ins until the box sounds are delivered: the floor creak for the lid, the floor crack pitched down to a knock.
+	box_open_player = _audio("BoxOpen", BOX_OPEN_SFX if ResourceLoader.exists(BOX_OPEN_SFX) else "res://assets/audio/sfx_floor_creak.mp3", -6.0)
+	box_empty_player = _audio("BoxEmpty", BOX_EMPTY_SFX if ResourceLoader.exists(BOX_EMPTY_SFX) else "res://assets/audio/sfx_floor_crack.mp3", -10.0)
+	if not ResourceLoader.exists(BOX_EMPTY_SFX):
+		box_empty_player.pitch_scale = 0.55
 	devil_approach_player = _audio("DevilApproach", "res://assets/audio/sfx_devil_approach.mp3", -10.0)
 	heartbeat_player = _audio("Heartbeat", "res://assets/audio/sfx_heartbeat.mp3", -20.0)
 	(heartbeat_player.stream as AudioStreamMP3).loop = true
@@ -2249,7 +2299,7 @@ func _set_exit_look() -> void:
 ## Chests down dead ends (Vault, Greed: plans/06 B3), each a real detour off the route, glowing faintly.
 func _build_detour_chests() -> void:
 	var taken: Array[Vector2i] = [layout.devil_spawn]
-	taken.append_array(layout.sigils)
+	taken.append_array(layout.boxes)
 	taken.append_array(circles.cells)
 	taken.append_array(traps.cells)
 	for cell in layout.detours(roundi(RunState.mod("chests", 0.0)), taken, traps.cells):
@@ -2269,7 +2319,7 @@ func _build_altar() -> void:
 	if altar_scene == null:
 		return
 	var taken: Array[Vector2i] = [layout.devil_spawn, layout.spawn, layout.exit]
-	taken.append_array(layout.sigils)
+	taken.append_array(layout.boxes)
 	taken.append_array(circles.cells)
 	taken.append_array(traps.cells)
 	taken.append_array(bonus_chests.keys())
@@ -2314,7 +2364,7 @@ func _build_dressing() -> void:
 		for x in layout.size:
 			var cell := Vector2i(x, y)
 			if layout.is_open(NIGHTMARE, cell) and not traps.cells.has(cell) and not circles.cells.has(cell) \
-					and cell != layout.exit and not layout.sigils.has(cell):
+					and cell != layout.exit and not layout.boxes.has(cell):
 				floors.append(cell)
 	for i in BLOOD_DECALS:
 		var blood := Art.decal(Art.DECALS + "decal_blood.png", rng.randf_range(1.0, 1.7), Color.WHITE, false)
@@ -2522,13 +2572,36 @@ func _flicker_landmark() -> void:
 	flicker_bulb.albedo_color = flicker_light.light_color.darkened(1.0 - on)
 	flicker_halo.visible = on > 0.5
 
-## Keys (the sigils' rules, the key art): one per sigil cell, glowing in the colour of its world.
-func _build_sigils() -> void:
+## A box per layout.boxes cell, against a wall and facing into the cell: the back wall of a dead end (so it faces the
+## way in), else a wall across from a way in, else any wall (a box on the route never blocks it). The keys (the
+## sigils' rules, the key art, glowing in the colour of their world) wait hidden inside theirs until the lid comes
+## up; with the Locksmith omen their boxes glint.
+func _build_boxes() -> void:
+	var glint := RunState.mod("key_glow", 1.0) > 1.0
+	for i in layout.boxes.size():
+		var cell := layout.boxes[i]
+		var key := layout.sigils.find(cell)
+		var back := Vector2i.ZERO
+		for d in FloorLayout.DIRS:
+			if not layout.is_open(FloorLayout.ANY, cell + d) and (back == Vector2i.ZERO or layout.is_open(FloorLayout.ANY, cell - d)):
+				back = d
+		var box := KeyBox.new()
+		box.name = "KeyBox%d" % i
+		box.position = cell_to_world(cell) + Vector3(back.x, 0, back.y) * (CELL_SIZE * 0.5 - KeyBox.DEPTH * 0.5 - BOX_WALL_GAP)
+		box.rotation.y = atan2(float(-back.x), float(-back.y))
+		add_child(box)
+		box.build(LAYER_SHARED, SIGIL_COLORS[layout.sigil_worlds[key]] if key >= 0 and glint else Color(0, 0, 0, 0))
+		box.opened.connect(_reveal_box.bind(i))
+		box_nodes.append(box)
+		box_opened.append(false)
 	for i in layout.sigils.size():
 		var key := KeyPickup.new()
 		key.name = "Key%d" % i
-		key.position = cell_to_world(layout.sigils[i]) + Vector3(0, KEY_HEIGHT, 0)
-		add_child(key)
+		key.visible = false
+		var box := box_nodes[layout.boxes.find(layout.sigils[i])]
+		key.position = Vector3(0, box.top + 0.15, 0)
+		key.scale = Vector3.ONE * BOX_KEY_SCALE
+		box.add_child(key)
 		key.build(SIGIL_COLORS[layout.sigil_worlds[i]], i * 1.3, RunState.mod("key_glow", 1.0))
 		sigil_nodes.append(key)
 		sigil_collected.append(false)
@@ -2667,6 +2740,14 @@ func _build_hud() -> void:
 	stamina_bar.add_theme_stylebox_override("fill", fill)
 	stamina_bar.visible = false
 	hud.add_child(stamina_bar)
+	# Just under the centre while a closed box is in reach (_update_hud): the delivered icon, else the menu's chest.
+	open_prompt = _hud_image(hud, "OpenPrompt", _hud_art("icon_open.png", Art.cell(MainMenu.ART + "ui_icons.png", MainMenu.Icon.CHEST, MainMenu.ICON_CELL)))
+	open_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	open_prompt.offset_left = -22
+	open_prompt.offset_right = 22
+	open_prompt.offset_top = 40
+	open_prompt.offset_bottom = 84
+	open_prompt.visible = false
 	var smoke :=Art.tex(Art.HUD + "banner.png")
 	if smoke != null:
 		# Smoke behind the centre messages, multiplied in (its white vanishes); shown with a message.
@@ -2801,14 +2882,13 @@ func _hud_label(hud: CanvasLayer, node_name: String, font_size: int, preset: Con
 	hud.add_child(label)
 	return label
 
-## A minimap of this floor, for the sheet of the paper map: the real layout, keys, circles, traps and landmarks.
+## A minimap of this floor, for the sheet of the paper map: the real layout, boxes, circles, traps and landmarks.
 func _new_map() -> Control:
 	var map: Control = preload("res://scripts/minimap.gd").new()
 	map.layout = layout
 	map.fog_colors = fog_colors
 	map.glow_colors = glow_colors
-	map.sigil_colors = SIGIL_COLORS
-	map.sigil_collected = sigil_collected
+	map.box_opened = box_opened
 	map.circles = circles
 	map.traps = traps
 	map.landmarks = landmarks
@@ -2996,6 +3076,7 @@ func _update_hud() -> void:
 	stamina_bar.visible = stamina < 1.0
 	stamina_bar.modulate = FLIP_BLOCKED if winded else Color.WHITE
 	chest_icon.visible = exit_open
+	open_prompt.visible = _box_in_reach() >= 0
 	shard_label.text = str(MetaState.shards + floor_shards)
 	if warning_label.visible:
 		warning_label.text = "FLIPPING TIME  %d

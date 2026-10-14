@@ -70,6 +70,8 @@ const SAFE_CIRCLE_PROTECT := Vector2(8.0, 3.0)
 ## Safe circles go single-use from this difficulty on (late Act 4, most of Act 5).
 const SAFE_CIRCLE_SINGLE_USE_FROM := 0.75
 const TRAPS := Vector2(2.0, 10.0)
+## Empty boxes beside the keys (keys hide in boxes, FloorLayout.boxes): 1 on the easiest floors, 3 on the hardest.
+const BOX_EMPTIES := Vector2(1.0, 3.0)
 const TRAP_CUE := Vector2(1.0, 0.06)
 ## Cracks must stay readable: a doom trap is only fair if you can see it coming (§2.5).
 const MIN_TRAP_CUE := 0.35
@@ -106,6 +108,7 @@ const GRADE_CHASED := 0.4
 @export var safe_circle_single_use := false
 @export var trap_count := 1
 @export var trap_cue_strength := 1.0
+@export var box_empties := 1
 ## Traps on dead-end entrances (crack going in, die coming out). Act 2+ only.
 @export var dead_end_traps := false
 ## Rule cards dealt through a plain door (Cards.deal): 1, more the deeper into the Abyss.
@@ -150,6 +153,7 @@ static func for_floor(number: int) -> StageRule:
 	rule.safe_circle_single_use = t >= SAFE_CIRCLE_SINGLE_USE_FROM
 	rule.trap_count = 1 if f == 1 else roundi(_curve(TRAPS, t))
 	rule.trap_cue_strength = maxf(_curve(TRAP_CUE, t), MIN_TRAP_CUE)
+	rule.box_empties = roundi(_curve(BOX_EMPTIES, t))
 	rule.dead_end_traps = rule.act >= 2
 	return rule
 

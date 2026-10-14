@@ -10,8 +10,12 @@ enum World { WAKE, NIGHTMARE }
 const ANY := -1
 const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 const SIGIL_COUNT := 2
-## Keys sit in this share of the spawn -> exit route nearest the exit.
-const KEY_ROUTE_SHARE := 0.5
+## Keys hide in boxes; this many more boxes are empty unless the caller says otherwise (StageRule.box_empties).
+const EMPTY_BOXES := 2
+## Boxes sit down dead ends at most this many path tiles off the spawn -> exit route: a search, not a trek.
+const BOX_MAX_DETOUR := 6
+## Dead ends the boxes leave free for the floor's chests and the Sanctuary's altar (main.gd places those later).
+const SPARE_DEAD_ENDS := 2
 const MAX_ATTEMPTS := 20
 ## Share of corridor connectors that differ in NIGHTMARE (opened or closed). 0 = same maze in both
 ## worlds (a flip changes mood, sigils and Devil speed only). Was 0.25 when NIGHTMARE rewired the maze.
@@ -32,6 +36,9 @@ var spawn := Vector2i(1, 1)
 var exit := Vector2i.ZERO
 var devil_spawn := Vector2i.ZERO
 var sigil_count := SIGIL_COUNT
+var box_count := SIGIL_COUNT + EMPTY_BOXES
+## Every box on the floor; the keys hide in `sigils` of them, the rest are empty.
+var boxes: Array[Vector2i] = []
 var sigils: Array[Vector2i] = []
 var sigil_worlds: Array[int] = []
 ## Cells never changed between worlds (spawn room, exit chamber).
@@ -39,10 +46,11 @@ var _protected: Dictionary = {}
 
 
 ## rooms = rooms per side; the grid is (2 * rooms + 1) tiles square.
-static func generate(seed_value: int, rooms: int, keys := SIGIL_COUNT) -> FloorLayout:
+static func generate(seed_value: int, rooms: int, keys := SIGIL_COUNT, empties := EMPTY_BOXES) -> FloorLayout:
 	var layout := FloorLayout.new()
 	layout.seed_value = seed_value
 	layout.sigil_count = keys
+	layout.box_count = keys + maxi(empties, 0)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	for _attempt in MAX_ATTEMPTS:
@@ -184,6 +192,13 @@ func validate() -> String:
 	for i in sigils.size():
 		if reach[sigil_worlds[i] * size * size + _idx(sigils[i])] < 0:
 			return "sigil %d unreachable" % i
+		if not boxes.has(sigils[i]):
+			return "key %d not in a box" % i
+	if boxes.size() != box_count:
+		return "%d of %d boxes placed" % [boxes.size(), box_count]
+	for i in boxes.size():
+		if reach[_idx(boxes[i])] < 0 and reach[size * size + _idx(boxes[i])] < 0:
+			return "box %d unreachable" % i
 	var devil_dist := distances(World.NIGHTMARE, spawn)[_idx(devil_spawn)]
 	if devil_dist < MIN_DEVIL_DISTANCE:
 		return "devil spawn %d cells from player" % devil_dist
@@ -219,7 +234,7 @@ func _build(rng: RandomNumberGenerator, rooms: int) -> void:
 			_protected[center + d] = true
 	_braid(rng)
 	_make_nightmare(rng)
-	_place_sigils()
+	_place_boxes(rng)
 	_place_devil(rng)
 
 
@@ -278,16 +293,31 @@ func _make_nightmare(rng: RandomNumberGenerator) -> void:
 	walls.append(nightmare)
 
 
-## Key 0 in WAKE, key 1 in NIGHTMARE. Keys sit on the spawn -> exit route (never down a dead-end
-## branch, so the Devil can't corner you at one), in the KEY_ROUTE_SHARE nearest the exit.
-## Spread by farthest-point sampling on path distance (flips allowed).
-func _place_sigils() -> void:
+## Keys hide in boxes. box_count boxes go down dead ends at most BOX_MAX_DETOUR path tiles off the spawn -> exit
+## route (dead ends now earn their risk: one way out), spread by farthest-point sampling on path distance (flips
+## allowed), leaving SPARE_DEAD_ENDS of all the dead ends free. A maze short of those puts the rest on the route
+## (main.gd stands every box against a wall, so none blocks a corridor), then anywhere. The seed picks which boxes
+## hold the keys, so a Daily hides them in the same boxes for everyone. Key 0 is WAKE-coloured, key 1 NIGHTMARE
+## (either is taken in either world).
+func _place_boxes(rng: RandomNumberGenerator) -> void:
+	boxes.clear()
 	sigils.clear()
 	sigil_worlds.clear()
 	var path := route(spawn, exit)
+	var off := _distances_from(ANY, path)
+	var ends: Array[Vector2i] = []
+	var dead_ends := 0
+	for cell in _room_cells([]):
+		var ways := 0
+		for d in DIRS:
+			ways += 1 if is_open(ANY, cell + d) else 0
+		var depth := off[_idx(cell)]
+		if ways == 1 and depth >= 0 and is_open(World.WAKE, cell) and is_open(World.NIGHTMARE, cell):
+			dead_ends += 1
+			if depth <= BOX_MAX_DETOUR:
+				ends.append(cell)
 	var on_route: Array[Vector2i] = []
-	for i in range(floori(path.size() * (1.0 - KEY_ROUTE_SHARE)), path.size()):
-		var cell := path[i]
+	for cell in path:
 		if cell.x % 2 == 1 and cell.y % 2 == 1 and not _protected.has(cell):
 			on_route.append(cell)
 	var nearest := PackedInt32Array()
@@ -295,29 +325,37 @@ func _place_sigils() -> void:
 	nearest.fill(1 << 30)
 	_update_nearest(nearest, spawn)
 	_update_nearest(nearest, exit)
-	for i in sigil_count:
-		var world := World.WAKE if i % 2 == 0 else World.NIGHTMARE
-		var candidates: Array[Vector2i] = []
-		for cell in on_route:
-			if not sigils.has(cell):
-				candidates.append(cell)
-		if candidates.is_empty():
-			var taken: Array[Vector2i] = [spawn, exit]
-			taken.append_array(sigils)
-			candidates = _room_cells(taken)  # ponytail: tiny-maze fallback, may be a dead end
-		var pick := candidates[0]
-		for cell in candidates:
-			if nearest[_idx(cell)] > nearest[_idx(pick)]:
+	_spread_boxes(ends, mini(box_count, maxi(dead_ends - SPARE_DEAD_ENDS, 0)), nearest)
+	_spread_boxes(on_route, box_count, nearest)
+	_spread_boxes(_room_cells([]), box_count, nearest)
+	var order := range(boxes.size())
+	for i in range(order.size() - 1, 0, -1):  # Fisher-Yates on the floor's rng: same seed, same key boxes
+		var j := rng.randi_range(0, i)
+		var swap: int = order[i]
+		order[i] = order[j]
+		order[j] = swap
+	for i in mini(sigil_count, boxes.size()):
+		sigils.append(boxes[order[i]])
+		sigil_worlds.append(World.WAKE if i % 2 == 0 else World.NIGHTMARE)
+
+
+## Farthest-point picks from `pool` into boxes until there are `limit` of them (or the pool runs dry).
+func _spread_boxes(pool: Array[Vector2i], limit: int, nearest: PackedInt32Array) -> void:
+	while boxes.size() < limit:
+		var pick := Vector2i(-1, -1)
+		for cell in pool:
+			if not boxes.has(cell) and (pick.x < 0 or nearest[_idx(cell)] > nearest[_idx(pick)]):
 				pick = cell
-		sigils.append(pick)
-		sigil_worlds.append(world)
+		if pick.x < 0:
+			return
+		boxes.append(pick)
 		_update_nearest(nearest, pick)
 
 
 func _place_devil(rng: RandomNumberGenerator) -> void:
 	var dist := distances(World.NIGHTMARE, spawn)
 	var excluded: Array[Vector2i] = [spawn, exit]
-	excluded.append_array(sigils)
+	excluded.append_array(boxes)
 	var options: Array[Vector2i] = []
 	for cell in _room_cells(excluded):
 		if dist[_idx(cell)] >= MIN_DEVIL_DISTANCE:

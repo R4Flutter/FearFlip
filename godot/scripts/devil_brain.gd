@@ -23,6 +23,8 @@ const BEAM_TILES := 7
 const HEAR_SPRINT_TILES := 6
 const NOISE_WALK := 2
 const NOISE_FLIP := 6
+## A box lid creaking open (keys hide in boxes).
+const NOISE_BOX := 6
 const NOISE_CRACK := 8
 ## Its top speed (m/s) for what it's doing, unless it's chasing at the Director's peak (then speed() alone rules).
 const CALM_SPEEDS := {"patrol": 2.2, "investigate": 3.0, "chase": 3.0}

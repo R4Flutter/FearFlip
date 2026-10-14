@@ -36,8 +36,8 @@ func test_circles_on_route_thirds_and_traps_fair_over_seeds() -> void:
 			assert_true(_both_open(layout, cell))
 			assert_true(TrapField._manhattan(cell, layout.spawn) > TrapField.SPAWN_CLEARANCE, "seed %d trap near spawn" % seed_value)
 			assert_true(TrapField._manhattan(cell, layout.exit) > TrapField.EXIT_CLEARANCE, "seed %d trap near exit" % seed_value)
-			if not TrapField._dead_end_entrance(layout, cell):
-				assert_true(TrapField._safe_to_crack(layout, cell), "seed %d trap %s dooms you" % [seed_value, cell])
+			# Never between you and a box (any could hold a key) or the exit: you'd crack it going and fall coming back.
+			assert_true(TrapField._safe_to_crack(layout, cell), "seed %d trap %s dooms you" % [seed_value, cell])
 		for i in traps.cells.size():
 			for j in range(i + 1, traps.cells.size()):
 				assert_true(TrapField._manhattan(traps.cells[i], traps.cells[j]) >= TrapField.MIN_SPACING)
