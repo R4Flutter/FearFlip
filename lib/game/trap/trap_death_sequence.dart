@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../presentation/gameplay/maze_art.dart';
+
 /// Self-contained controller + painter for the 1.8-second trap-death
 /// cinematic sequence.
 ///
@@ -35,6 +37,9 @@ class TrapDeathSequence {
   /// Side length of one maze cell for sizing the void and fragments.
   double _cellSize = 0;
 
+  /// The delivered debris burst; the code fragments stand in without it.
+  SpriteStrip? _debris;
+
   /// Whether the sequence is currently animating.
   bool get isActive => _controller.isAnimating;
 
@@ -47,9 +52,14 @@ class TrapDeathSequence {
   CustomPainter get painter => _TrapDeathPainter(sequence: this);
 
   /// Begin the death animation centred on [trapCenter].
-  void start({required Offset trapCenter, required double cellSize}) {
+  void start({
+    required Offset trapCenter,
+    required double cellSize,
+    SpriteStrip? debris,
+  }) {
     _trapCenter = trapCenter;
     _cellSize = cellSize;
+    _debris = debris;
     _controller.forward(from: 0);
     HapticFeedback.mediumImpact();
   }
@@ -117,7 +127,19 @@ class _TrapDeathPainter extends CustomPainter {
 
     // ── Phase 2: Fracture burst ──────────────────────────────────────
     if (sequence._fracture > 0 && progress < 0.5) {
-      _drawFragments(canvas, center, cell, sequence._fracture, progress);
+      final debris = sequence._debris;
+      final frame = debris?.once(progress - 0.044, 0.456);
+      if (debris != null && frame != null) {
+        // Stone chunks break apart and fall into the dark.
+        canvas.drawImageRect(
+          debris.image,
+          debris.frame(frame),
+          Rect.fromCenter(center: center, width: cell * 1.8, height: cell * 1.8),
+          Paint()..filterQuality = FilterQuality.medium,
+        );
+      } else {
+        _drawFragments(canvas, center, cell, sequence._fracture, progress);
+      }
     }
 
     // ── Phase 2b: Player fall (explicit sink into collapsed tile) ────

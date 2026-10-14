@@ -97,6 +97,9 @@ class _GameScreenState extends State<GameScreen>
   late final TrapAudioController _trapAudioController;
   late final TrapDeathSequence _trapDeathSequence;
   MazeArt _art = const MazeArt.none();
+
+  /// One-shot effects playing in the maze (smoke, the flip's crack burst).
+  final List<MazeFx> _fx = <MazeFx>[];
   static const int _animationFrameCount = 7;
   static const int _maxStage = 100;
   static const int _maxPlayableMazeSize = 17;
@@ -618,6 +621,13 @@ class _GameScreenState extends State<GameScreen>
 
     if (_stageElapsedSeconds >= _nextFlipAtSeconds) {
       _controlsInverted = !_controlsInverted;
+      _fx.add(
+        MazeFx(
+          MazeFxKind.flip,
+          _playerController.renderPosition,
+          _stageElapsedSeconds,
+        ),
+      );
       _playerController.setControlsInverted(_controlsInverted);
       unawaited(
         _audioManager.handle(
@@ -703,6 +713,7 @@ class _GameScreenState extends State<GameScreen>
     if (_canSpawnDevilNow()) {
       _devilSpawned = true;
       _devilCell = _spawnDevilCell();
+      _addSmoke(_devilCell!);
     }
 
     if (_devilSpawned && _devilCell != null) {
@@ -788,10 +799,20 @@ class _GameScreenState extends State<GameScreen>
       unawaited(_onTrapCollapsed(pendingTrapCollapse));
     }
 
+    _fx.removeWhere((fx) => _stageElapsedSeconds - fx.start >= fx.duration);
+
     // Idle animations (exit gate, devil bob, breathing) are time-driven, so
     // the surface repaints every tick instead of only on state changes.
     _markGameSurfaceDirty();
   }
+
+  void _addSmoke(Point<int> cell) => _fx.add(
+    MazeFx(
+      MazeFxKind.smoke,
+      Offset(cell.x.toDouble(), cell.y.toDouble()),
+      _stageElapsedSeconds,
+    ),
+  );
 
   void _dispatchDevilDistance({
     required int distanceTiles,
@@ -884,6 +905,7 @@ class _GameScreenState extends State<GameScreen>
     );
     _resetSafeZones();
     _rebuildTrapTilesForCurrentStage();
+    _fx.clear();
     _showLossOverlay = false;
     _adActionInProgress = false;
     _lostByTime = false;
@@ -1193,6 +1215,7 @@ class _GameScreenState extends State<GameScreen>
         Offset(tile.cell.x.toDouble(), tile.cell.y.toDouble()),
       ),
       cellSize: camera.tileSize,
+      debris: _art.debris,
     );
   }
 
@@ -1293,6 +1316,10 @@ class _GameScreenState extends State<GameScreen>
 
     if (!_stageRule.devilEnabled) {
       return;
+    }
+    final banished = _devilCell;
+    if (banished != null) {
+      _addSmoke(banished);
     }
     _devilCell = null;
     _devilSpawned = false;
@@ -2245,6 +2272,7 @@ class _GameScreenState extends State<GameScreen>
                     trapTiles: trapTiles,
                     trapHiddenCueLevel: _trapStageConfig.hiddenCueLevel,
                     hidePlayer: _trapDeathInProgress,
+                    effects: List<MazeFx>.unmodifiable(_fx),
                   ),
                 ),
                 if (_trapDeathInProgress)

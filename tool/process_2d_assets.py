@@ -534,6 +534,33 @@ def split_columns(t, n):
     return [t[:, int(i * w):int((i + 1) * w)] for i in range(n)]
 
 
+def despeckle(t, min_area):
+    """Soft FX: drop isolated specks (checker leftovers) below min_area px."""
+    solid = t[..., 3] > 30
+    lab, n = ndimage.label(solid)
+    if n:
+        sizes = ndimage.sum(solid, lab, range(1, n + 1))
+        keep = ndimage.binary_dilation(
+            np.isin(lab, [i for i, s in enumerate(sizes, 1) if s >= min_area]), iterations=3)
+        t = t.copy()
+        t[..., 3] = np.where(keep, t[..., 3], 0)
+    return t
+
+
+def tight(frame, pad=4, keep_height=False):
+    """Crop a frame to its visible content (only sideways when keep_height,
+    for FX whose height in the frame matters, like a falling drop)."""
+    solid = frame[..., 3] > 20
+    xs = np.flatnonzero(solid.any(0))
+    ys = np.flatnonzero(solid.any(1))
+    if len(xs) == 0:
+        return frame
+    x0, x1 = max(0, xs.min() - pad), xs.max() + pad + 1
+    if keep_height:
+        return frame[:, x0:x1]
+    return frame[max(0, ys.min() - pad):ys.max() + pad + 1, x0:x1]
+
+
 def blobs(t, n, min_area=300, gap=14):
     boxes = content_boxes(t[..., 3] / 255.0, min_area=min_area, gap=gap)
     boxes = sorted(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]), reverse=True)[:n]
@@ -548,10 +575,14 @@ def build_fx():
     save(strip(fit_frames(split_columns(t, 5), 128, 128, pad=0.02)), 'fx/debris.png')
     t = key_glow(rgb('fx_sparkle.png'))
     save(strip(fit_frames(split_columns(t, 4), 96, 96, pad=0.0)), 'fx/sparkle.png')
-    t = key_glow_model(rgb('fx_wisp.png'), gain=1.8)
-    save(strip(fit_frames(split_columns(t, 4), 96, 96, pad=0.0)), 'fx/wisp.png')
+    # only the bright bodies (the halo was blended over the squares), and the
+    # faint fourth wisp is all leftovers: loop 1-2-3-2 instead
+    t = despeckle(key_glow_model(rgb('fx_wisp.png'), gain=1.8, floor=45), 1200)
+    w = [tight(f) for f in split_columns(t, 4)[:3]]
+    save(strip(fit_frames(w + [w[1]], 96, 96, pad=0.04)), 'fx/wisp.png')
     t = only_saturated(key_hard(rgb('fx_drip.png'), tol=20, min_island=60, flat=True, thin=1))
-    save(strip(fit_frames(split_columns(t, 4), 48, 128, pad=0.0)), 'fx/drip.png')
+    frames = [tight(f, pad=6, keep_height=True) for f in split_columns(t, 4)]
+    save(strip(fit_frames(frames, 48, 128, pad=0.0)), 'fx/drip.png')
     t = key_red(rgb('fx_flip.png'))
     save(strip(fit_frames(split_columns(t, 6), 128, 128, pad=0.0)), 'fx/flip.png')
     # dust: the four boxed puffs of the top row; the box outlines stay out

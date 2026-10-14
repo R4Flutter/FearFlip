@@ -20,17 +20,33 @@ MazeGrid _maze() => MazeGrid(
 
 const _view = Size(220, 220); // 11 tiles of 20 px
 
-MazePainter _painter(MazeGrid maze, MazeArt art, {bool flipped = false}) =>
-    MazePainter(
-      maze: maze,
-      playerCellPosition: Offset.zero,
-      direction: Direction4.right,
-      currentFrame: 0,
-      isMoving: false,
-      pulse: 0,
-      art: art,
-      isFlippedMode: flipped,
-    );
+MazePainter _painter(
+  MazeGrid maze,
+  MazeArt art, {
+  bool flipped = false,
+  double time = 0,
+  List<MazeFx> effects = const [],
+}) => MazePainter(
+  maze: maze,
+  playerCellPosition: Offset.zero,
+  direction: Direction4.right,
+  currentFrame: 0,
+  isMoving: false,
+  pulse: 0,
+  time: time,
+  art: art,
+  isFlippedMode: flipped,
+  effects: effects,
+);
+
+/// A closed n×n maze, start top-left, exit bottom-right.
+MazeGrid _bigMaze(int n) => MazeGrid(
+  rows: n,
+  cols: n,
+  cells: List.generate(n, (_) => List.generate(n, (_) => MazeCell())),
+  start: const Point<int>(0, 0),
+  end: Point<int>(n - 1, n - 1),
+);
 
 /// Paints [painter] and reads back the colour at [at].
 Future<Color> _pixel(MazePainter painter, Offset at) async {
@@ -115,5 +131,50 @@ void main() {
     expect(standIn, const Color(0xFFFFC83D)); // the flat gold stand-in
     expect(wake, isNot(standIn));
     expect(nightmare, isNot(wake));
+  });
+
+  testWidgets('an off-screen exit is pointed at by the bone arrow', (
+    tester,
+  ) async {
+    final art = (await tester.runAsync(MazeArt.load))!;
+    addTearDown(art.dispose);
+    // 25×25 tiles, camera on the top-left: the exit is far off the bottom
+    // right, so the pointer sits on the view's corner, 0.55 tile in.
+    final maze = _bigMaze(12);
+    const corner = Offset(208, 208);
+    final standIn = await tester.runAsync(
+      () => _pixel(_painter(maze, const MazeArt.none()), corner),
+    );
+    final bone = await tester.runAsync(
+      () => _pixel(_painter(maze, art), corner),
+    );
+    expect(bone, isNot(standIn));
+  });
+
+  testWidgets('the flip bursts red cracks across the floor around the runner', (
+    tester,
+  ) async {
+    final art = (await tester.runAsync(MazeArt.load))!;
+    addTearDown(art.dispose);
+    final maze = _maze();
+    // A tile below-right of the runner (cell 0,0 at pixels 40..60): inside
+    // the 3-tile burst, clear of the runner's own glow.
+    const nearRunner = Offset(66, 66);
+    final calm = await tester.runAsync(
+      () => _pixel(_painter(maze, art, time: 0.3), nearRunner),
+    );
+    final burst = await tester.runAsync(
+      () => _pixel(
+        _painter(
+          maze,
+          art,
+          time: 0.3,
+          effects: const [MazeFx(MazeFxKind.flip, Offset.zero, 0)],
+        ),
+        nearRunner,
+      ),
+    );
+    expect(burst, isNot(calm));
+    expect(burst!.r, greaterThan(calm!.r)); // red light added
   });
 }

@@ -79,4 +79,18 @@ void main() {
     expect(strip.loop(0.5, 6), 3);
     expect(strip.loop(1, 6), 2); // frame 6 of a 4-frame loop
   });
+
+  testWidgets('a one-shot animation plays once, then is gone', (tester) async {
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder).drawRect(const Rect.fromLTWH(0, 0, 64, 16), ui.Paint());
+    final image = recorder.endRecording().toImageSync(64, 16);
+    addTearDown(image.dispose);
+    final strip = SpriteStrip(image, 4);
+
+    expect(strip.once(-0.1, 1), isNull); // not started
+    expect(strip.once(0, 1), 0);
+    expect(strip.once(0.6, 1), 2);
+    expect(strip.once(0.99, 1), 3);
+    expect(strip.once(1, 1), isNull); // over
+  });
 }

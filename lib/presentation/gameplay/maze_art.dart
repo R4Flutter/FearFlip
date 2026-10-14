@@ -23,6 +23,13 @@ class SpriteStrip {
 
   /// The frame of a looping animation at [fps], [seconds] in.
   int loop(double seconds, double fps) => (seconds * fps).floor() % frames;
+
+  /// The frame of a one-shot animation lasting [duration], [elapsed] in; null
+  /// before it starts or once it's over.
+  int? once(double elapsed, double duration) =>
+      elapsed < 0 || elapsed >= duration
+      ? null
+      : (elapsed / duration * frames).floor();
 }
 
 /// The delivered 2D art under assets/images/2d. Every strip is optional: a

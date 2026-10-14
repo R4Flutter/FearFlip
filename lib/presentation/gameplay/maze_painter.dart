@@ -34,6 +34,29 @@ const _gold = Color(0xFFFFC83D);
 const _spirit = Color(0xFF9CC8F0);
 const _danger = Color(0xFFE03A32);
 
+/// A one-shot effect in the maze: [kind] at cell position [at], started at
+/// stage time [start].
+class MazeFx {
+  const MazeFx(this.kind, this.at, this.start);
+
+  final MazeFxKind kind;
+  final Offset at;
+  final double start;
+
+  double get duration => switch (kind) {
+    MazeFxKind.smoke => 0.6,
+    MazeFxKind.flip => 0.7,
+  };
+}
+
+enum MazeFxKind {
+  /// Black smoke: the Devil appears or vanishes.
+  smoke,
+
+  /// Red light cracking the floor open: the world flips.
+  flip,
+}
+
 class MazePainter extends CustomPainter {
   MazePainter({
     required this.maze,
@@ -51,6 +74,7 @@ class MazePainter extends CustomPainter {
     this.trapTiles = const <TrapTile>[],
     this.trapHiddenCueLevel = 0.0,
     this.hidePlayer = false,
+    this.effects = const <MazeFx>[],
   });
 
   final MazeGrid maze;
@@ -71,6 +95,9 @@ class MazePainter extends CustomPainter {
   final double trapHiddenCueLevel;
   final bool hidePlayer;
 
+  /// One-shot effects still playing (GameScreen drops finished ones).
+  final List<MazeFx> effects;
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = _void);
@@ -83,6 +110,7 @@ class MazePainter extends CustomPainter {
     final cellSize = camera.tileSize;
     _paintTiles(canvas, size, camera);
     _paintTorches(canvas, size, camera);
+    _paintDrips(canvas, size, camera);
     _paintProps(canvas, size, camera);
     _paintTraps(canvas, camera);
 
@@ -120,6 +148,8 @@ class MazePainter extends CustomPainter {
       canvas.drawRect(endTileRect, endBorder);
     }
 
+    _paintSparkles(canvas, camera);
+
     final safe = art.safe;
     for (final entry in safeZones.entries) {
       final strength = entry.value.clamp(0.0, 1.0);
@@ -148,9 +178,29 @@ class MazePainter extends CustomPainter {
       canvas.drawRect(zoneRect, border);
     }
 
+    _paintEffects(canvas, camera, MazeFxKind.flip);
+
     final playerCenter = camera.cellCenter(playerCellPosition);
     final breath = isMoving ? 0.0 : sin(time * 2.2) * 0.03;
     final playerSide = cellSize * 0.9 * (1 + breath);
+
+    final dust = art.dust;
+    if (isMoving && dust != null && !hidePlayer) {
+      // Footsteps kick up a little dust from the stone.
+      final side = cellSize * 0.55;
+      _drawFrame(
+        canvas,
+        dust,
+        dust.loop(time, 10),
+        Rect.fromCenter(
+          center: playerCenter.translate(0, cellSize * 0.28),
+          width: side,
+          height: side * 0.8,
+        ),
+        opacity: 0.45,
+        tint: isFlippedMode ? _bloodDust : _stoneDust,
+      );
+    }
 
     if (!hidePlayer) {
       // Stand-in until the runner sheets land: the runner's own lantern glow.
@@ -200,14 +250,19 @@ class MazePainter extends CustomPainter {
       }
     }
 
+    _paintEffects(canvas, camera, MazeFxKind.smoke);
+    _paintWisps(canvas, size, camera);
+
     // The camera hides most of the maze, so point at what matters off screen:
-    // the exit always, the Devil once it's close enough to be a threat.
+    // the exit always (the bone arrow), the Devil once it's close enough to
+    // be a threat.
     _drawPointer(
       canvas,
       size,
       camera.cellCenter(_offsetOf(maze.end)),
       _gold,
       cellSize,
+      art: art.boneArrow,
     );
     if (devil != null &&
         (_offsetOf(devil) - playerCellPosition).distance <= _devilWarnCells) {
@@ -439,19 +494,149 @@ class MazePainter extends CustomPainter {
     }
   }
 
-  /// A triangle at the edge of the view pointing at [target], when off screen.
+  static const _stoneDust = ColorFilter.mode(Color(0xFFA89C8A), BlendMode.modulate);
+  static const _bloodDust = ColorFilter.mode(Color(0xFF9A6058), BlendMode.modulate);
+  static const _glow = BlendMode.plus;
+
+  /// Gold sparkles circling the exit, so the goal catches the eye.
+  void _paintSparkles(Canvas canvas, MazeCamera camera) {
+    final sparkle = art.sparkle;
+    if (sparkle == null) {
+      return;
+    }
+    final centre = camera.cellCenter(_offsetOf(maze.end));
+    final side = camera.tileSize * 0.42;
+    for (var i = 0; i < 3; i++) {
+      final angle = i * 2.1 + time * 0.7;
+      final at = centre + Offset(cos(angle), sin(angle)) * camera.tileSize * 0.42;
+      canvas.drawImageRect(
+        sparkle.image,
+        sparkle.frame(sparkle.loop(time * 1.3 + i * 0.33, 5)),
+        Rect.fromCenter(center: at, width: side, height: side),
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..blendMode = _glow,
+      );
+    }
+  }
+
+  /// One-shot effects of [kind]: the flip's crack burst at floor level, the
+  /// Devil's smoke in the air.
+  void _paintEffects(Canvas canvas, MazeCamera camera, MazeFxKind kind) {
+    final strip = kind == MazeFxKind.smoke ? art.smoke : art.flip;
+    if (strip == null) {
+      return;
+    }
+    for (final fx in effects) {
+      final frame = fx.kind == kind ? strip.once(time - fx.start, fx.duration) : null;
+      if (frame == null) {
+        continue;
+      }
+      final side = camera.tileSize * (kind == MazeFxKind.smoke ? 1.6 : 3);
+      canvas.drawImageRect(
+        strip.image,
+        strip.frame(frame),
+        Rect.fromCenter(center: camera.cellCenter(fx.at), width: side, height: side),
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..blendMode = kind == MazeFxKind.flip ? _glow : BlendMode.srcOver,
+      );
+    }
+  }
+
+  /// NIGHTMARE: blood runs down some rock faces (never past a torch).
+  void _paintDrips(Canvas canvas, Size size, MazeCamera camera) {
+    final drip = art.drip;
+    if (drip == null || !isFlippedMode) {
+      return;
+    }
+    final t = camera.tileSize;
+    final (firstCol, firstRow, lastCol, lastRow) = _visibleTiles(size, camera);
+    bool wall(int col, int row) => isWallTile(maze, col, row);
+    for (var row = firstRow; row <= lastRow; row++) {
+      for (var col = firstCol; col <= lastCol; col++) {
+        final h = tileHash(col, row);
+        if (h % 5 != 1 || !wall(col, row) || wall(col, row + 1)) {
+          continue;
+        }
+        final rect = camera.tileRect(col, row);
+        final x = rect.left + t * (0.2 + (h >> 4) % 60 / 100);
+        _drawFrame(
+          canvas,
+          drip,
+          drip.loop(time + h % 89 / 17, 5),
+          Rect.fromLTWH(x - t * 0.09, rect.top + t * 0.5, t * 0.18, t * 0.48),
+          opacity: 0.9,
+        );
+      }
+    }
+  }
+
+  /// NIGHTMARE: pale ghost wisps drifting through the corridors.
+  void _paintWisps(Canvas canvas, Size size, MazeCamera camera) {
+    final wisp = art.wisp;
+    if (wisp == null || !isFlippedMode) {
+      return;
+    }
+    final view = Offset.zero & size;
+    final side = camera.tileSize * 0.8;
+    final count = (maze.rows * maze.cols / 10).ceil();
+    for (var i = 0; i < count; i++) {
+      final h = tileHash(i, 7919);
+      final home = Offset((h % maze.cols).toDouble(), ((h >> 8) % maze.rows).toDouble());
+      final drift = Offset(sin(time * 0.35 + i), cos(time * 0.27 + i * 1.7)) * 0.6;
+      final dst = Rect.fromCenter(
+        center: camera.cellCenter(home + drift),
+        width: side,
+        height: side,
+      );
+      if (!dst.overlaps(view)) {
+        continue;
+      }
+      canvas.drawImageRect(
+        wisp.image,
+        wisp.frame(wisp.loop(time + i * 0.4, 4)),
+        dst,
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..blendMode = _glow,
+      );
+    }
+  }
+
+  /// A pointer at the edge of the view toward [target], when off screen: the
+  /// [art] (drawn pointing right) when given, else a [color] triangle.
   void _drawPointer(
     Canvas canvas,
     Size size,
     Offset target,
     Color color,
-    double tile,
-  ) {
+    double tile, {
+    SpriteStrip? art,
+  }) {
     final at = MazeCamera.offscreenPointer(size, target, tile * 0.55);
     if (at == null) {
       return;
     }
     final direction = target - at;
+    if (art != null) {
+      final angle = atan2(direction.dy, direction.dx);
+      final w = tile * (1.15 + 0.06 * pulse);
+      canvas.save();
+      canvas.translate(at.dx, at.dy);
+      canvas.rotate(angle);
+      if (cos(angle) < 0) {
+        canvas.scale(1, -1); // keep the blood dripping down, not up
+      }
+      canvas.drawImageRect(
+        art.image,
+        art.frame(0),
+        Rect.fromCenter(center: Offset.zero, width: w, height: w * 0.6),
+        Paint()..filterQuality = FilterQuality.medium,
+      );
+      canvas.restore();
+      return;
+    }
     final r = tile * 0.32;
     final arrow = Path()
       ..moveTo(r, 0)
@@ -493,6 +678,7 @@ class MazePainter extends CustomPainter {
         oldDelegate.trapTiles != trapTiles ||
         oldDelegate.trapHiddenCueLevel != trapHiddenCueLevel ||
         oldDelegate.hidePlayer != hidePlayer ||
+        oldDelegate.effects != effects ||
         oldDelegate.time != time ||
         oldDelegate.pulse != pulse;
   }
