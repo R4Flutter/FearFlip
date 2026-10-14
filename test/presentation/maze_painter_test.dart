@@ -185,9 +185,13 @@ void main() {
     final maze = _bigMaze(12);
     final painter = _painter(maze, const MazeArt.none());
     // Cell (1, 0), two tiles from the runner: fully lit.
-    final near = await tester.runAsync(() => _pixel(painter, const Offset(70, 30)));
+    final near = await tester.runAsync(
+      () => _pixel(painter, const Offset(70, 30)),
+    );
     // Cell (4, 4), over eleven tiles away: deep in the dark.
-    final far = await tester.runAsync(() => _pixel(painter, const Offset(190, 190)));
+    final far = await tester.runAsync(
+      () => _pixel(painter, const Offset(190, 190)),
+    );
     expect(near, const Color(0xFF3B4660));
     double lum(Color c) => c.r + c.g + c.b;
     expect(lum(far!), lessThan(lum(near!) * 0.5));

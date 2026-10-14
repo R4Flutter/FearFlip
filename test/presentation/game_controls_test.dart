@@ -23,9 +23,7 @@ void main() {
       final held = <Direction4?>[];
       var ends = 0;
       await tester.pumpWidget(
-        _host(
-          ArrowPad(size: 150, onDirection: held.add, onEnd: () => ends++),
-        ),
+        _host(ArrowPad(size: 150, onDirection: held.add, onEnd: () => ends++)),
       );
       expect(_asset('dpad'), findsOneWidget);
 

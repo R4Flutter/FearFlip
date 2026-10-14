@@ -95,4 +95,13 @@ void main() {
     await _pump(tester, paused: true);
     expect(_asset('button_pressed'), findsOneWidget);
   });
+
+  testWidgets('the pause button keeps its tooltip for screen readers', (
+    tester,
+  ) async {
+    await _pump(tester);
+    expect(find.byTooltip('Pause run'), findsOneWidget);
+    await _pump(tester, paused: true);
+    expect(find.byTooltip('Resume run'), findsOneWidget);
+  });
 }

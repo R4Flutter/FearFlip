@@ -16,7 +16,11 @@ class RealityGlassPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: NightHud.tame(color), width: 3),
         boxShadow: const [
-          BoxShadow(color: Color(0xAA000000), blurRadius: 24, offset: Offset(0, 8)),
+          BoxShadow(
+            color: Color(0xAA000000),
+            blurRadius: 24,
+            offset: Offset(0, 8),
+          ),
         ],
       ),
       child: Container(
@@ -89,7 +93,10 @@ class HorrorHeader extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: accent.withValues(alpha: 0.1),
-              border: Border.all(color: accent.withValues(alpha: 0.5), width: 1.5),
+              border: Border.all(
+                color: accent.withValues(alpha: 0.5),
+                width: 1.5,
+              ),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: accent, size: 28),
@@ -106,7 +113,9 @@ class HorrorHeader extends StatelessWidget {
                   fontSize: 24,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 4,
-                  shadows: const [Shadow(color: NightHud.ink, offset: Offset(2, 2))],
+                  shadows: const [
+                    Shadow(color: NightHud.ink, offset: Offset(2, 2)),
+                  ],
                 ),
               ),
               Text(
@@ -245,7 +254,9 @@ class _FearButtonState extends State<FearButton> {
               fontWeight: FontWeight.w900,
               fontSize: 18,
               letterSpacing: 3,
-              shadows: const [Shadow(color: NightHud.ink, offset: Offset(1.5, 1.5))],
+              shadows: const [
+                Shadow(color: NightHud.ink, offset: Offset(1.5, 1.5)),
+              ],
             ),
           ),
         ),

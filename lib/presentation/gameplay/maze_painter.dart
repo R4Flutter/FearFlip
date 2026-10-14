@@ -116,7 +116,12 @@ class MazePainter extends CustomPainter {
 
     final start = art.start;
     if (start != null) {
-      _drawFrame(canvas, start, start.loop(time, 6), camera.cellRect(maze.start));
+      _drawFrame(
+        canvas,
+        start,
+        start.loop(time, 6),
+        camera.cellRect(maze.start),
+      );
     } else {
       final startRing = Paint()
         ..color = _amber.withValues(alpha: 0.75)
@@ -166,7 +171,8 @@ class MazePainter extends CustomPainter {
       final glow = Paint()
         ..color = _spirit.withValues(alpha: 0.2 + strength * 0.45)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
-      final core = Paint()..color = _spirit.withValues(alpha: 0.15 + strength * 0.35);
+      final core = Paint()
+        ..color = _spirit.withValues(alpha: 0.15 + strength * 0.35);
       final border = Paint()
         ..color = _spirit.withValues(alpha: 0.5 + strength * 0.5)
         ..style = PaintingStyle.stroke
@@ -245,8 +251,16 @@ class MazePainter extends CustomPainter {
     if (devilCenter != null) {
       final eyes = devilCenter.translate(0, -cellSize * 0.05);
       final eye = Paint()..color = _danger;
-      canvas.drawCircle(eyes.translate(-cellSize * 0.1, 0), cellSize * 0.05, eye);
-      canvas.drawCircle(eyes.translate(cellSize * 0.1, 0), cellSize * 0.05, eye);
+      canvas.drawCircle(
+        eyes.translate(-cellSize * 0.1, 0),
+        cellSize * 0.05,
+        eye,
+      );
+      canvas.drawCircle(
+        eyes.translate(cellSize * 0.1, 0),
+        cellSize * 0.05,
+        eye,
+      );
     }
     _paintSparkles(canvas, camera);
     _paintWisps(canvas, size, camera);
@@ -313,7 +327,9 @@ class MazePainter extends CustomPainter {
         }
         if (atlas != null) {
           for (final slot in tileLayers(wall, col, row)) {
-            transforms.add(RSTransform(scale, 0, rect.left - 0.3, rect.top - 0.3));
+            transforms.add(
+              RSTransform(scale, 0, rect.left - 0.3, rect.top - 0.3),
+            );
             sources.add(atlas.frame(slot));
           }
         } else if (!isWall) {
@@ -423,7 +439,10 @@ class MazePainter extends CustomPainter {
     }
   }
 
-  static const _redFlame = ColorFilter.mode(Color(0xFFFF5A4A), BlendMode.modulate);
+  static const _redFlame = ColorFilter.mode(
+    Color(0xFFFF5A4A),
+    BlendMode.modulate,
+  );
 
   /// Bones, dolls, crates... on dead ends (landmarks) and now and then in a
   /// corridor; never on the start, the exit, a safe zone or a trap.
@@ -465,7 +484,10 @@ class MazePainter extends CustomPainter {
       cellStride: tile * 2,
       tiles: strip == null
           ? trapTiles
-          : [for (final t in trapTiles) if (t.state == TrapState.hidden) t],
+          : [
+              for (final t in trapTiles)
+                if (t.state == TrapState.hidden) t,
+            ],
       // Both worlds have dark floors now, so the dark-floor look fits both.
       isFlippedMode: false,
       hiddenCueLevel: trapHiddenCueLevel,
@@ -502,15 +524,21 @@ class MazePainter extends CustomPainter {
   /// The maze is dark: cold in WAKE, blood-red in NIGHTMARE. Light cuts
   /// through it around the runner, under torches, at the exit and the safe
   /// zones.
-  void _paintDarkness(Canvas canvas, Size size, MazeCamera camera, Offset runner) {
+  void _paintDarkness(
+    Canvas canvas,
+    Size size,
+    MazeCamera camera,
+    Offset runner,
+  ) {
     final t = camera.tileSize;
     final view = Offset.zero & size;
     canvas.saveLayer(view, Paint());
     canvas.drawRect(
       view,
       Paint()
-        ..color = (isFlippedMode ? const Color(0xFF12030A) : const Color(0xFF05060C))
-            .withValues(alpha: _darkness),
+        ..color =
+            (isFlippedMode ? const Color(0xFF12030A) : const Color(0xFF05060C))
+                .withValues(alpha: _darkness),
     );
     void light(Offset at, double inner, double outer, [double strength = 1]) {
       final core = Color.fromRGBO(0, 0, 0, strength);
@@ -530,27 +558,45 @@ class MazePainter extends CustomPainter {
 
     light(runner, t * _lightInner, t * _lightOuter);
     if (art.torch != null) {
-      final (firstCol, firstRow, lastCol, lastRow) = _visibleTiles(size, camera);
+      final (firstCol, firstRow, lastCol, lastRow) = _visibleTiles(
+        size,
+        camera,
+      );
       bool wall(int col, int row) => isWallTile(maze, col, row);
       for (var row = firstRow; row <= lastRow; row++) {
         for (var col = firstCol; col <= lastCol; col++) {
           if (hasTorch(wall, col, row)) {
             final rect = camera.tileRect(col, row);
             final flicker = 1 + 0.06 * sin(time * 9 + tileHash(col, row) % 7);
-            light(Offset(rect.center.dx, rect.bottom - t * 0.75), t * 0.3, t * 1.7 * flicker, 0.85);
+            light(
+              Offset(rect.center.dx, rect.bottom - t * 0.75),
+              t * 0.3,
+              t * 1.7 * flicker,
+              0.85,
+            );
           }
         }
       }
     }
-    light(camera.cellCenter(_offsetOf(maze.end)), t * 0.45, t * 1.4); // the goal glows
+    light(
+      camera.cellCenter(_offsetOf(maze.end)),
+      t * 0.45,
+      t * 1.4,
+    ); // the goal glows
     for (final cell in safeZones.keys) {
       light(camera.cellCenter(_offsetOf(cell)), t * 0.3, t * 1.2, 0.8);
     }
     canvas.restore();
   }
 
-  static const _stoneDust = ColorFilter.mode(Color(0xFFA89C8A), BlendMode.modulate);
-  static const _bloodDust = ColorFilter.mode(Color(0xFF9A6058), BlendMode.modulate);
+  static const _stoneDust = ColorFilter.mode(
+    Color(0xFFA89C8A),
+    BlendMode.modulate,
+  );
+  static const _bloodDust = ColorFilter.mode(
+    Color(0xFF9A6058),
+    BlendMode.modulate,
+  );
   static const _glow = BlendMode.plus;
 
   /// Gold sparkles circling the exit, so the goal catches the eye.
@@ -563,7 +609,8 @@ class MazePainter extends CustomPainter {
     final side = camera.tileSize * 0.42;
     for (var i = 0; i < 3; i++) {
       final angle = i * 2.1 + time * 0.7;
-      final at = centre + Offset(cos(angle), sin(angle)) * camera.tileSize * 0.42;
+      final at =
+          centre + Offset(cos(angle), sin(angle)) * camera.tileSize * 0.42;
       canvas.drawImageRect(
         sparkle.image,
         sparkle.frame(sparkle.loop(time * 1.3 + i * 0.33, 5)),
@@ -583,7 +630,9 @@ class MazePainter extends CustomPainter {
       return;
     }
     for (final fx in effects) {
-      final frame = fx.kind == kind ? strip.once(time - fx.start, fx.duration) : null;
+      final frame = fx.kind == kind
+          ? strip.once(time - fx.start, fx.duration)
+          : null;
       if (frame == null) {
         continue;
       }
@@ -591,7 +640,11 @@ class MazePainter extends CustomPainter {
       canvas.drawImageRect(
         strip.image,
         strip.frame(frame),
-        Rect.fromCenter(center: camera.cellCenter(fx.at), width: side, height: side),
+        Rect.fromCenter(
+          center: camera.cellCenter(fx.at),
+          width: side,
+          height: side,
+        ),
         Paint()
           ..filterQuality = FilterQuality.medium
           ..blendMode = kind == MazeFxKind.flip ? _glow : BlendMode.srcOver,
@@ -638,8 +691,12 @@ class MazePainter extends CustomPainter {
     final count = (maze.rows * maze.cols / 10).ceil();
     for (var i = 0; i < count; i++) {
       final h = tileHash(i, 7919);
-      final home = Offset((h % maze.cols).toDouble(), ((h >> 8) % maze.rows).toDouble());
-      final drift = Offset(sin(time * 0.35 + i), cos(time * 0.27 + i * 1.7)) * 0.6;
+      final home = Offset(
+        (h % maze.cols).toDouble(),
+        ((h >> 8) % maze.rows).toDouble(),
+      );
+      final drift =
+          Offset(sin(time * 0.35 + i), cos(time * 0.27 + i * 1.7)) * 0.6;
       final dst = Rect.fromCenter(
         center: camera.cellCenter(home + drift),
         width: side,

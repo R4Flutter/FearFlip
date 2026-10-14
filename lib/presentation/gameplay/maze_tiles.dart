@@ -74,7 +74,8 @@ int? propAt(
     return null;
   }
   final h = tileHash(cell.x * 2 + 1, cell.y * 2 + 1);
-  final deadEnd = Direction4.values.where((d) => maze.canMove(cell, d)).length == 1;
+  final deadEnd =
+      Direction4.values.where((d) => maze.canMove(cell, d)).length == 1;
   if (!deadEnd && h % 11 != 5) {
     return null;
   }

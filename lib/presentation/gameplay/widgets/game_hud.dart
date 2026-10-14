@@ -115,16 +115,19 @@ class GameHud extends StatelessWidget {
                 ),
               ),
               SizedBox(width: 6 * uiScale),
-              GestureDetector(
-                key: pauseKey,
-                behavior: HitTestBehavior.opaque,
-                onTap: onPauseTap,
-                child: NightHud.art(
-                  isPaused ? 'button_pressed' : 'button',
-                  width: 42 * uiScale,
-                  fallback: Icon(
-                    isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                    color: NightHud.bone,
+              Tooltip(
+                message: isPaused ? 'Resume run' : 'Pause run',
+                child: GestureDetector(
+                  key: pauseKey,
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onPauseTap,
+                  child: NightHud.art(
+                    isPaused ? 'button_pressed' : 'button',
+                    width: 42 * uiScale,
+                    fallback: Icon(
+                      isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                      color: NightHud.bone,
+                    ),
                   ),
                 ),
               ),
@@ -325,7 +328,9 @@ class _HeartsDisplayState extends State<_HeartsDisplay>
                   full ? 'icon_heart' : 'icon_heart_empty',
                   width: size,
                   fallback: Icon(
-                    full ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                    full
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
                     color: full ? NightHud.blood : NightHud.boneDim,
                     size: size,
                   ),
