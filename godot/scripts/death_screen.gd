@@ -1,8 +1,8 @@
 class_name DeathScreen
 extends Control
 ## Death screen (plans/05 §3.8): what killed you and the rule that beats it, how close you were,
-## then TRY AGAIN (a new run from the act's first floor, plans/06) or REVIVE (back to the last safe
-## circle you used).
+## then TRY AGAIN (a new run from the act's first floor, plans/06, or its Sanctuary once you've reached it,
+## plans/10 §4) or REVIVE (back to the last safe circle you used).
 ## Impact first (red flash, glass cracks, shake), then GAME OVER slams down and the choices rise.
 ## Art: assets/images/menu/ (shares the dashboard's frames, demon and sweep shader).
 

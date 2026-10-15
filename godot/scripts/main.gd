@@ -941,10 +941,10 @@ func _spot_open(target_world: int) -> bool:
 				return false
 	return true
 
+## The map stays in your hands through a flip (plans/10 §4: 20 of 52 closes were flips, 7 reopened within 3 s).
+## Only the Devil close (_map_unsafe) snaps it shut.
 func _on_flipped(new_world: int, forced: bool) -> void:
 	_apply_world(new_world)
-	if paper_map.opening:
-		_close_map("flip")  # the world turns over: both hands grab on
 	_stand_up()
 	if player_rig != null:
 		player_rig.startle(1.0)
@@ -3556,6 +3556,8 @@ func _lose_game(cause: String = "devil") -> void:
 	var business := "+%d SHARDS THIS RUN   ·   %s   ·   %s" % [RunState.run_shards + floor_shards,
 			"UNLOCK READY" if progress >= 1.0 else "NEXT UNLOCK %d%%" % floori(progress * 100.0), _shortcut_line()]
 	var retry := "NEW RUN  ·  THE ABYSS  ·  [R]" if abyss else "NEW RUN  ·  ACT %d  ·  [R]" % rule.act
+	if fixed_seed == 0 and RunState.has_sanctuary():
+		retry = "FROM THE SANCTUARY  ·  [R]"
 	var share := ""
 	if RunState.is_daily():
 		retry = "PRACTICE  ·  [R]"
@@ -3795,13 +3797,16 @@ func _return_to_circle() -> void:
 	devil.visible = false
 	game_state = "playing"
 
-## TRY AGAIN: a new run from this act's first floor, on a new maze (a debug seed just reloads).
+## TRY AGAIN: a new run from this act's first floor on a new maze, or, after a death past the act's Sanctuary, back to
+## it (plans/10 §4). R R mid-floor always starts the act over. A debug seed just reloads.
 func _restart_game() -> void:
 	_bank()
 	if fixed_seed == 0 and RunState.is_daily():
 		RunState.start_daily(true)
 	elif fixed_seed == 0:
-		RunState.start_run(rule.act, true, true)  # a retry keeps the act's start kit: straight back in, no picks
+		var to_sanctuary := game_state == "lost" and RunState.restart_at_sanctuary()
+		if not to_sanctuary:
+			RunState.start_run(rule.act, true, true)  # a retry keeps the act's start kit: straight back in, no picks
 	get_tree().reload_current_scene()
 
 ## Push the live world and your position to the paper map's sheet while it's in your hands (grid cells, floats); a
@@ -3840,7 +3845,7 @@ func _toggle_map() -> void:
 							"devil": _devil_distance() if devil_active else -1})
 
 ## Back in the pocket, and how long it was out for the playtest log. `reason`: "hand" (M), "devil" (snapped shut by
-## _map_unsafe), "flip" (snapped by a flip) or "end" (gone at once: the floor is over).
+## _map_unsafe), "wake" (the Devil wakes) or "end" (gone at once: the floor is over).
 func _close_map(reason: String) -> void:
 	if paper_map.opening:
 		map_closed_at = elapsed

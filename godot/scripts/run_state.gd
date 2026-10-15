@@ -47,6 +47,9 @@ static var act_sprinted := false
 static var rank := 0
 ## The floor this run started on: there is something to continue once you're past it.
 static var start_floor := 1
+## The run's checkpoint (plans/10 §4): what it held once it stood on its act's Sanctuary with every pick settled, so
+## a death past it restarts there (restart_at_sanctuary). Empty until then; a new run or a new act starts without one.
+static var sanctuary := {}
 ## True once the run has ended (death or act clear): playing again starts a new run, never resumes it.
 static var run_over := false
 ## The run's kind (plans/06 §6): "campaign" (saved), "daily" (today's ranked try) or "practice" (the Daily again,
@@ -95,6 +98,7 @@ static func load_save() -> void:
 		rank = cfg.get_value("run", "rank", 0)
 		kit.assign(cfg.get_value("run", "kit", []))
 		kit_act = cfg.get_value("run", "kit_act", 0)
+		sanctuary = cfg.get_value("run", "sanctuary", {})
 	# No floor past the Gate of the last act opened was ever reached (a profile reset or a test save left it behind).
 	if not MetaState.abyss_open():
 		best_floor = mini(best_floor, StageRule.act_start(MetaState.acts_unlocked) + StageRule.GATE_FLOOR - 1)
@@ -127,6 +131,7 @@ static func save() -> void:
 	cfg.set_value("run", "rank", rank)
 	cfg.set_value("run", "kit", kit)
 	cfg.set_value("run", "kit_act", kit_act)
+	cfg.set_value("run", "sanctuary", sanctuary)
 	cfg.save(save_path)
 	Portal.push(save_path)
 
@@ -152,6 +157,7 @@ static func start_run(act_number: int, played := true, retry := false) -> bool:
 	_cleared_cards.clear()
 	run_cards.clear()
 	picks.clear()
+	sanctuary = {}
 	_new_act()
 	if retry and kit_act == act_number:
 		run_cards.assign(kit)
@@ -274,6 +280,7 @@ static func descend() -> void:
 	door = ""
 	last_door = ""
 	_cleared_cards.clear()
+	sanctuary = {}
 	_new_act()
 	_deal()
 	picks.append("omen")
@@ -361,6 +368,7 @@ static func advance_floor() -> void:
 		picks.append("omen")
 	if Cards.offers_doors(StageRule.for_floor(current_floor)):
 		picks.append("door")
+	_mark_sanctuary()
 	save()
 
 
@@ -415,6 +423,7 @@ static func take(id: String) -> void:
 			if picks.is_empty() and current_floor == start_floor:
 				kit = run_cards.duplicate()  # the start kit is in: a retry of this act plays it again
 				kit_act = act()
+	_mark_sanctuary()
 	save()
 
 
@@ -449,4 +458,39 @@ static func use_revive() -> bool:
 	run_over = false
 	save()
 	log_event("revive", {"floor": current_floor, "left": revives_left()})  # the run_end logged at the death didn't stick
+	return true
+
+
+## Standing on the act's Sanctuary with nothing owed: the checkpoint is set, once per act.
+static func _mark_sanctuary() -> void:
+	if sanctuary.is_empty() and picks.is_empty() and not is_daily() and StageRule.for_floor(current_floor).is_sanctuary:
+		sanctuary = {"cards": run_cards.duplicate(), "revives_used": revives_used, "act_revives": act_revives,
+				"act_points": act_points, "act_floors": act_floors, "act_sprinted": act_sprinted}
+
+
+static func has_sanctuary() -> bool:
+	return not sanctuary.is_empty() and not is_daily()
+
+
+## TRY AGAIN after a death past the Sanctuary (plans/10 §4): back onto this act's Sanctuary on a new maze, holding what
+## the run held when it first got there (cards, revives, the act's star record). Shards banked since stay banked.
+static func restart_at_sanctuary() -> bool:
+	if not has_sanctuary():
+		return false
+	run_seed = randi() | 1
+	current_floor = StageRule.act_start(act()) + StageRule.SANCTUARY_FLOOR - 1
+	run_cards.assign(sanctuary["cards"])
+	revives_used = sanctuary["revives_used"]
+	act_revives = sanctuary["act_revives"]
+	act_points = sanctuary["act_points"]
+	act_floors = sanctuary["act_floors"]
+	act_sprinted = sanctuary["act_sprinted"]
+	run_over = false
+	door = "normal"
+	last_door = ""
+	_cleared_cards.clear()
+	picks.clear()
+	_deal()
+	save()
+	log_event("sanctuary_restart", {"act": act(), "floor": current_floor})
 	return true

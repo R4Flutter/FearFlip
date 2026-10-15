@@ -48,6 +48,9 @@ hidden crack captured on separate save paths. Tests: 260/260 before, 263/263 aft
 **Update, 11 Oct 2026 (bug sweep):** items 1, 3 and 5 are done, and the sweep fixed more (see §5). Items 2, 4 and 6, and
 Settings inside the pause menu, stay open.
 
+**Update, 15 Oct 2026 (plans/10 §4):** items 2 and 4 are done. A flip no longer takes the map, and after a death past the
+Sanctuary, TRY AGAIN restarts there.
+
 1. **Hidden cracks can't be seen.** I stood one cell away with the flashlight on the crack, on F1 (cue 1.0) and Act 5
    (cue 0.35). The crack looked like every other tile:
    - the floor art is cracked stone everywhere, and the hairline decal blends into it;

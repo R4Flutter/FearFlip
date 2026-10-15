@@ -814,12 +814,14 @@ func test_the_sheet_is_this_floor_in_the_world_you_stand_in() -> void:
 	main.exit_open = true
 	main._refresh_minimap()
 	assert_true(sheet.exit_open, "the exit as it stands")
+	_finish_map_move(main)
 	main.flip.next_forced_in = 0.0
 	main.flip.advance(0.01, true, true)
-	assert_eq(main.paper_map.state(), PaperMap.State.CLOSING, "a flip snaps it shut")
-	_finish_map_move(main)
-	_press(main, "map")
-	assert_eq(sheet.world, NIGHTMARE, "out again, it shows the world you're in now")
+	assert_eq(main.paper_map.state(), PaperMap.State.OPEN, "a flip never takes it out of your hands (plans/10 §4)")
+	assert_eq(sheet.world, NIGHTMARE, "it shows the world you're in now")
+	main.flip.forced_left = 0.0
+	main.flip.advance(0.01, true, true)
+	assert_eq(main.paper_map.state(), PaperMap.State.OPEN, "nor does the flip back to WAKE")
 	main.game_state = "lost"
 	main._process(0.05)
 	assert_eq(main.paper_map.state(), PaperMap.State.CLOSED, "gone once the floor is over")

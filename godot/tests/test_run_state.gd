@@ -377,6 +377,84 @@ func test_a_rank_folds_into_every_floor_but_never_the_daily() -> void:
 	assert_eq(RunState.rank, 5, "back to the campaign run")
 
 
+# --- plans/10 §4: a death past the Sanctuary restarts there, not on the act's first floor ----------------------
+
+func test_reaching_the_sanctuary_marks_a_checkpoint() -> void:
+	_walk_to(StageRule.SANCTUARY_FLOOR - 1)
+	assert_false(RunState.has_sanctuary(), "not before it")
+	assert_false(RunState.restart_at_sanctuary())
+	_walk_to(StageRule.SANCTUARY_FLOOR)
+	assert_true(RunState.has_sanctuary())
+
+
+func test_a_death_past_the_sanctuary_restarts_there_on_a_new_maze() -> void:
+	RunState.run_cards.assign(["night_owl"])
+	_walk_to(StageRule.SANCTUARY_FLOOR)
+	var seed_value := RunState.run_seed
+	_walk_to(StageRule.GATE_FLOOR - 1)
+	RunState.run_cards.append("quick_veil")  # an omen picked after the Sanctuary
+	RunState.use_revive()
+	RunState.end_run()
+	assert_true(RunState.restart_at_sanctuary())
+	assert_eq(RunState.current_floor, StageRule.SANCTUARY_FLOOR)
+	assert_false(RunState.run_over)
+	assert_ne(RunState.run_seed, seed_value, "a new maze")
+	assert_eq(RunState.run_cards, ["night_owl"], "the cards it held at the Sanctuary")
+	assert_eq(RunState.revives_left(), RunState.REVIVES_PER_ACT, "and the revives it had there")
+	assert_eq(RunState.picks, [])
+	assert_eq(RunState.floor_cards, ["sanctuary"])
+	assert_true(RunState.has_progress(), "the menu continues it")
+
+
+func test_the_checkpoint_keeps_the_omen_owed_on_arrival() -> void:
+	_walk_to(StageRule.SANCTUARY_FLOOR - 2)
+	RunState.advance_floor()
+	RunState.take("shrine")
+	RunState.advance_floor()
+	assert_false(RunState.has_sanctuary(), "not while the Shrine's omen is owed")
+	var omen: String = RunState.pick_options()[0]
+	RunState.take(omen)
+	assert_true(RunState.has_sanctuary())
+	RunState.end_run()
+	RunState.restart_at_sanctuary()
+	assert_true(RunState.run_cards.has(omen), "that omen comes back with you")
+
+
+func test_the_checkpoint_survives_a_relaunch_but_never_reaches_the_daily() -> void:
+	_walk_to(StageRule.SANCTUARY_FLOOR)
+	_relaunch()
+	assert_true(RunState.has_sanctuary(), "saved with the run")
+	RunState.start_daily(true)
+	assert_false(RunState.has_sanctuary(), "never in the Daily")
+	RunState.leave_daily()
+	assert_true(RunState.has_sanctuary(), "the campaign's is still there")
+
+
+func test_each_act_needs_its_own_sanctuary_and_a_new_run_starts_clean() -> void:
+	_walk_to(StageRule.SANCTUARY_FLOOR)
+	RunState.current_floor = StageRule.GATE_FLOOR
+	RunState.clear_gate()
+	RunState.take("descend")
+	assert_false(RunState.has_sanctuary(), "Act 2 needs its own")
+	var act_2_sanctuary := StageRule.act_start(2) + StageRule.SANCTUARY_FLOOR - 1
+	_walk_to(act_2_sanctuary)
+	RunState.end_run()
+	assert_true(RunState.restart_at_sanctuary())
+	assert_eq(RunState.current_floor, act_2_sanctuary)
+	RunState.start_run(1)
+	assert_false(RunState.has_sanctuary(), "a new run starts clean")
+
+
+## Clears floors through normal doors (passing every omen) until the run stands on `floor_number`, picks settled.
+func _walk_to(floor_number: int) -> void:
+	while true:
+		while not RunState.picks.is_empty():
+			RunState.take("normal" if RunState.picks[0] == "door" else "")
+		if RunState.current_floor >= floor_number:
+			return
+		RunState.advance_floor()
+
+
 ## Forget everything in memory and read it back, as a new process would.
 func _relaunch() -> void:
 	RunState._loaded = false
@@ -389,6 +467,7 @@ func _relaunch() -> void:
 	RunState._cleared_cards.clear()
 	RunState.run_cards.clear()
 	RunState.picks.clear()
+	RunState.sanctuary = {}
 	RunState.start_floor = 1
 	MetaState.acts_unlocked = 1
 	RunState.load_save()
