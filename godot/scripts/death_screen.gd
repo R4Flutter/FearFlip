@@ -2,7 +2,7 @@ class_name DeathScreen
 extends Control
 ## Death screen (plans/05 §3.8): what killed you and the rule that beats it, how close you were,
 ## then TRY AGAIN (a new run from the act's first floor, plans/06, or its Sanctuary once you've reached it,
-## plans/10 §4) or REVIVE (back to the last safe circle you used).
+## plans/10 §4) or REVIVE (back to the last safe circle you used; a rewarded ad first where the page has an ad SDK, Ads).
 ## Impact first (red flash, glass cracks, shake), then GAME OVER slams down and the choices rise.
 ## Art: assets/images/menu/ (shares the dashboard's frames, demon and sweep shader).
 
@@ -64,6 +64,8 @@ var _additive: CanvasItemMaterial
 var _icons: Texture2D
 var _font: Font
 var _leaving := false
+## REVIVE's ad is loading or playing: every key waits (an R restart under it would put the ad over the new run).
+var _waiting_ad := false
 
 
 func _ready() -> void:
@@ -118,6 +120,8 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if visible and _waiting_ad:
+		accept_event()
 	if not visible or _leaving:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -147,6 +151,7 @@ func show_death(title: String, rule: String, detail: String, revive_text: String
 	_revive_sub.text = revive_text
 	_revive.disabled = not can_revive
 	_revive.modulate = Color.WHITE if can_revive else SPENT
+	_heart.texture = _icon(Icon.AD if can_revive and Ads.on_page() else Icon.HEART)  # says it costs an ad
 	_leaving = false
 	visible = true
 	_retry.grab_focus()
@@ -222,11 +227,33 @@ func _loops() -> void:
 	breath.tween_property(_demon, "scale", Vector2.ONE, 3.0)
 
 
-## Answer the press visually, then hand over: revive bursts gold, retry pulls the cracks back.
 func _leave(revive: bool) -> void:
 	if _leaving or (revive and _revive.disabled):
 		return
 	_leaving = true
+	if revive and Ads.on_page():
+		_waiting_ad = true
+		_revive_sub.text = "LOADING AD..."
+		Ads.rewarded(_after_ad)
+	else:
+		_go(revive)
+
+
+## The ad's answer: watched (or no ads after all: Basic Launch) revives; nothing to show keeps the revive for another
+## try; an ad blocker closes REVIVE and says why (CrazyGames: never a reward button that does nothing).
+func _after_ad(result: int) -> void:
+	_waiting_ad = false
+	if result == Ads.WATCHED or result == Ads.OFF:
+		_go(true)
+		return
+	_leaving = false
+	_revive_sub.text = "TURN OFF THE AD BLOCKER TO REVIVE" if result == Ads.BLOCKED else "NO AD RIGHT NOW  ·  TRY AGAIN SOON"
+	_revive.disabled = result == Ads.BLOCKED
+	_revive.modulate = SPENT if _revive.disabled else Color.WHITE
+
+
+## Answer the press visually, then hand over: revive bursts gold, retry pulls the cracks back.
+func _go(revive: bool) -> void:
 	var tween := _retarget(self)
 	if revive:
 		_flash.color = Color(GOLD, 0.0)

@@ -3744,7 +3744,7 @@ func _revive() -> void:
 	_stop_devil_cam()
 	get_node("HUD").visible = true
 	floor_revives += 1
-	# Ad hook: a rewarded ad plays here before the revive; premium skips it (plans/ads_managment_prompt.md).
+	# Its rewarded ad already played on the death screen (DeathScreen._leave, Ads).
 	death_screen.visible = false
 	_return_to_circle()
 	for breath: AudioStreamPlayer in [breath_calm, breath_heavy]:
