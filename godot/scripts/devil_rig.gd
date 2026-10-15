@@ -40,6 +40,31 @@ const HAND_RADIUS := 0.18
 const REGION_CORE := 0.35
 ## roar(): seconds from the coil to the settle (main.gd's wake cut holds on it this long).
 const ROAR_TIME := 1.8
+## The player (flee and the poses after it; model units are character2withrig's, ~1 tall). It cowers once fear passes
+## COWER_FEAR while it stands still; a startle() flinch lasts STARTLE_TIME s.
+const COWER_FEAR := 0.75
+const STARTLE_TIME := 0.7
+## Finger curl per joint (degrees): loose at a walk, fists at a sprint or in fear (FIST), closed round a lid or a key
+## (GRIP). The thumb curls THUMB_SHARE of that.
+const FIST := Vector2(12.0, 55.0)
+const GRIP := 60.0
+const THUMB_SHARE := 0.5
+## heading(): up to this far off ahead (degrees) the body turns toward its move; further round it backs away.
+const BACKPEDAL_AT := 110.0
+## kneel(): the knee joint rests this high off the floor (the kneecap), the back leans over this much (degrees).
+const KNEE_PAD := 0.035
+const KNEEL_LEAN := 24.0
+## unstick_hands() (_clamp_joints): a vertex this far up the thigh or upper arm from its knee or elbow, and within
+## LIMB_RADIUS of that bone, keeps no weight below the joint.
+const JOINT_SPAN := 0.05
+const LIMB_RADIUS := 0.15
+## unstick_hands() (_cut_fused): an arm corner and a hip corner of one triangle, each this much weight or more, are a
+## weld where the hanging arm touched the hip.
+const WELD := 0.45
+## hold_map(): the sheet's middle before the chest (forward, up from Spine2), half its width, its size.
+const MAP_HELD := Vector2(0.2, -0.04)
+const MAP_HALF_WIDTH := 0.11
+const MAP_SIZE := Vector2(0.26, 0.19)
 
 ## Re-weighted mesh, shared by every devil and kept across scene reloads.
 static var _smooth_mesh: ArrayMesh
@@ -86,6 +111,12 @@ var _bound := {}
 ## Per finger ("LeftHandIndex"...): the skeleton-space axis its rest joints already bend about. A positive turn about it
 ## curls the claw further, a negative one straightens it (_curl).
 var _curl_axes := {}
+## flee(): how far down it cowers (0..1), the last startle()'s strength and seconds since it.
+var _cower := 0.0
+var _startle := 0.0
+var _startle_t := INF
+## hold_map()'s sheet, made the first time it's held.
+var _sheet: MeshInstance3D
 
 
 ## repair = false for clean rigs (e.g. character2withrig.glb: real bone rests, smooth weights).
@@ -97,8 +128,12 @@ func _init(model: Node, repair := true) -> void:
 	skeleton = found[0]
 	if repair:
 		_repair(model)
+	else:
+		for bone in skeleton.get_bone_count():
+			_bound[bone] = true  # a clean rig's skin binds every bone
 	for bone in ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head", "LeftUpLeg", "LeftLeg", "LeftFoot", "RightUpLeg", "RightLeg",
-			"LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand", "RightShoulder", "RightArm", "RightForeArm", "RightHand", "LeftToeBase", "RightToeBase"]:
+			"LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand", "RightShoulder", "RightArm", "RightForeArm", "RightHand", "LeftToeBase", "RightToeBase",
+			"LeftToe_End", "RightToe_End"]:
 		_bones[bone] = _find_bone(bone)
 	if _bones["LeftUpLeg"] >= 0 and _bones["RightUpLeg"] >= 0:
 		var hips_span := skeleton.get_bone_global_rest(_bones["LeftUpLeg"]).origin - skeleton.get_bone_global_rest(_bones["RightUpLeg"]).origin
@@ -182,61 +217,253 @@ func prowl(speed: float, delta: float, target: Vector3, reach: float) -> float:
 
 ## The player's run, a frightened person's: a careful walk that turns into a desperate sprint with
 ## speed, shoulders up and a shiver as `fear` (0..1) rises, doubled over panting while `winded` (0..1)
-## and standing, and with `look_back` a glance over the shoulder now and then at a run (off in first
-## person: you look where you aim). Arm swings stay small: character2withrig's jacket is skinned to
-## the arms. speed in m/s. Returns a vertical offset (metres) for the body.
-func flee(speed: float, delta: float, fear: float, winded: float, look_back := false) -> float:
+## and standing, and cowering, hands over the head, once fear passes COWER_FEAR and it stands still.
+## speed in m/s, negative when backing away (heading()). The head follows `look` (where you look,
+## relative to the body: yaw left, pitch up; radians); with `look_back` it glances over the shoulder
+## now and then at a run instead (the Devil Cam replay). Fists at a sprint or in fear, loose at a walk,
+## the feet roll heel to toe, and a startle() makes it flinch. Arm swings stay small:
+## character2withrig's jacket is skinned to the arms. Returns a vertical offset (metres) for the body.
+func flee(speed: float, delta: float, fear: float, winded: float, look := Vector2.ZERO, look_back := false) -> float:
 	if skeleton == null:
 		return 0.0
 	_speed = lerpf(_speed, speed, 1.0 - exp(-4.0 * delta))
-	_blend = move_toward(_blend, 1.0 if speed > 0.2 else 0.0, delta * 5.0)
+	_blend = move_toward(_blend, 1.0 if absf(speed) > 0.2 else 0.0, delta * 5.0)
 	_phase += speed / stride_length * TAU * delta
 	_idle_time += delta
+	_startle_t += delta
 	var t := _idle_time
-	var run := clampf((_speed - walk_pace) / (sprint_pace - walk_pace), 0.0, 1.0) * _blend
+	var run := clampf((absf(_speed) - walk_pace) / (sprint_pace - walk_pace), 0.0, 1.0) * _blend
+	var ahead := _speed >= 0.0
 	var left := _left_axis
 	var forward := left.cross(Vector3.UP)
 	var still := 1.0 - _blend
 	var breath := sin(t * lerpf(1.6, 5.5, winded)) * lerpf(0.3, 1.0, winded)
 	var shiver := (sin(t * 37.0) + sin(t * 23.0)) * 0.5 * fear
 	var sway := sin(_phase) * _blend
+	_cower = move_toward(_cower, clampf((fear - COWER_FEAR) / 0.2, 0.0, 1.0) * still, delta * 3.0)
+	var flinch := _startle * _bump(_startle_t, 0.0, 0.07, 0.15, STARTLE_TIME)
 	# Hips roll with each step, the forward leg's hip turning forward; weight shifts slowly while standing.
 	_pose("Hips", Quaternion(forward, deg_to_rad(3.0) * sway + deg_to_rad(2.0) * sin(t * 0.7) * still) * Quaternion(Vector3.UP, -deg_to_rad(6.0) * sway))
-	# Lean into the run and cower with fear (the head lifts back out of both); doubled over while winded.
-	var lean := deg_to_rad(lerpf(4.0, 16.0, run) + 6.0 * fear)
+	# Lean into the run (back a little, backing away) and cower with fear (the head lifts back out of both); doubled
+	# over while winded, curled up cowering or flinching.
+	var lean := deg_to_rad(lerpf(4.0, 16.0, run) + 6.0 * fear) if ahead else deg_to_rad(-4.0 + 4.0 * fear)
 	var slump := deg_to_rad(22.0) * winded * still
+	var curl := deg_to_rad(28.0) * _cower + deg_to_rad(10.0) * flinch
 	_tick_twitch(delta, Vector3(1.9, 0.0, 0.0) if look_back and run > 0.5 else Vector3.ZERO, Vector2(0.4, 0.7), 10.0)
 	var turn := _twitch.x
 	# The chest turns against the hips, carrying the forward arm's shoulder forward.
 	for bone: String in ["Spine", "Spine1", "Spine2"]:
-		_pose(bone, Quaternion(left, (lean + slump) / 3.0 - deg_to_rad(1.5) * breath) * Quaternion(Vector3.UP, deg_to_rad(4.0 + 2.0 * run) * sway + turn * 0.1))
-	_pose("Neck", Quaternion(left, -lean * 0.35) * Quaternion(Vector3.UP, turn * 0.3))
-	_pose("Head", Quaternion(left, -lean * 0.35 + deg_to_rad(1.5) * shiver) * Quaternion(Vector3.UP, turn * 0.4))
-	# Knees give with fear, and bend deep with the hands toward them while winded.
-	var bend := deg_to_rad(4.0 + 10.0 * fear) + slump * 0.9
-	var stride := deg_to_rad(lerpf(24.0, 45.0, run)) * _blend
+		_pose(bone, Quaternion(left, (lean + slump + curl) / 3.0 - deg_to_rad(1.5) * breath) * Quaternion(Vector3.UP, deg_to_rad(4.0 + 2.0 * run) * sway + turn * 0.1))
+	# Neck and head look where you look, ducked when cowering or flinching.
+	var yaw := clampf(look.x, -1.3, 1.3)
+	var nod := -lean * 0.35 - clampf(look.y, -0.9, 0.9) * 0.5 + (deg_to_rad(20.0) * _cower + deg_to_rad(14.0) * flinch) * 0.5
+	_pose("Neck", Quaternion(Vector3.UP, yaw * 0.4 + turn * 0.3) * Quaternion(left, nod))
+	_pose("Head", Quaternion(Vector3.UP, yaw * 0.6 + turn * 0.4) * Quaternion(left, nod + deg_to_rad(1.5) * shiver))
+	# Knees give with fear, bend deep with the hands toward them while winded, and fold right down to cower.
+	var bend := deg_to_rad(4.0 + 10.0 * fear) + slump * 0.9 + deg_to_rad(38.0) * _cower + deg_to_rad(8.0) * flinch
+	var stride := deg_to_rad(lerpf(24.0, 45.0, run)) * _blend * (1.0 if ahead else 0.7)
 	var knee := deg_to_rad(lerpf(40.0, 100.0, run)) * _blend
 	for side: float in [1.0, -1.0]:
 		var prefix := "Left" if side > 0.0 else "Right"
 		var p := _phase + (0.0 if side > 0.0 else PI)
 		_pose(prefix + "UpLeg", Quaternion(left, -bend - stride * sin(p)))
 		_pose(prefix + "Leg", Quaternion(left, 2.0 * bend + knee * maxf(cos(p), 0.0)))
+		# Feet flat under the bent knees; toes up as the leg swings through, the toes bending as the heel lifts.
+		_pose(prefix + "Foot", Quaternion(left, -bend - deg_to_rad(12.0) * maxf(cos(p), 0.0) * _blend))
+		_pose(prefix + "ToeBase", Quaternion(left, -deg_to_rad(60.0) * maxf(-sin(p), 0.0) * maxf(-cos(p), 0.0) * _blend))
 		# Arms swing against the legs a beat behind them (1 = this arm fully forward). Walking: loose,
 		# close to the body, the elbow bending a little more on the way forward. Running: elbows near 90,
 		# driven back and coming up and across the chest; the hand trails each swing.
 		var arm_p := p - 0.2
 		var swing := -sin(arm_p) * _blend
-		# Shoulders tense up with fear, rise with each breath and roll forward with their arm.
-		var shrug := deg_to_rad(4.0 + 10.0 * fear + 3.0 * breath * still) + deg_to_rad(1.0) * shiver
+		# Shoulders tense up with fear, rise with each breath and roll forward with their arm; a flinch jerks them up.
+		var shrug := deg_to_rad(4.0 + 10.0 * fear + 3.0 * breath * still + 14.0 * flinch) + deg_to_rad(1.0) * shiver
 		_pose(prefix + "Shoulder", Quaternion(forward, side * shrug) * Quaternion(Vector3.UP, -side * deg_to_rad(lerpf(3.0, 7.0, run)) * swing))
 		# Drawn in with fear, reaching for the knees while winded.
 		var reach_fwd := lerpf(4.0 * _blend + 16.0 * swing, -8.0 + 38.0 * swing, run) + 8.0 * fear + rad_to_deg(slump) * 0.7
 		var across := 6.0 + 10.0 * run * maxf(swing, 0.0)
 		_pose(prefix + "Arm", Quaternion(left, -deg_to_rad(reach_fwd)) * Quaternion(forward, -side * deg_to_rad(across)))
-		var elbow := lerpf(10.0 * (_blend + swing), 70.0 + 15.0 * swing, run) + 25.0 * fear * still
-		_pose(prefix + "ForeArm", Quaternion(left, -deg_to_rad(elbow)))
+		var elbow_bend := lerpf(10.0 * (_blend + swing), 70.0 + 15.0 * swing, run) + 25.0 * fear * still
+		_pose(prefix + "ForeArm", Quaternion(left, -deg_to_rad(elbow_bend)))
 		_pose(prefix + "Hand", Quaternion(left, -deg_to_rad(lerpf(10.0, 4.0, run)) * cos(arm_p) * _blend + deg_to_rad(2.0) * shiver * side))
+		_curl(prefix, deg_to_rad(lerpf(FIST.x, FIST.y, maxf(run, fear))), deg_to_rad(4.0) * fear, 1.0, THUMB_SHARE)
+	# Cowering: both hands over the head, elbows out before the face. A flinch snaps them up before the chest.
+	if _cower > 0.0 or flinch > 0.0:
+		var head := skeleton.get_bone_global_pose(_bones["Head"]).origin
+		var chest := skeleton.get_bone_global_pose(_bones["Spine2"]).origin
+		for side: float in [1.0, -1.0]:
+			var prefix := "Left" if side > 0.0 else "Right"
+			var out := left * side
+			_put_palm(prefix, head + Vector3.UP * 0.07 + forward * 0.07 + out * 0.05, forward + out, _cower)
+			_put_palm(prefix, chest + forward * 0.15 + out * 0.07, Vector3.DOWN + out, flinch * 0.85)
 	return absf(sin(_phase)) * lerpf(0.025, 0.06, run) * _blend - _crouch_sink(bend)
+
+
+## A slam through the wall or the world flipping over: it flinches (shoulders up, hands up before the chest, head
+## down), by `strength` (0..1), then settles over STARTLE_TIME.
+func startle(strength: float) -> void:
+	_startle = clampf(strength, 0.0, 1.0)
+	_startle_t = 0.0
+
+
+## Down on the right knee at a box, mixed in by `w` over whatever the legs do now: the right shin back along the floor
+## on tucked toes, the left foot planted ahead, the back leaning over. Returns the body's vertical offset (metres)
+## that sets the lowest of the knee and the feet on the floor (in place of flee()'s at w = 1).
+func kneel(w: float) -> float:
+	if skeleton == null:
+		return 0.0
+	var left := _left_axis
+	_mix("RightUpLeg", Quaternion(left, -deg_to_rad(15.0)), w)
+	_mix("RightLeg", Quaternion(left, deg_to_rad(115.0)), w)
+	_mix("RightFoot", Quaternion.IDENTITY, w)
+	_mix("RightToeBase", Quaternion(left, -deg_to_rad(60.0)), w)
+	_mix("LeftUpLeg", Quaternion(left, -deg_to_rad(100.0)), w)
+	_mix("LeftLeg", Quaternion(left, deg_to_rad(100.0)), w)
+	_mix("LeftFoot", Quaternion.IDENTITY, w)
+	_mix("LeftToeBase", Quaternion.IDENTITY, w)
+	for bone: String in ["Spine", "Spine1", "Spine2"]:
+		_mix(bone, Quaternion(left, deg_to_rad(KNEEL_LEAN) / 3.0), w)
+	# The lowest contact meets the floor: the knee (on its kneecap) or a foot (at its rest height).
+	var gap := INF
+	for contact: String in ["RightLeg", "LeftFoot", "RightFoot", "LeftToeBase", "RightToeBase", "LeftToe_End", "RightToe_End"]:
+		var bone: int = _bones.get(contact, -1)
+		if bone >= 0:
+			var rest := KNEE_PAD if contact == "RightLeg" else skeleton.get_bone_global_rest(bone).origin.y
+			gap = minf(gap, skeleton.get_bone_global_pose(bone).origin.y - rest)
+	return -gap * skeleton.global_basis.get_scale().y if gap < INF else 0.0
+
+
+## Two-bone IK: `side`'s ("Left"/"Right") palm onto a world point, the elbow out and down, mixed in by `w`.
+func reach(side: String, target: Vector3, w: float) -> void:
+	if skeleton != null:
+		_put_palm(side, skeleton.global_transform.affine_inverse() * target, _left_axis * (1.0 if side == "Left" else -1.0) + Vector3.DOWN, w)
+
+
+## Close `side`'s hand round something (the lid's edge, the key), mixed in by `w`.
+func grip(side: String, w: float) -> void:
+	if skeleton != null:
+		_curl(side, deg_to_rad(GRIP), 0.0, w, THUMB_SHARE)
+
+
+## Turn the head to look at a world point (the box, the key in its hand), mixed in by `w`.
+func watch(target: Vector3, w: float) -> void:
+	var head: int = _bones.get("Head", -1)
+	if skeleton == null or head < 0 or w <= 0.0:
+		return
+	var pose := skeleton.get_bone_global_pose(head)
+	var turned := pose.basis.get_rotation_quaternion() * skeleton.get_bone_global_rest(head).basis.get_rotation_quaternion().inverse()
+	var to := skeleton.global_transform.affine_inverse() * target - pose.origin
+	if to.length_squared() > 0.000001:
+		_turn(head, Quaternion((turned * _left_axis.cross(Vector3.UP)).normalized(), to.normalized()), w)
+
+
+## A world point just before its face, chin high: where it holds a key up to look at it.
+func before_eyes() -> Vector3:
+	if skeleton == null:
+		return Vector3.ZERO
+	var head := skeleton.get_bone_global_pose(_bones["Head"]).origin
+	return skeleton.global_transform * (head + _left_axis.cross(Vector3.UP) * 0.2 + Vector3.DOWN * 0.06)
+
+
+## The paper map up before the chest in both hands (the Devil Cam sees you read it), the head bent over it, mixed in by
+## `w`; a plain sheet shows between the hands while it's up.
+func hold_map(w: float) -> void:
+	if skeleton == null or (w <= 0.0 and _sheet == null):
+		return
+	var sheet := _map_sheet()
+	sheet.visible = w > 0.3
+	if w <= 0.0:
+		return
+	var forward := _left_axis.cross(Vector3.UP)
+	var at := skeleton.get_bone_global_pose(_bones["Spine2"]).origin + forward * MAP_HELD.x + Vector3.UP * MAP_HELD.y
+	for side: float in [1.0, -1.0]:
+		var prefix := "Left" if side > 0.0 else "Right"
+		_put_palm(prefix, at + _left_axis * side * MAP_HALF_WIDTH, _left_axis * side + Vector3.DOWN, w)
+		_curl(prefix, deg_to_rad(40.0), 0.0, w, THUMB_SHARE)
+	_mix("Head", Quaternion(_left_axis, deg_to_rad(22.0)), w * 0.8)
+	# The sheet spans the palms, tipped up toward the eyes.
+	var l := skeleton.get_bone_global_pose(_bones["LeftHandMiddle1"]).origin
+	var r := skeleton.get_bone_global_pose(_bones["RightHandMiddle1"]).origin
+	var across := (l - r).normalized()
+	var facing := Vector3.UP - forward * 0.8
+	facing = (facing - across * facing.dot(across)).normalized()
+	sheet.transform = Transform3D(Basis(across, facing.cross(across), facing), (l + r) * 0.5)
+
+
+func _map_sheet() -> MeshInstance3D:
+	if _sheet == null:
+		_sheet = MeshInstance3D.new()
+		_sheet.name = "MapSheet"
+		var quad := QuadMesh.new()
+		quad.size = MAP_SIZE
+		var paper := StandardMaterial3D.new()
+		paper.albedo_color = PaperMap.PAPER
+		paper.cull_mode = BaseMaterial3D.CULL_DISABLED
+		quad.material = paper
+		_sheet.mesh = quad
+		var body := skeleton.get_parent().find_children("*", "MeshInstance3D", true, false)
+		if not body.is_empty():
+			_sheet.layers = (body[0] as MeshInstance3D).layers  # the Devil Cams see it; your own eyes don't
+		skeleton.add_child(_sheet)
+	return _sheet
+
+
+## Which way the body turns and how it walks for a move (`velocity` in the body's own space, -Z ahead): x = the turn
+## (radians, left +), y = the speed for flee() (negative: backing away). Up to BACKPEDAL_AT off ahead it turns toward
+## the move; further round it backs away, turned so its back leads.
+static func heading(velocity: Vector3) -> Vector2:
+	var speed := Vector2(velocity.x, velocity.z).length()
+	if speed < 0.01:
+		return Vector2.ZERO
+	var angle := atan2(-velocity.x, -velocity.z)
+	if absf(angle) <= deg_to_rad(BACKPEDAL_AT):
+		return Vector2(angle, speed)
+	return Vector2(wrapf(angle + PI, -PI, PI), -speed)
+
+
+## Two-bone IK: where the elbow goes for a hand at `hand`, the shoulder at `shoulder`, upper arm `a` and forearm `b`
+## long, bending toward `pole`. A hand out of reach straightens the arm toward it. (BoxHands bends your own arms.)
+static func elbow(shoulder: Vector3, hand: Vector3, a: float, b: float, pole: Vector3) -> Vector3:
+	var to := hand - shoulder
+	var dir := to.normalized() if to.length_squared() > 0.0000001 else Vector3.DOWN
+	var d := clampf(to.length(), absf(a - b) + 0.0001, a + b - 0.0001)
+	var bend := (pole - dir * pole.dot(dir)).normalized()
+	var along := (a * a + d * d - b * b) / (2.0 * d)
+	return shoulder + dir * along + bend * sqrt(maxf(a * a - along * along, 0.0))
+
+
+## `side`'s palm (the middle finger's knuckle) onto `target` (skeleton space), the wrist kept as it is, the elbow
+## bending toward `pole`, mixed in by `w`.
+func _put_palm(side: String, target: Vector3, pole: Vector3, w: float) -> void:
+	var arm: int = _bones.get(side + "Arm", -1)
+	var fore: int = _bones.get(side + "ForeArm", -1)
+	var palm: int = _bones.get(side + "HandMiddle1", -1)
+	if arm < 0 or fore < 0 or palm < 0 or w <= 0.0:
+		return
+	var shoulder := skeleton.get_bone_global_pose(arm).origin
+	var joint := skeleton.get_bone_global_pose(fore).origin
+	var a := shoulder.distance_to(joint)
+	var b := joint.distance_to(skeleton.get_bone_global_pose(palm).origin)
+	_aim(arm, fore, elbow(shoulder, target, a, b, pole) - shoulder, w)
+	var to := target - shoulder
+	var wrist := shoulder + to.normalized() * clampf(to.length(), absf(a - b), a + b)
+	_aim(fore, palm, wrist - skeleton.get_bone_global_pose(fore).origin, w)
+
+
+## Turn `bone` on top of its pose now so the line from it to `toward` (a bone below it) runs along `dir` (skeleton
+## space), mixed in by `w`.
+func _aim(bone: int, toward: int, dir: Vector3, w: float) -> void:
+	var now := skeleton.get_bone_global_pose(toward).origin - skeleton.get_bone_global_pose(bone).origin
+	if now.length_squared() > 0.0000001 and dir.length_squared() > 0.0000001:
+		_turn(bone, Quaternion(now.normalized(), dir.normalized()), w)
+
+
+## Turn `bone` by `turn` (skeleton space) on top of its pose now, mixed in by `w`.
+func _turn(bone: int, turn: Quaternion, w: float) -> void:
+	var parent := skeleton.get_bone_parent(bone)
+	var above := skeleton.get_bone_global_pose(parent).basis.get_rotation_quaternion() if parent >= 0 else Quaternion.IDENTITY
+	var goal := (above.inverse() * turn * skeleton.get_bone_global_pose(bone).basis.get_rotation_quaternion()).normalized()
+	skeleton.set_bone_pose_rotation(bone, skeleton.get_bone_pose_rotation(bone).slerp(goal, w))
 
 
 ## How far (metres) bending the knees by `bend` lowers the hips, so the body sinks and the feet stay
@@ -384,16 +611,17 @@ func _mix(bone: String, rotation: Quaternion, w: float) -> void:
 
 
 ## Mix every claw on one side toward a curl of `angle` per joint (radians, about that finger's own bend axis; negative
-## opens and splays them), each joint fluttering by up to `flutter` out of step with the others, by `w`. Joints the
-## skin doesn't bind (two of the left pinky's) are left alone.
-func _curl(side: String, angle: float, flutter: float, w: float) -> void:
+## opens and splays them), each joint fluttering by up to `flutter` out of step with the others, by `w`; the thumb
+## curls `thumb` of that. Joints the skin doesn't bind (two of the left pinky's) are left alone.
+func _curl(side: String, angle: float, flutter: float, w: float, thumb := 1.0) -> void:
 	for f in FINGERS.size():
 		var finger: String = side + "Hand" + FINGERS[f]
 		var axis: Vector3 = _curl_axes.get(finger, _left_axis)
+		var share := thumb if FINGERS[f] == "Thumb" else 1.0
 		for j in 3:
 			var joint := finger + str(j + 1)
 			if _bound.has(_bones.get(joint, -1)):
-				_mix(joint, Quaternion(axis, angle + flutter * sin(_idle_time * 7.0 + f * 1.3 + j * 0.7)), w)
+				_mix(joint, Quaternion(axis, (angle + flutter * sin(_idle_time * 7.0 + f * 1.3 + j * 0.7)) * share), w)
 
 
 func _pose_rotation(index: int, rotation: Quaternion) -> Quaternion:
@@ -443,6 +671,7 @@ func _repair(model: Node) -> void:
 	mesh_instance.mesh = _smooth_mesh
 
 
+## Also keeps the shins and forearms off the limb above them (_clamp_joints).
 ## character2withrig.glb rests in A-pose with the hands against the jacket hem, and ~3k hem vertices
 ## carry forearm/hand weight. Raise the arms and they stretch from hip to hand like rope. Measured:
 ## sleeves and hands sit within 0.05 (mesh units) of the arm bones, the stray hem 0.06-0.16. A vertex
@@ -464,6 +693,7 @@ func unstick_hands(arm_radius := 0.055, min_share := 0.5) -> void:
 func _drop_hand_weights(source: ArrayMesh, skin: Skin, arm_radius: float, min_share: float) -> ArrayMesh:
 	var hand_binds := {}
 	var arm_binds := {}
+	var hip_binds := {}
 	var body_origin := {}
 	var origin := {}
 	for b in skin.get_bind_count():
@@ -471,6 +701,8 @@ func _drop_hand_weights(source: ArrayMesh, skin: Skin, arm_radius: float, min_sh
 		var bone_name := skeleton.get_bone_name(bone) if bone >= 0 else String(skin.get_bind_name(b))
 		if bone_name.contains("ForeArm") or bone_name.contains("Hand"):
 			hand_binds[b] = true
+		if bone_name.ends_with("Hips") or bone_name.ends_with("UpLeg"):
+			hip_binds[b] = true
 		if bone_name.contains("Arm") or bone_name.contains("Hand") or bone_name.contains("Shoulder"):
 			arm_binds[b] = true
 		else:
@@ -509,12 +741,61 @@ func _drop_hand_weights(source: ArrayMesh, skin: Skin, arm_radius: float, min_sh
 			for k in per:
 				bones[v * per + k] = strays[v] if k == 0 else 0
 				weights[v * per + k] = 1.0 if k == 0 else 0.0
+		# After the strays: a strap scrap freed from the fingers goes to the nearest joint, often the knee below it.
+		var clamped := _clamp_joints(vertices, bones, weights, per, skin)
+		bones = clamped[0]
+		weights = clamped[1]
 		arrays[Mesh.ARRAY_BONES] = bones
 		arrays[Mesh.ARRAY_WEIGHTS] = weights
-		arrays[Mesh.ARRAY_INDEX] = _cut_fused(arrays[Mesh.ARRAY_INDEX], bones, weights, per, hand_binds, arm_binds)
+		arrays[Mesh.ARRAY_INDEX] = _cut_fused(arrays[Mesh.ARRAY_INDEX], bones, weights, per, hand_binds, arm_binds, hip_binds)
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, source.surface_get_format(surface) & Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS)
 		mesh.surface_set_material(surface, source.surface_get_material(surface))
 	return mesh
+
+
+## The AI rig's lower limbs also reach far up the limb above them: the cargo pockets on the outer thighs carry shin
+## weight 0.1 above the knee, so folding the knee (a kneel, a cower) tears them off with the shin into a strip down to
+## the floor. A vertex more than JOINT_SPAN up the upper bone from its knee or elbow, and within LIMB_RADIUS of it,
+## hands the weight below the joint to the upper bone; the joint itself keeps its blend. Returns [bones, weights].
+func _clamp_joints(vertices: PackedVector3Array, bones: PackedInt32Array, weights: PackedFloat32Array, per: int, skin: Skin) -> Array:
+	var bind_of := {}
+	for b in skin.get_bind_count():
+		var bone := skin.get_bind_bone(b)
+		bind_of[bone if bone >= 0 else skeleton.find_bone(skin.get_bind_name(b))] = b
+	for limb: Array in [["LeftUpLeg", "LeftLeg"], ["RightUpLeg", "RightLeg"], ["LeftArm", "LeftForeArm"], ["RightArm", "RightForeArm"]]:
+		var upper := _find_bone(limb[0])
+		var lower := _find_bone(limb[1])
+		if not (bind_of.has(upper) and bind_of.has(lower)):
+			continue
+		var below := {}  # the binds of the lower bone and every bone under it
+		for bone in skeleton.get_bone_count():
+			var up := bone
+			while up >= 0 and up != lower:
+				up = skeleton.get_bone_parent(up)
+			if up == lower and bind_of.has(bone):
+				below[bind_of[bone]] = true
+		var top: Vector3 = skin.get_bind_pose(bind_of[upper]).affine_inverse().origin
+		var joint: Vector3 = skin.get_bind_pose(bind_of[lower]).affine_inverse().origin
+		var along := (top - joint).normalized()
+		var segment: Array[Vector3] = [top, joint]
+		for v in vertices.size():
+			if (vertices[v] - joint).dot(along) <= JOINT_SPAN or _distance_to_segments(vertices[v], segment) > LIMB_RADIUS:
+				continue
+			var moved := 0.0
+			var slot := -1
+			for k in per:
+				var i := v * per + k
+				if bones[i] == bind_of[upper]:
+					slot = i
+				elif below.has(bones[i]) and weights[i] > 0.0:
+					moved += weights[i]
+					weights[i] = 0.0
+					if slot < 0:
+						slot = i
+			if moved > 0.0:
+				bones[slot] = bind_of[upper]
+				weights[slot] += moved
+	return [bones, weights]
 
 
 ## The model also fuses bits of trouser strap to the fingertips: islands of hand-dominated vertices
@@ -577,25 +858,34 @@ static func _union(parent: Array, a: int, b: int) -> void:
 	parent[_root(parent, a)] = _root(parent, b)
 
 
-## Drops triangles that join a hand-dominated vertex to a vertex with no arm weight at all.
-static func _cut_fused(indices: PackedInt32Array, bones: PackedInt32Array, weights: PackedFloat32Array, per: int, hand_binds: Dictionary, arm_binds: Dictionary) -> PackedInt32Array:
+## Drops triangles that join a hand-dominated vertex to a vertex with no arm weight at all, and the weld where the
+## hanging arm touches the hip at rest: a triangle with an arm corner and a hip or thigh corner (each WELD or more)
+## would stretch into a web once the arm comes up (reaching for a box, cowering).
+static func _cut_fused(indices: PackedInt32Array, bones: PackedInt32Array, weights: PackedFloat32Array, per: int, hand_binds: Dictionary, arm_binds: Dictionary, hip_binds: Dictionary) -> PackedInt32Array:
 	var kept := PackedInt32Array()
 	for t in range(0, indices.size(), 3):
 		var handy := false
 		var bare := false
+		var armed := false
+		var hipped := false
 		for c in 3:
 			var v := indices[t + c]
 			var hand := 0.0
 			var arm := 0.0
+			var hip := 0.0
 			for k in per:
 				var w := weights[v * per + k]
 				if hand_binds.has(bones[v * per + k]):
 					hand += w
 				if arm_binds.has(bones[v * per + k]):
 					arm += w
+				if hip_binds.has(bones[v * per + k]):
+					hip += w
 			handy = handy or hand >= 0.5
 			bare = bare or arm <= 0.001
-		if not (handy and bare):
+			armed = armed or arm >= WELD
+			hipped = hipped or hip >= WELD
+		if not (handy and bare) and not (armed and hipped):
 			kept.append_array([indices[t], indices[t + 1], indices[t + 2]])
 	return kept
 

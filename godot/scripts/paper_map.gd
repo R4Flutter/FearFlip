@@ -220,10 +220,10 @@ func _ready() -> void:
 	_curl.set_shader_parameter("core", ROLL_CORE)
 	_paper.material_override = _curl
 	_rig.add_child(_paper)
-	var skin := _material(SKIN)
-	var sleeve := _material(SLEEVE)
+	var skin := plain_material(SKIN)
+	var sleeve := plain_material(SLEEVE)
 	for hand in _hands:
-		_build_hand(hand, skin, sleeve)
+		build_hand(hand, skin, sleeve)
 		_rig.add_child(hand)
 	_hands[1].scale.x = -1.0  # the left hand is the right one mirrored
 	_build_roll()
@@ -358,7 +358,7 @@ func _sheet_image(art: Texture2D) -> TextureRect:
 
 ## A right hand gripping a roll at its origin, the forearm running back along ARM: the delivered fist, else a skin
 ## block, a thumb over the front of the paper and a dark sleeve.
-func _build_hand(hand: Node3D, skin: StandardMaterial3D, sleeve: StandardMaterial3D) -> void:
+static func build_hand(hand: Node3D, skin: StandardMaterial3D, sleeve: StandardMaterial3D) -> void:
 	var art := Art.model("map_hand")
 	if art != null:
 		var model: Node3D = art.instantiate()
@@ -403,10 +403,10 @@ func _build_roll() -> void:
 	tube.top_radius = roll_radius(SHEET.x - EDGE_CURL)
 	tube.bottom_radius = tube.top_radius
 	tube.height = SHEET.y
-	_roll.add_child(_part(tube, Vector3.ZERO, _material(PAPER.darkened(0.15))))
+	_roll.add_child(_part(tube, Vector3.ZERO, plain_material(PAPER.darkened(0.15))))
 
 
-func _part(mesh: PrimitiveMesh, at: Vector3, material: StandardMaterial3D) -> MeshInstance3D:
+static func _part(mesh: PrimitiveMesh, at: Vector3, material: StandardMaterial3D) -> MeshInstance3D:
 	var part := MeshInstance3D.new()
 	part.mesh = mesh
 	part.material_override = material
@@ -414,7 +414,7 @@ func _part(mesh: PrimitiveMesh, at: Vector3, material: StandardMaterial3D) -> Me
 	return part
 
 
-func _material(color: Color) -> StandardMaterial3D:
+static func plain_material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
 	material.roughness = 0.85

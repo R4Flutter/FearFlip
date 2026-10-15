@@ -85,6 +85,230 @@ func test_the_roar_lifts_its_claws() -> void:
 	assert_true(DevilRig.roar_force(0.8) > 0.9 and DevilRig.roar_force(0.0) == 0.0, "roars in the middle, not at the coil")
 
 
+# --- The player, as fully animated as the Devil (user, 15 Oct 2026; seen in the Devil Cams) ---
+
+const STEP := 1.0 / 60.0
+
+
+## character2withrig.glb as main.gd builds it: a clean rig (no repair), the hem freed from the hands, unscaled at the
+## origin. The rig's skeleton space is the model's own (~1 tall), so distances below are in its units.
+func _player() -> DevilRig:
+	var model: Node3D = load("res://assets/character/character2withrig.glb").instantiate()
+	(Engine.get_main_loop() as SceneTree).root.add_child(model)
+	track(model)
+	var rig := DevilRig.new(model, false)
+	rig.unstick_hands()
+	return rig
+
+
+## A bone's posed position, skeleton space.
+func _at(rig: DevilRig, bone: String) -> Vector3:
+	return rig.skeleton.get_bone_global_pose(rig.skeleton.find_bone("mixamorig_" + bone)).origin
+
+
+## `frames` frames of flee(); returns its last vertical offset.
+func _flee(rig: DevilRig, frames: int, speed: float, fear := 0.0, look := Vector2.ZERO) -> float:
+	var y := 0.0
+	for frame in frames:
+		y = rig.flee(speed, STEP, fear, 0.0, look)
+	return y
+
+
+## Which way the head faces (skeleton space): its turn from rest applied to the body's forward.
+func _face(rig: DevilRig) -> Vector3:
+	var head := rig.skeleton.find_bone("mixamorig_Head")
+	var turn := rig.skeleton.get_bone_global_pose(head).basis.get_rotation_quaternion() * rig.skeleton.get_bone_global_rest(head).basis.get_rotation_quaternion().inverse()
+	return turn * Vector3(sin(rig.facing_yaw()), 0.0, cos(rig.facing_yaw()))
+
+
+func test_the_player_clenches_its_fists_at_a_sprint() -> void:
+	var rig := _player()
+	var open := _at(rig, "LeftHandIndex4").distance_to(_at(rig, "LeftHand"))
+	_flee(rig, 60, rig.sprint_pace)
+	assert_true(_at(rig, "LeftHandIndex4").distance_to(_at(rig, "LeftHand")) < open * 0.8, "fingertips curled in toward the palm")
+
+
+func test_grip_closes_the_hand() -> void:
+	var rig := _player()
+	_flee(rig, 1, 0.0)
+	var open := _at(rig, "RightHandMiddle4").distance_to(_at(rig, "RightHand"))
+	rig.grip("Right", 1.0)
+	assert_true(_at(rig, "RightHandMiddle4").distance_to(_at(rig, "RightHand")) < open * 0.75, "closed round the lid's edge")
+
+
+func test_a_walk_bends_the_toes_at_push_off() -> void:
+	var rig := _player()
+	var rest := _toe_bend(rig)
+	var most := 0.0
+	for frame in 90:
+		rig.flee(rig.walk_pace, STEP, 0.0, 0.0)
+		most = maxf(most, _toe_bend(rig))
+	assert_true(most > rest + deg_to_rad(12.0), "toes bend as the heel lifts (%.1f deg past rest)" % rad_to_deg(most - rest))
+
+
+## Angle between the left foot and its toes.
+func _toe_bend(rig: DevilRig) -> float:
+	var ball := _at(rig, "LeftToeBase")
+	return (ball - _at(rig, "LeftFoot")).angle_to(_at(rig, "LeftToe_End") - ball)
+
+
+func test_the_head_follows_your_look() -> void:
+	var rig := _player()
+	_flee(rig, 30, 0.0, 0.0, Vector2(0.0, 0.6))
+	assert_true(_face(rig).y > 0.35, "looks up with you")
+	_flee(rig, 30, 0.0, 0.0, Vector2(0.8, 0.0))
+	assert_true(_face(rig).dot(rig._left_axis) > 0.5, "turns left with you")
+
+
+## Backing away walks backward: a foot travels backward while it's lifted, forward while it's planted.
+func test_backing_away_walks_backward() -> void:
+	assert_true(_swing(_player(), 3.0) > 0.001, "walking ahead, the lifted foot moves ahead")
+	assert_true(_swing(_player(), -3.0) < -0.001, "backing away, the lifted foot moves back")
+
+
+## Sum over 1.5 s of how far the left foot moves ahead each frame, times how high it's lifted.
+func _swing(rig: DevilRig, speed: float) -> float:
+	var forward: Vector3 = rig._left_axis.cross(Vector3.UP)
+	var last := _at(rig, "LeftFoot")
+	var sum := 0.0
+	for frame in 90:
+		var y := rig.flee(speed, STEP, 0.0, 0.0)
+		var foot := _at(rig, "LeftFoot")
+		sum += (foot - last).dot(forward) * maxf(foot.y + y - 0.08, 0.0)
+		last = foot
+	return sum
+
+
+func test_it_cowers_when_the_devil_is_on_top_of_it() -> void:
+	var rig := _player()
+	var y := _flee(rig, 60, 0.0, 1.0)
+	var head := _at(rig, "Head").y
+	assert_true(_at(rig, "LeftHand").y > head - 0.05 and _at(rig, "RightHand").y > head - 0.05, "hands up over the head")
+	assert_true(y < -0.05, "crouched low (%.3f)" % y)
+
+
+func test_a_startle_jerks_the_hands_up_then_settles() -> void:
+	var calm := _player()
+	var jumpy := _player()
+	_flee(calm, 30, 0.0)
+	_flee(jumpy, 30, 0.0)
+	jumpy.startle(1.0)
+	_flee(calm, 8, 0.0)
+	_flee(jumpy, 8, 0.0)
+	assert_true(_at(jumpy, "RightHand").y > _at(calm, "RightHand").y + 0.08, "hands jerk up toward the chest")
+	_flee(calm, 90, 0.0)
+	_flee(jumpy, 90, 0.0)
+	assert_true(absf(_at(jumpy, "RightHand").y - _at(calm, "RightHand").y) < 0.01, "and settle back")
+
+
+func test_reach_puts_the_palm_on_the_point() -> void:
+	var rig := _player()
+	_flee(rig, 1, 0.0)
+	var forward: Vector3 = rig._left_axis.cross(Vector3.UP)
+	var target := _at(rig, "RightArm") + forward * 0.2 + Vector3.DOWN * 0.15
+	rig.reach("Right", rig.skeleton.global_transform * target, 1.0)
+	assert_true(_at(rig, "RightHandMiddle1").distance_to(target) < 0.01, "palm on it (%.3f off)" % _at(rig, "RightHandMiddle1").distance_to(target))
+
+
+func test_watch_turns_the_head_to_a_point() -> void:
+	var rig := _player()
+	_flee(rig, 1, 0.0)
+	var forward: Vector3 = rig._left_axis.cross(Vector3.UP)
+	var at := _at(rig, "Head") + forward * 0.3 + rig._left_axis * 0.15 + Vector3.DOWN * 0.3
+	rig.watch(rig.skeleton.global_transform * at, 1.0)
+	assert_true(_face(rig).dot((at - _at(rig, "Head")).normalized()) > 0.99, "eyes on it")
+
+
+func test_kneeling_puts_the_right_knee_on_the_floor() -> void:
+	var rig := _player()
+	_flee(rig, 1, 0.0)
+	var y := rig.kneel(1.0)
+	var knee := _at(rig, "RightLeg").y + y
+	assert_true(knee > -0.005 and knee < 0.06, "right knee down on the floor (%.3f)" % knee)
+	assert_true(_at(rig, "LeftFoot").y + y > 0.06, "left foot flat on it, not through it")
+
+
+func test_holding_the_map_raises_a_sheet_before_the_chest() -> void:
+	var rig := _player()
+	_flee(rig, 1, 0.0)
+	rig.hold_map(1.0)
+	var forward: Vector3 = rig._left_axis.cross(Vector3.UP)
+	var chest := _at(rig, "Spine2")
+	for side in ["Left", "Right"]:
+		var palm := _at(rig, side + "HandMiddle1")
+		assert_true(palm.y > _at(rig, "Hips").y and palm.y < _at(rig, side + "Arm").y, "%s hand at chest height" % side)
+		assert_true((palm - chest).dot(forward) > 0.12, "%s hand out before the chest" % side)
+	var sheet := rig.skeleton.find_child("MapSheet", false, false) as MeshInstance3D
+	assert_true(sheet != null and sheet.visible, "a sheet in its hands")
+	rig.hold_map(0.0)
+	assert_false(sheet.visible, "put away")
+
+
+## No strips (user, 12 Oct 2026: stretched poses are rejected). Kneeling folds the knees past 100 degrees, and the cargo
+## pockets on the outer thighs (0.1 above the knee) used to tear off with the shin into a strip down to the floor; the
+## hands reaching for the box and over the head used to pull a web off the hip, where the hanging forearm was welded to
+## it. No triangle may grow by more than the sprint's worst knee crease did before (0.11).
+func test_kneeling_and_reaching_tear_no_strips() -> void:
+	var rig := _player()
+	var mi: MeshInstance3D = rig.skeleton.get_parent().find_children("*", "MeshInstance3D", true, false)[0]
+	var rest := _skinned(rig, mi)
+	_flee(rig, 1, 0.0)
+	rig.kneel(1.0)
+	assert_true(_worst_growth(rig, mi, rest) < 0.11, "kneeling: longest edge growth %.3f" % _worst_growth(rig, mi, rest))
+	var forward: Vector3 = rig._left_axis.cross(Vector3.UP)
+	var hips := _at(rig, "Hips")
+	rig.reach("Right", rig.skeleton.global_transform * (hips + forward * 0.4), 1.0)
+	rig.reach("Left", rig.skeleton.global_transform * (hips + forward * 0.45 + Vector3.DOWN * 0.12), 1.0)
+	assert_true(_worst_growth(rig, mi, rest) < 0.11, "at the box: longest edge growth %.3f" % _worst_growth(rig, mi, rest))
+	var cowering := _player()
+	_flee(cowering, 90, 0.0, 1.0)
+	assert_true(_worst_growth(cowering, mi, rest) < 0.11, "cowering: longest edge growth %.3f" % _worst_growth(cowering, mi, rest))
+
+
+## How much the most stretched edge of the skin has grown since `rest` (mesh units).
+func _worst_growth(rig: DevilRig, mi: MeshInstance3D, rest: PackedVector3Array) -> float:
+	var posed := _skinned(rig, rig.skeleton.get_parent().find_children("*", "MeshInstance3D", true, false)[0])
+	var indices: PackedInt32Array = (mi.mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_INDEX]
+	var worst := 0.0
+	for t in range(0, indices.size(), 3):
+		for e in 3:
+			var a := indices[t + e]
+			var b := indices[t + (e + 1) % 3]
+			worst = maxf(worst, posed[a].distance_to(posed[b]) - rest[a].distance_to(rest[b]))
+	return worst
+
+
+## Every vertex where the skin puts it now (mesh space): the GPU's skinning, by hand.
+func _skinned(rig: DevilRig, mi: MeshInstance3D) -> PackedVector3Array:
+	var arrays := (mi.mesh as ArrayMesh).surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var bones: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
+	var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
+	var per := bones.size() / verts.size()
+	var mats: Array[Transform3D] = []
+	for b in mi.skin.get_bind_count():
+		var bone := mi.skin.get_bind_bone(b)
+		bone = bone if bone >= 0 else rig.skeleton.find_bone(mi.skin.get_bind_name(b))
+		mats.append(rig.skeleton.get_bone_global_pose(bone) * mi.skin.get_bind_pose(b))
+	var out := PackedVector3Array()
+	out.resize(verts.size())
+	for v in verts.size():
+		var p := Vector3.ZERO
+		for k in per:
+			if weights[v * per + k] > 0.0:
+				p += (mats[bones[v * per + k]] * verts[v]) * weights[v * per + k]
+		out[v] = p
+	return out
+
+
+## Which way the body turns and how it walks for a move (local velocity, -Z ahead): toward it, or backing away.
+func test_heading_turns_toward_the_move_or_backs_away() -> void:
+	assert_true(DevilRig.heading(Vector3(0, 0, -2)).is_equal_approx(Vector2(0.0, 2.0)), "straight ahead")
+	assert_true(DevilRig.heading(Vector3(-2, 0, 0)).is_equal_approx(Vector2(PI * 0.5, 2.0)), "sidestep left: turned left")
+	assert_true(DevilRig.heading(Vector3(0, 0, 2)).is_equal_approx(Vector2(0.0, -2.0)), "straight back: backing away")
+	assert_true(DevilRig.heading(Vector3(-1, 0, 1)).is_equal_approx(Vector2(-PI * 0.25, -sqrt(2.0))), "back-left: backing away, turned right")
+
+
 func _distance(p: Vector3, segments: Array[Vector3]) -> float:
 	var best := INF
 	for s in range(0, segments.size(), 2):

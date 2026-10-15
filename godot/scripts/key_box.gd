@@ -18,14 +18,28 @@ const HOLD_TIME := 0.2
 ## Just past upright: it rests against the wall behind the box (main.gd::BOX_WALL_GAP) without sinking into it.
 const LID_OPEN_DEGREES := -95.0
 const OPEN_TIME := 0.4
+const LID_TIME := CRACK_TIME + HOLD_TIME + OPEN_TIME
 ## Locksmith (omen): a box holding a key leaks a faint light of the key's colour round its lid.
 const GLINT_ENERGY := 0.35
 const GLINT_RANGE := 2.2
+## Opening it with your hands (main.gd kneels you; BoxHands and your body's DevilRig poses follow), seconds after the
+## click: down on a knee by KNEEL_IN; the right fist takes the lid's edge at GRIP_AT and the lid starts (LID_TIME);
+## the left fist dips in from DIP_AT, closes on what's there at TAKE_AT and holds a key up before your eyes by
+## SHOW_AT; the key flies to the HUD at FLY_AT; on your feet again by END.
+const KNEEL_IN := 0.3
+const GRIP_AT := 0.3
+const DIP_AT := 0.8
+const TAKE_AT := 1.1
+const SHOW_AT := 1.35
+const FLY_AT := 1.6
+const END := 1.9
 
 var lid: Node3D
 ## Height (local) of the box's opening: the key waits just under it.
 var top := BASE_HEIGHT
 var is_open := false
+## Lid space: the middle of its front edge, where your fist takes it.
+var _edge := Vector3(0.0, LID_HEIGHT * 0.5, DEPTH)
 
 
 ## `glint` (alpha > 0) lights the box from inside: the Locksmith's tell.
@@ -58,10 +72,61 @@ func build(collision_layer: int, glint := Color(0, 0, 0, 0)) -> void:
 func open() -> void:
 	is_open = true
 	var tween := create_tween()
-	tween.tween_property(lid, "rotation:x", deg_to_rad(CRACK_DEGREES), CRACK_TIME).set_trans(Tween.TRANS_SINE)
-	tween.tween_interval(HOLD_TIME)
-	tween.tween_property(lid, "rotation:x", deg_to_rad(LID_OPEN_DEGREES), OPEN_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_method(func(t: float) -> void: lid.rotation.x = lid_angle(t), 0.0, LID_TIME, LID_TIME)
 	tween.tween_callback(opened.emit)
+
+
+## The lid's tilt (rotation.x, radians) `t` s after it starts: open()'s crack, hold and swing (the Devil Cam replays it).
+static func lid_angle(t: float) -> float:
+	var crack := deg_to_rad(CRACK_DEGREES)
+	if t < CRACK_TIME:
+		return float(Tween.interpolate_value(0.0, crack, maxf(t, 0.0), CRACK_TIME, Tween.TRANS_SINE, Tween.EASE_IN_OUT))
+	if t < CRACK_TIME + HOLD_TIME:
+		return crack
+	var swing := minf(t - CRACK_TIME - HOLD_TIME, OPEN_TIME)
+	return float(Tween.interpolate_value(crack, deg_to_rad(LID_OPEN_DEGREES) - crack, swing, OPEN_TIME, Tween.TRANS_BACK, Tween.EASE_OUT))
+
+
+## 0..1: how far down on the knee, `t` s into the opening.
+static func kneel_at(t: float) -> float:
+	return smoothstep(0.0, KNEEL_IN, t) * (1.0 - smoothstep(FLY_AT, END, t))
+
+
+## 0..1: the right fist reaching for the lid's edge and working it loose; it shoves the lid up as the swing starts and
+## drops back out of sight while the lid swings on by itself.
+static func lid_reach(t: float) -> float:
+	return smoothstep(0.05, GRIP_AT, t) * (1.0 - smoothstep(GRIP_AT + CRACK_TIME + HOLD_TIME + 0.1, GRIP_AT + CRACK_TIME + HOLD_TIME + 0.35, t))
+
+
+## 0..1: the right fist closed on the edge, until the shove.
+static func lid_grip(t: float) -> float:
+	return smoothstep(GRIP_AT - 0.08, GRIP_AT, t) * (1.0 - smoothstep(GRIP_AT + CRACK_TIME + HOLD_TIME + 0.05, GRIP_AT + CRACK_TIME + HOLD_TIME + 0.15, t))
+
+
+## The left fist, `t` s into the opening: x = its reach into the box (0 = at your side), y = how far from in the box up
+## to before your eyes, z = closed. A key comes up held; from an empty box the fist comes back out.
+static func left_hand(t: float, found: bool) -> Vector3:
+	var into := smoothstep(DIP_AT, TAKE_AT, t)
+	var closed := smoothstep(TAKE_AT - 0.08, TAKE_AT, t)
+	if found:
+		return Vector3(into * (1.0 - smoothstep(FLY_AT, END, t)), smoothstep(TAKE_AT, SHOW_AT, t), closed * (1.0 - smoothstep(FLY_AT, FLY_AT + 0.1, t)))
+	var back := smoothstep(TAKE_AT + 0.05, SHOW_AT + 0.1, t)
+	return Vector3(into * (1.0 - back), 0.0, closed * (1.0 - back))
+
+
+## Where your fist takes the lid (world): the middle of its front edge, wherever the lid has swung.
+func grip_point() -> Vector3:
+	return lid.global_transform * _edge
+
+
+## The lid's front, out from the hinge (world): it tips up as the lid swings.
+func lid_front() -> Vector3:
+	return lid.global_basis.z.normalized()
+
+
+## Down inside the box (world): where your left fist takes the key.
+func inside_point() -> Vector3:
+	return global_transform * Vector3(0.0, top * 0.5, 0.0)
 
 
 ## Empty: a breath of dust out of the open box (the smoke FX sprite, else grains).
@@ -111,6 +176,10 @@ func _build_model(scene: PackedScene) -> void:
 	if lid == null:
 		lid = Node3D.new()  # fused model: nothing swings
 		add_child(lid)
+		_edge = Vector3(0.0, top, DEPTH * 0.5)
+	else:
+		var bounds := ModelFit.mesh_bounds(lid)
+		_edge = Vector3(bounds.get_center().x, bounds.get_center().y, bounds.end.z)
 
 
 ## The stand-in: a plain dark wooden box with two darker slats and a lid hinged on the back top edge. A black

@@ -98,6 +98,10 @@ const DEVIL_LAYER := 1 << 1
 ## Your own body: the Devil Cams and the trap fall's rim camera see it, your eyes never do (looking down you would see
 ## the top of your head).
 const PLAYER_LAYER := 1 << 2
+## Your fists opening a box (BoxHands): your own eyes only, never the Devil Cams.
+const HANDS_LAYER := 1 << 3
+## Your eye above the body's origin (camera_pivot).
+const EYE_HEIGHT := 0.45
 const DEVIL_EYE := 2.2
 const DEVIL_CAM_SIZE := Vector2(320, 180)
 ## While it hunts, a smaller live Devil Cam rides in the top-left corner over its distance (user, 9 Oct 2026), which
@@ -176,6 +180,17 @@ const BOX_FACE_ANGLE := 50.0
 const BOX_KEY_SCALE := 0.55
 ## A box stands this far (m) off the wall behind it.
 const BOX_WALL_GAP := 0.1
+## Opening a box (KeyBox's beats): you kneel KNEEL_GAP (m) before its front, sliding there (KNEEL_PULL per s, at most
+## walk speed), the eye sinking KNEEL_DROP and leaning KNEEL_LEAN toward it; once you stand you're up in KNEEL_RISE s.
+const KNEEL_GAP := 0.75
+const KNEEL_PULL := 8.0
+const KNEEL_DROP := 0.95
+const KNEEL_LEAN := 0.22
+const KNEEL_RISE := 0.25
+## The key in your fist pops at this scale (of its own), then flies to the HUD.
+const HELD_KEY_SCALE := 0.18
+## The body raises the map this fast (per s) in the Devil Cams.
+const MAP_RAISE := 3.0
 ## Delivered box sounds (assets/ASSET_PROMPTS.md §6); until then the floor creak and the floor crack stand in.
 const BOX_OPEN_SFX := "res://assets/audio/sfx_box_open.mp3"
 const BOX_EMPTY_SFX := "res://assets/audio/sfx_box_empty.mp3"
@@ -443,6 +458,19 @@ var sigils_collected := 0
 ## The boxes the keys hide in (layout.boxes order) and which you've opened (the paper map shares the array).
 var box_nodes: Array[KeyBox] = []
 var box_opened: Array[bool] = []
+## Kneeling at a box (_tick_box): the box (-1: on your feet), seconds into it (KeyBox's beats), the box your body is
+## posed at while you rise (-1: none), how far down you are, the key waiting for your left fist (-1: none).
+var opening_box := -1
+var open_t := 0.0
+var kneel_box := -1
+var kneel_w := 0.0
+var key_in_box := -1
+var box_hands: BoxHands
+## Your body in the Devil Cams: its turn from your view toward where it walks or the box (DevilRig.heading), its gait
+## speed (negative backing away), how far the map is up (0..1).
+var body_turn := 0.0
+var gait_speed := 0.0
+var map_w := 0.0
 ## Shown while a closed box is in reach (_box_in_reach).
 var open_prompt: TextureRect
 var exit_open := false
@@ -678,10 +706,12 @@ func _process(delta: float) -> void:
 		if paper_map != null and paper_map.is_up():
 			_close_map("end")
 			camera.rotation = Vector3(0.0, 0.0, camera.rotation.z)
+		_abandon_box()
 		return
 	_record_tape(delta)
 	# The head turns toward the back pocket while the hand reaches for the map; the map snaps shut near the Devil.
 	camera.rotation = Vector3(-paper_map.dip, -paper_map.dip * 0.6, camera.rotation.z)
+	_tick_box(delta)
 	if paper_map.opening and _map_unsafe():
 		_close_map("devil")
 	elapsed += delta
@@ -716,6 +746,8 @@ func _physics_process(delta: float) -> void:
 	if look_input != Vector2.ZERO:
 		_apply_look(-look_input.x * feel.stick_look_speed * delta, -look_input.y * feel.stick_look_speed * delta)
 	var move_input := _move_input()
+	if move_input != Vector2.ZERO:
+		_stand_up()  # never stuck on your knees
 	var direction := player.transform.basis * Vector3(move_input.x, 0.0, move_input.y)
 	var reading := paper_map.is_up()  # the map in your hands: a slow walk, no sprint
 	var sprinting := Input.is_action_pressed("sprint") and move_input != Vector2.ZERO and not reading and rest_left <= 0.0
@@ -729,6 +761,8 @@ func _physics_process(delta: float) -> void:
 	if not player.is_on_floor():
 		rate *= feel.air_control
 	horizontal_velocity = horizontal_velocity.move_toward(direction * target_speed, rate * delta)
+	if opening_box >= 0:
+		horizontal_velocity = _kneel_glide()
 	player.velocity.x = horizontal_velocity.x
 	player.velocity.z = horizontal_velocity.z
 
@@ -742,11 +776,9 @@ func _physics_process(delta: float) -> void:
 	# Real velocity: walking into a wall produces no steps and no bob.
 	var real_velocity := player.get_real_velocity()
 	var h_speed := Vector2(real_velocity.x, real_velocity.z).length()
-	_update_head_bob(h_speed, sprinting, delta)
+	_update_head_bob(h_speed if opening_box < 0 and kneel_w <= 0.0 else 0.0, sprinting, delta)  # no steps sliding onto your knees
 	if player_rig != null:
-		var fear := clampf(1.0 - float(_devil_distance()) / heartbeat_tiles, 0.0, 1.0) if devil_active else 0.0
-		var winded := 1.0 if rest_left > 0.0 else 1.0 - stamina
-		player_mesh.position.y = PLAYER_MESH_Y + player_rig.flee(h_speed, delta, fear, winded)
+		_pose_player(real_velocity, delta)
 
 ## One sprint lasts up to feel.sprint_time; when it ends (run dry or let go) you rest feel.sprint_recover_time.
 func _tick_breath(sprinting: bool, delta: float) -> void:
@@ -913,6 +945,9 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 	_apply_world(new_world)
 	if paper_map.opening:
 		_close_map("flip")  # the world turns over: both hands grab on
+	_stand_up()
+	if player_rig != null:
+		player_rig.startle(1.0)
 	if not flip_echo:
 		_noise(player_cell, DevilBrain.NOISE_FLIP)
 	elif _hears(player_cell, DevilBrain.NOISE_FLIP):
@@ -1029,23 +1064,136 @@ func _box_in_reach() -> int:
 	var to_box := box_nodes[i].global_position - camera.global_position
 	return i if Vector2(forward.x, forward.z).normalized().dot(Vector2(to_box.x, to_box.z).normalized()) > cos(deg_to_rad(BOX_FACE_ANGLE)) else -1
 
-## Click: the lid creaks loose (it hears that, if it's awake and near) and swings up; _reveal_box shows what's inside.
+## Click: you kneel at it and your fist works the lid loose (_tick_box); _reveal_box shows what's inside. Reduce Motion
+## skips the kneel: the lid just comes up.
 func _open_box(i: int) -> void:
 	box_opened[i] = true
+	if Settings.reduce_motion:
+		_start_lid(i)
+		return
+	opening_box = i
+	kneel_box = i
+	open_t = 0.0
+
+## The lid creaks loose (it hears that, if it's awake and near) and swings up.
+func _start_lid(i: int) -> void:
 	box_nodes[i].open()
 	box_open_player.play()
 	_noise(player_cell, DevilBrain.NOISE_BOX)
 
-## The lid is up: its key flies to you, or there's nothing but dust.
+## The lid is up: its key is yours (your left fist takes it if you're still kneeling there), or there's nothing but
+## dust.
 func _reveal_box(i: int) -> void:
 	var key := layout.sigils.find(layout.boxes[i])
 	if key >= 0:
-		_take_key(key)
+		if opening_box == i:
+			key_in_box = key
+		else:
+			_take_key(key)
 		return
 	box_nodes[i].puff()
 	box_empty_player.play()
 	_flash_message("EMPTY")
 	_refresh_minimap()
+
+## Kneeling at a box (KeyBox's beats; user, 15 Oct 2026): the lid starts when your right fist takes it, the key comes
+## up in your left and flies to the HUD from there. Your view sinks and turns to the box while your fists work, and
+## rises again once you're done or stand.
+func _tick_box(delta: float) -> void:
+	if opening_box >= 0:
+		open_t += delta
+		if open_t >= KeyBox.GRIP_AT and not box_nodes[opening_box].is_open:
+			_start_lid(opening_box)
+		if key_in_box >= 0 and open_t >= KeyBox.FLY_AT:
+			_take_key_from_fist()
+		if open_t >= KeyBox.END:
+			opening_box = -1
+	kneel_w = KeyBox.kneel_at(open_t) if opening_box >= 0 else move_toward(kneel_w, 0.0, delta / KNEEL_RISE)
+	if kneel_w <= 0.0:
+		kneel_box = -1
+	camera_pivot.position = Vector3(0.0, EYE_HEIGHT, 0.0)
+	if kneel_box < 0:
+		box_hands.visible = false
+		return
+	var box := box_nodes[kneel_box]
+	camera_pivot.position += Vector3.DOWN * KNEEL_DROP * kneel_w + player.global_basis.inverse() * (-box.global_basis.z * KNEEL_LEAN * kneel_w)
+	var aim := Basis.looking_at(box.inside_point() - camera.global_position)
+	camera.quaternion = camera.quaternion.slerp((camera_pivot.global_basis.inverse() * aim).get_rotation_quaternion(), kneel_w)
+	var holding := key_in_box >= 0 and open_t >= KeyBox.TAKE_AT
+	box_hands.pose(camera.global_transform, box, open_t, kneel_w, layout.sigils.has(layout.boxes[kneel_box]),
+			Color(SIGIL_COLORS[layout.sigil_worlds[key_in_box]], 1.0) if holding else Color(0, 0, 0, 0))
+
+## The key comes out of your fist: it pops there and flies to the HUD.
+func _take_key_from_fist() -> void:
+	var key := key_in_box
+	key_in_box = -1
+	if box_hands.visible:
+		sigil_nodes[key].global_position = box_hands.key_point()
+		sigil_nodes[key].scale = Vector3.ONE * HELD_KEY_SCALE
+	_take_key(key)
+
+## Up off your knees at once (you moved, it flipped, it lunged, the map came out): the lid still comes up and a key
+## in sight is still yours.
+func _stand_up() -> void:
+	if opening_box < 0:
+		return
+	var i := opening_box
+	opening_box = -1
+	if not box_nodes[i].is_open:
+		_start_lid(i)
+	if key_in_box >= 0:
+		_take_key_from_fist()
+
+## The floor stopped while you knelt (caught, fell): a lid your fist hadn't touched stays shut and the box can be
+## opened again after a revive; a key already in sight is yours, as when you stand.
+func _abandon_box() -> void:
+	if opening_box >= 0 and not box_nodes[opening_box].is_open:
+		box_opened[opening_box] = false
+		opening_box = -1
+	_stand_up()
+	kneel_box = -1
+	kneel_w = 0.0
+	if box_hands != null:
+		box_hands.visible = false
+
+## Onto your knees before the box: the body slides KNEEL_GAP before its front.
+func _kneel_glide() -> Vector3:
+	var box := box_nodes[opening_box]
+	var to := box.global_position + box.global_basis.z * KNEEL_GAP - player.global_position
+	return (Vector3(to.x, 0.0, to.z) * KNEEL_PULL).limit_length(feel.walk_speed)
+
+## Your body (the Devil Cams see it): it turns toward where it walks or backs away (DevilRig.heading), its head on
+## where you look; it kneels at a box with its hands on it and raises the map while you read.
+func _pose_player(velocity: Vector3, delta: float) -> void:
+	var fear := clampf(1.0 - float(_devil_distance()) / heartbeat_tiles, 0.0, 1.0) if devil_active else 0.0
+	var winded := 1.0 if rest_left > 0.0 else 1.0 - stamina
+	var gait := DevilRig.heading(player.global_basis.inverse() * velocity)
+	var turn := gait.x
+	if kneel_box >= 0:
+		turn = lerp_angle(turn, wrapf(box_nodes[kneel_box].rotation.y - yaw, -PI, PI), kneel_w)
+	body_turn = lerp_angle(body_turn, turn, clampf(DEVIL_TURN_SPEED * 0.5 * delta, 0.0, 1.0))
+	gait_speed = gait.y
+	map_w = move_toward(map_w, 1.0 if paper_map.is_up() else 0.0, delta * MAP_RAISE)
+	player_mesh.rotation.y = deg_to_rad(PLAYER_MESH_YAW) + body_turn
+	_pose_body(player_rig.flee(gait_speed, delta, fear, winded, Vector2(-body_turn, pitch)), kneel_box, open_t, kneel_w, map_w)
+
+## After the gait (`y`, its vertical offset): the kneel at box `i` (`t` s in, `w` down) and the map (`map_up`, 0..1).
+## Live and in the Devil Cam replay.
+func _pose_body(y: float, i: int, t: float, w: float, map_up: float) -> void:
+	player_rig.hold_map(map_up)
+	if i >= 0 and w > 0.0:
+		y = lerpf(y, player_rig.kneel(w), w)
+	player_mesh.position.y = PLAYER_MESH_Y + y  # before the reach: it aims from where the body really is
+	if i < 0 or w <= 0.0:
+		return
+	var box := box_nodes[i]
+	var left := KeyBox.left_hand(t, layout.sigils.has(layout.boxes[i]))
+	var held := box.inside_point().lerp(player_rig.before_eyes(), left.y)
+	player_rig.reach("Right", box.grip_point(), w * KeyBox.lid_reach(t))
+	player_rig.grip("Right", KeyBox.lid_grip(t))
+	player_rig.reach("Left", held, w * left.x)
+	player_rig.grip("Left", left.z)
+	player_rig.watch(held, w)
 
 func _take_key(i: int) -> void:
 	if sigil_collected[i]:
@@ -1263,6 +1411,7 @@ func _check_catch(delta: float) -> void:
 	var crossed := devil_cell == last_player_cell and prev_devil_cell == player_cell
 	if devil_cell == player_cell or crossed:
 		lunge_left = LUNGE_TIME
+		_stand_up()
 
 ## Through the wall, each frame it hunts: rooms side by side, the way round long (DevilBrain.thin_wall). Flipping Time
 ## coming: it slips to the wall beside you, waits, and through the warning pounds it until the flip breaks it through
@@ -1403,6 +1552,8 @@ func _slam_wall(cell: Vector2i, side: Vector2i, breach := false) -> void:
 	slam_player.position = at + Vector3(0, WALL_HEIGHT * 0.5, 0)
 	slam_player.play()
 	var force := (2.0 if breach else 1.0) * clampf(1.0 - player.global_position.distance_to(at) / SLAM_FEEL, 0.0, 1.0)
+	if player_rig != null and force > 0.05:
+		player_rig.startle(force)
 	var jolt := create_tween()
 	for i in 4:
 		jolt.tween_callback(_shake.bind(SLAM_SHAKE * force * (1.0 - i * 0.25))).set_delay(0.04)
@@ -1471,6 +1622,8 @@ func _start_wake_cut() -> void:
 		return
 	if paper_map.opening:
 		_close_map("wake")
+	_stand_up()
+	box_hands.visible = false
 	game_state = "waking"
 	wake_t = 0.0
 	wake_devil_from = devil.position
@@ -2210,13 +2363,17 @@ func _build_player() -> void:
 		part.layers = PLAYER_LAYER
 
 	camera_pivot = Node3D.new()
-	camera_pivot.position.y = 0.45
+	camera_pivot.position.y = EYE_HEIGHT
 	player.add_child(camera_pivot)
 	camera = Camera3D.new()
 	camera.current = true
 	camera.cull_mask &= ~PLAYER_LAYER  # never the inside of your own head
 	camera.fov = feel.base_fov
 	camera_pivot.add_child(camera)
+	box_hands = BoxHands.new()
+	box_hands.name = "BoxHands"
+	add_child(box_hands)
+	box_hands.build(HANDS_LAYER)
 	flashlight = SpotLight3D.new()
 	flashlight.name = "Flashlight"
 	flashlight.light_color = MetaState.light_color()
@@ -3418,7 +3575,8 @@ func _record_tape(delta: float) -> void:
 	if _tape_clock < TAPE_STEP or not devil_active:
 		return
 	_tape_clock = 0.0
-	tape.append([devil.position, devil.rotation.y, player.global_position])
+	tape.append([devil.position, devil.rotation.y, player.global_position, kneel_box, open_t, kneel_w, map_w,
+			yaw + body_turn, gait_speed])
 	if tape.size() > roundi(TAPE_SECONDS / TAPE_STEP):
 		tape.pop_front()
 
@@ -3452,12 +3610,15 @@ func _replay(delta: float) -> void:
 	devil.rotation.y = lerp_angle(a[1], b[1], t)
 	player.global_position = (a[2] as Vector3).lerp(b[2], t)
 	if player_rig != null:
-		# You run from it and look back at it; the mesh turns, not the body, so your camera stays put.
-		var run: Vector3 = (b[2] as Vector3) - (a[2] as Vector3)
-		if Vector2(run.x, run.z).length() > 0.01:
-			var mesh_yaw := atan2(-run.x, -run.z) - player.rotation.y + deg_to_rad(PLAYER_MESH_YAW)
-			player_mesh.rotation.y = lerp_angle(player_mesh.rotation.y, mesh_yaw, clampf(DEVIL_TURN_SPEED * delta, 0.0, 1.0))
-		player_mesh.position.y = PLAYER_MESH_Y + player_rig.flee(run.length() / TAPE_STEP, delta, 1.0, 0.0, true)
+		# Your body as it was: the way it faced and walked, glancing back at it, a box it knelt at (its lid swinging
+		# again), the map up. The mesh turns, not the body, so your camera stays put.
+		player_mesh.rotation.y = deg_to_rad(PLAYER_MESH_YAW) + lerp_angle(a[7], b[7], t) - player.rotation.y
+		var box: int = (a if t < 0.5 else b)[3]
+		var since: float = lerpf(a[4], b[4], t)
+		if box >= 0 and box_nodes[box].is_open:
+			box_nodes[box].lid.rotation.x = KeyBox.lid_angle(since - KeyBox.GRIP_AT)
+		var y := player_rig.flee(lerpf(a[8], b[8], t), delta, 1.0, 0.0, Vector2.ZERO, true)
+		_pose_body(y, box, since, lerpf(a[5], b[5], t), lerpf(a[6], b[6], t))
 	devil_mesh.position.y = -DEVIL_Y + devil_rig.prowl(((b[0] as Vector3) - a[0]).length() / TAPE_STEP, delta, Vector3.INF, 0.0)
 	_aim_devil_eye(_devil_eye(devil_cam))
 
@@ -3471,7 +3632,7 @@ func _devil_view() -> SubViewportContainer:
 	view.world_3d = get_viewport().find_world_3d()
 	frame.add_child(view)
 	var eye := Camera3D.new()
-	eye.cull_mask = 0xFFFFF & ~DEVIL_LAYER
+	eye.cull_mask = 0xFFFFF & ~DEVIL_LAYER & ~HANDS_LAYER
 	eye.fov = 70.0
 	eye.environment = _devil_sight()
 	var glare := SpotLight3D.new()
@@ -3556,6 +3717,9 @@ func _stop_devil_cam() -> void:
 			node.queue_free()
 	devil_cam = null
 	devil.position = _devil_world_position()
+	for box in box_nodes:
+		if box.is_open:
+			box.lid.rotation.x = KeyBox.lid_angle(KeyBox.LID_TIME)  # the replay swung it
 
 ## How far the next act's shortcut is (just the Gate once that act is open; the escape in the last act; your deepest
 ## in the Abyss).
@@ -3597,10 +3761,11 @@ func _return_to_circle() -> void:
 	brain.rewind(at["trail"])  # it wakes behind you again, never on the path you walked after this circle
 	player.global_position = cell_to_world(cell) + Vector3(0, PLAYER_HEIGHT, 0)
 	player.velocity = Vector3.ZERO
-	camera_pivot.position.y = 0.45
+	camera_pivot.position = Vector3(0.0, EYE_HEIGHT, 0.0)
 	camera_pivot.rotation.x = pitch
 	player.rotation = Vector3(0.0, yaw, 0.0)
 	player_mesh.rotation_degrees.y = PLAYER_MESH_YAW  # the Devil Cam turned it to run along the tape
+	body_turn = 0.0
 	camera.top_level = false
 	camera.transform = Transform3D()
 	camera.cull_mask &= ~PLAYER_LAYER
@@ -3666,6 +3831,7 @@ func _toggle_map() -> void:
 			elif _map_unsafe():
 				_flash_message("Not now. It's close.")
 			else:
+				_stand_up()
 				paper_map.open()
 				map_opened_at = elapsed
 				_refresh_minimap()

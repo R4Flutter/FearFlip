@@ -105,6 +105,75 @@ func test_an_empty_box_says_so_and_opens_once() -> void:
 	assert_eq(main.sigils_collected, 0, "nothing inside")
 
 
+## Opening a box (user, 15 Oct 2026): you kneel, your right fist works the lid up, the left takes the key and holds it
+## up before it flies to the HUD.
+func test_opening_a_box_kneels_and_the_left_fist_takes_the_key() -> void:
+	var main := _spawn_floor()
+	var i: int = main.layout.boxes.find(main.layout.sigils[0])
+	var box: KeyBox = main.box_nodes[i]
+	main._open_box(i)
+	assert_eq(main.opening_box, i, "kneeling at it")
+	assert_false(box.is_open, "the lid waits for your fist")
+	main._tick_box(KeyBox.GRIP_AT + 0.01)
+	assert_true(box.is_open, "the fist works it loose")
+	main._reveal_box(i)  # the lid is up
+	assert_eq(main.sigils_collected, 0, "the left fist hasn't taken it yet")
+	main._tick_box(KeyBox.FLY_AT - KeyBox.GRIP_AT)
+	assert_eq(main.sigils_collected, 1, "held up, then it flies to the HUD")
+	main._tick_box(KeyBox.END)
+	assert_eq(main.opening_box, -1, "back on your feet")
+
+
+## You slide onto your knees before the box, and its beats start and end on your feet with the lid shut, then open.
+func test_you_kneel_before_the_box_on_its_beats() -> void:
+	var main := _spawn_floor()
+	var i: int = main.layout.boxes.find(main.layout.sigils[0])
+	var box: KeyBox = main.box_nodes[i]
+	main.player.global_position = box.global_position + box.global_basis.z * 1.5 + Vector3.UP * main.PLAYER_HEIGHT
+	main._open_box(i)
+	for frame in 40:
+		main._physics_process(1.0 / 60.0)
+	var spot: Vector3 = box.global_position + box.global_basis.z * main.KNEEL_GAP
+	assert_true(Vector2(main.player.global_position.x - spot.x, main.player.global_position.z - spot.z).length() < 0.1, "slid onto your knees before it")
+	assert_eq(KeyBox.kneel_at(0.0), 0.0, "starts on your feet")
+	assert_eq(KeyBox.kneel_at(KeyBox.TAKE_AT), 1.0, "down while your fists work")
+	assert_eq(KeyBox.kneel_at(KeyBox.END), 0.0, "ends on your feet")
+	assert_eq(KeyBox.lid_angle(0.0), 0.0, "the lid starts shut")
+	assert_true(is_equal_approx(KeyBox.lid_angle(KeyBox.LID_TIME), deg_to_rad(KeyBox.LID_OPEN_DEGREES)), "and ends open")
+
+
+## Caught (or fallen) while kneeling: a box your fist never touched can be opened again after a revive.
+func test_the_floor_ending_mid_kneel_rearms_an_untouched_box() -> void:
+	var main := _spawn_floor()
+	var i: int = main.layout.boxes.find(main.layout.sigils[0])
+	main._open_box(i)
+	main._abandon_box()
+	assert_false(main.box_opened[i], "openable again")
+	assert_false(main.box_nodes[i].is_open, "its lid never moved")
+	assert_eq(main.sigils_collected, 0, "and its key is still inside")
+
+
+## Moving stands you up at once: the animation never costs time or control. The lid still comes up, the key still
+## reaches you.
+func test_moving_stands_you_up_and_the_key_still_comes() -> void:
+	var main := _spawn_floor()
+	var i: int = main.layout.boxes.find(main.layout.sigils[0])
+	main._open_box(i)
+	Input.action_press("move_forward")
+	main._physics_process(0.016)
+	Input.action_release("move_forward")
+	assert_eq(main.opening_box, -1, "up and walking")
+	assert_true(main.box_nodes[i].is_open, "the lid comes up anyway")
+	main._reveal_box(i)
+	assert_eq(main.sigils_collected, 1, "the key comes to you as you go")
+	var j: int = main.layout.boxes.find(main.layout.sigils[1])
+	main._open_box(j)
+	main._tick_box(KeyBox.GRIP_AT + 0.01)
+	main._reveal_box(j)
+	main._stand_up()
+	assert_eq(main.sigils_collected, 2, "a key already in sight is taken as you stand")
+
+
 ## The first wall multimesh of a world's wall set.
 func _run(main: Node3D, seconds: float) -> void:
 	for _frame in int(seconds / 0.05):
