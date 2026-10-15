@@ -52,7 +52,7 @@ const WAKE_HEARD := 30.0
 const WAKE_TEAR := 0.7
 const WAKE_ROAR := DevilRig.ROAR_TIME
 const WAKE_RUSH_TAIL := 45.0
-const WAKE_RUSH_TIME := 1.4
+const WAKE_RUSH_TIME := 1.75
 const WAKE_BARS := 0.11
 ## Seconds into the roar the sound starts: just before the burst (DevilRig.roar_force), after the coil's breath.
 const WAKE_ROAR_SOUND := 0.22
@@ -3868,11 +3868,11 @@ func _show_message(text: String) -> void:
 	if banner != null:
 		banner.visible = text != ""
 
-## A message that clears itself after 2.5 s (unless the game ended meanwhile).
+## A message that clears itself after 2.5 s (unless the game ended meanwhile; a wake cut still clears it).
 func _flash_message(text: String) -> void:
 	_show_message(text)
 	get_tree().create_timer(2.5).timeout.connect(func() -> void:
-		if game_state == "playing" and state_label.text == text:
+		if game_state in ["playing", "waking"] and state_label.text == text:
 			_show_message(""))
 
 func cell_to_world(cell: Vector2i) -> Vector3:
