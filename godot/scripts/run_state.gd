@@ -52,12 +52,15 @@ static var start_floor := 1
 static var sanctuary := {}
 ## True once the run has ended (death or act clear): playing again starts a new run, never resumes it.
 static var run_over := false
-## The run's kind (plans/06 §6): "campaign" (saved), "daily" (today's ranked try) or "practice" (the Daily again,
-## for nothing). Only a campaign saves mid-run, so the Daily never touches it; leave_daily() reloads the campaign.
+## The run's kind (plans/06 §6): "campaign" (saved), "daily" (today's ranked try), "practice" (the Daily again,
+## for nothing) or "race" (the Long Night, plans/11). Only a campaign saves mid-run, so the others never touch it;
+## leave_daily() reloads the campaign.
 static var mode := "campaign"
 ## In a Daily: its floor (1..Daily.FLOORS) and the date it belongs to.
 static var daily_floor := 0
 static var daily_date := ""
+## In the Long Night: the week whose maze it is.
+static var race_week := 0
 ## The playtest log (plans/06 P0, read for the §7 KPIs): one JSON line per event. Only the game writes it: a -s script
 ## (the test runner) or the editor's own test runner leaves it off unless a test turns it on with its own path.
 static var events_path := "user://events.jsonl"
@@ -107,7 +110,7 @@ static func load_save() -> void:
 
 
 static func save() -> void:
-	if is_daily():
+	if not is_campaign():
 		return
 	var cfg := ConfigFile.new()
 	cfg.set_value("run", "version", SAVE_VERSION)
@@ -183,8 +186,22 @@ static func start_daily(practice: bool) -> void:
 		Daily.begin_ranked(date)
 	daily_date = date
 	daily_floor = 1
-	run_seed = Daily.seed_of(date)
-	current_floor = Daily.STAGE_FLOORS[0]
+	_start_side_run(Daily.seed_of(date), Daily.STAGE_FLOORS[0], [Daily.omen(date)])
+
+
+## This week's Long Night (plans/11), again from the start: the week's maze and card, one life, no picks, the same
+## kit as everyone (mod() leaves the Altar's torches out).
+static func start_race() -> void:
+	mode = "race"
+	race_week = Race.this_week()
+	Race.refresh(race_week)
+	_start_side_run(Race.seed_of(race_week), Race.STAGE_FLOOR, [])
+
+
+## A Daily or a Long Night, beside the campaign: its own seed and floor, no revives, nothing owed.
+static func _start_side_run(seed_value: int, floor_number: int, cards: Array) -> void:
+	run_seed = seed_value
+	current_floor = floor_number
 	rank = 0
 	revives_used = REVIVES_PER_ACT
 	run_over = false
@@ -192,14 +209,14 @@ static func start_daily(practice: bool) -> void:
 	door = ""
 	last_door = ""
 	_cleared_cards.clear()
-	run_cards.assign([Daily.omen(date)])
+	run_cards.assign(cards)
 	picks.clear()
 	_new_act()
 	_deal()
 	log_event("run", {"act": 0, "mode": mode})
 
 
-## Back from the Daily: the campaign as its save left it (a fresh run if it never had one).
+## Back from the Daily or the Long Night: the campaign as its save left it (a fresh run if it never had one).
 static func leave_daily() -> void:
 	mode = "campaign"
 	run_seed = 0
@@ -207,8 +224,22 @@ static func leave_daily() -> void:
 	load_save()
 
 
+static func is_campaign() -> bool:
+	return mode == "campaign"
+
+
 static func is_daily() -> bool:
-	return mode != "campaign"
+	return mode == "daily" or mode == "practice"
+
+
+static func is_race() -> bool:
+	return mode == "race"
+
+
+## A floor banks its shards and counters: not in practice or the Long Night, where the same maze again would be a farm
+## (the Long Night pays its medals once a week instead).
+static func banks() -> bool:
+	return mode == "campaign" or mode == "daily"
 
 
 ## True in the game itself; false under a -s script (the test runner) or the editor's own test runner.
@@ -429,14 +460,20 @@ static func take(id: String) -> void:
 
 ## One mod for this floor: `base` folded through its cards, the run's, the gear worn (MetaState.gear), the run's
 ## rank and hidden mercy (a campaign floor that keeps killing you), held inside the fairness limits (Cards.fold).
+## The Long Night folds only its card: the same kit for everyone on one board.
 static func mod(key: String, base: float) -> float:
+	if is_race():
+		return Cards.fold(floor_cards + run_cards, key, base)
 	var ids: Array[String] = floor_cards + run_cards + MetaState.gear() + Cards.ranks(rank)
-	if not is_daily() and MetaState.mercy_on(current_floor):
+	if is_campaign() and MetaState.mercy_on(current_floor):
 		ids.append(Cards.MERCY["id"])
 	return Cards.fold(ids, key, base)
 
 
 static func _deal() -> void:
+	if is_race():
+		floor_cards = Race.cards(race_week)
+		return
 	if is_daily():
 		floor_cards = Daily.cards(daily_date, daily_floor)
 		return
@@ -463,13 +500,13 @@ static func use_revive() -> bool:
 
 ## Standing on the act's Sanctuary with nothing owed: the checkpoint is set, once per act.
 static func _mark_sanctuary() -> void:
-	if sanctuary.is_empty() and picks.is_empty() and not is_daily() and StageRule.for_floor(current_floor).is_sanctuary:
+	if sanctuary.is_empty() and picks.is_empty() and is_campaign() and StageRule.for_floor(current_floor).is_sanctuary:
 		sanctuary = {"cards": run_cards.duplicate(), "revives_used": revives_used, "act_revives": act_revives,
 				"act_points": act_points, "act_floors": act_floors, "act_sprinted": act_sprinted}
 
 
 static func has_sanctuary() -> bool:
-	return not sanctuary.is_empty() and not is_daily()
+	return not sanctuary.is_empty() and is_campaign()
 
 
 ## TRY AGAIN after a death past the Sanctuary (plans/10 §4): back onto this act's Sanctuary on a new maze, holding what

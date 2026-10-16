@@ -4,9 +4,9 @@ extends RefCounted
 ## (up to 1 MB, synced across devices for logged-in players, browser storage for guests): each save file is pushed as
 ## it's written, stamped with the time, and pulled before it's read only when the cloud's copy is newer than this
 ## device's last write (the SDK holds writes back about a second, so a tab closed right after a save leaves the cloud
-## behind). A new deepest Abyss run goes to the leaderboard (invited games only; the head include in
-## export_presets.cfg holds its key and encrypts the score). Off the web, or before the SDK is ready, every call does
-## nothing.
+## behind). A new best Long Night time goes to the leaderboard (invited games only; one board a game, weekly seasons
+## Monday 09:00 UTC, lowest first; the head include in export_presets.cfg holds its key and encrypts the score). Off the
+## web, or before the SDK is ready, every call does nothing.
 
 ## Save file -> data module key.
 const KEYS := {"user://profile.cfg": "fearflip_profile", "user://save.cfg": "fearflip_run"}
@@ -57,7 +57,9 @@ static func set_item_js(key: String, text: String) -> String:
 	return "window.CrazyGames.SDK.data.setItem(%s, %s)" % [JSON.stringify(key), JSON.stringify(text)]
 
 
-## A new deepest Abyss run (plans/06 F4): the leaderboard keeps each player's best.
-static func submit_depth(depth: int) -> void:
+## A new best Long Night time in milliseconds (plans/11): the board keeps each player's lowest this season. It holds
+## the race now, not Abyss depth (plans/06 F4): one maze for everyone is a fair comparison, depths in different mazes
+## aren't.
+static func submit_time(ms: int) -> void:
 	if ready():
-		JavaScriptBridge.eval("window.fearflipSubmitDepth && window.fearflipSubmitDepth(%d)" % depth, true)
+		JavaScriptBridge.eval("window.fearflipSubmitScore && window.fearflipSubmitScore(%d)" % ms, true)

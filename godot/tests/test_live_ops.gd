@@ -185,13 +185,13 @@ func test_the_portal_bridge_stays_out_of_the_way_off_the_web() -> void:
 	assert_false(Portal.ready(), "no SDK on desktop or under tests")
 	Portal.push(MetaState.profile_path)
 	Portal.pull(MetaState.profile_path)
-	Portal.submit_depth(12)
+	Portal.submit_time(98765)
 	assert_eq(Portal.KEYS.get("user://profile.cfg"), "fearflip_profile")
 	assert_eq(Portal.set_item_js("fearflip_profile", "a\"b\nc"),
 			"window.CrazyGames.SDK.data.setItem(\"fearflip_profile\", \"a\\\"b\\nc\")", "quotes and newlines escaped")
 
 
-## The bridge talks to window.fearflipSdk and window.fearflipSubmitDepth: the Web preset's head include defines them
+## The bridge talks to window.fearflipSdk and window.fearflipSubmitScore: the Web preset's head include defines them
 ## and loads the SDK, in a single-threaded build (master plan §12).
 func test_the_web_export_loads_the_sdk_the_bridge_expects() -> void:
 	var presets := ConfigFile.new()
@@ -199,7 +199,7 @@ func test_the_web_export_loads_the_sdk_the_bridge_expects() -> void:
 	assert_eq(presets.get_value("preset.0", "platform"), "Web")
 	assert_eq(presets.get_value("preset.0.options", "variant/thread_support"), false, "single-threaded")
 	var head: String = presets.get_value("preset.0.options", "html/head_include", "")
-	for needed: String in ["crazygames-sdk-v3.js", "window.fearflipSdk", "window.fearflipSubmitDepth", "submitScore"]:
+	for needed: String in ["crazygames-sdk-v3.js", "window.fearflipSdk", "window.fearflipSubmitScore", "submitScore"]:
 		assert_true(head.contains(needed), needed)
 
 

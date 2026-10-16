@@ -359,6 +359,12 @@ var devil_facing := Vector2i.ZERO
 ## Devil Cam: [its position, its yaw, your position] every TAPE_STEP while it hunts, and the replay on death.
 var tape: Array = []
 var devil_cam: SubViewportContainer
+## The Long Night (plans/11): the route's par (the medal times), when each key was taken, this run as a ghost's
+## samples (RaceGhost), and the week's best run walking beside you.
+var race_par := 0.0
+var race_splits: Array[float] = []
+var race_tape := PackedFloat32Array()
+var race_ghost: RaceGhost
 var _tape_clock := 0.0
 var _replay_time := 0.0
 ## The top-left corner while it hunts: the live Devil Cam and its distance under it (_update_devil_corner).
@@ -529,6 +535,9 @@ var flicker_target := 0.0
 var flicker_timer := 0.0
 var stutter_left := 0.0
 var rng := RandomNumberGenerator.new()
+## Gameplay picks (where the Devil reappears after a flip, the Echo Step's echo) draw from the floor's seed, apart from
+## rng's flicker, so one maze plays the same for everyone (the Daily, the Long Night) at any frame rate.
+var fair_rng := RandomNumberGenerator.new()
 var restart_armed := false
 
 func _ready() -> void:
@@ -544,6 +553,8 @@ func _ready() -> void:
 		# A run that already ended (died, then quit) never resumes: its act starts over on a new maze.
 		if RunState.run_over and RunState.is_daily():
 			RunState.start_daily(true)
+		elif RunState.run_over and RunState.is_race():
+			RunState.start_race()
 		elif RunState.run_over:
 			RunState.start_run(RunState.act())
 		if not RunState.picks.is_empty():
@@ -551,10 +562,11 @@ func _ready() -> void:
 			return
 	rule = StageRule.for_floor(RunState.current_floor)
 	seed_value = fixed_seed if fixed_seed != 0 else RunState.floor_seed()
+	fair_rng.seed = hash([seed_value, "fair"])
 	print("FearFlip floor %d seed: %d" % [rule.floor_number, seed_value])
 	_fold_cards()
 	layout = FloorLayout.generate(seed_value, rooms if rooms > 0 else roundi(RunState.mod("rooms", rule.rooms)),
-			roundi(RunState.mod("keys", FloorLayout.SIGIL_COUNT)), rule.box_empties)
+			roundi(RunState.mod("keys", Race.KEYS if RunState.is_race() else FloorLayout.SIGIL_COUNT)), rule.box_empties)
 	flip = FlipSystem.new(seed_value)
 	flip.first_forced_at = RunState.mod("flip_interval", rule.first_forced_at)
 	flip.arm()  # no flip button: the first Flipping Time comes at a random moment
@@ -592,6 +604,8 @@ func _ready() -> void:
 	landmarks = Landmarks.new(layout, seed_value, landmark_free)
 	tour_m = _tour_tiles() * CELL_SIZE
 	time_left = rule.time_budget(tour_m, feel.walk_speed, RunState.mod("clock", 1.0)) + RunState.mod("time_bonus", 0.0)
+	if RunState.is_race():
+		time_left = INF  # its clock counts up instead: no time limit, the Devil is the threat
 	brain = DevilBrain.new()
 	director = Director.new(seed_value)
 	director.hint_stretch = RunState.mod("hint_stretch", 1.0)
@@ -618,6 +632,8 @@ func _ready() -> void:
 	_build_landmarks()
 	_build_devil()
 	_build_hud()
+	if RunState.is_race():
+		_start_race()
 	_apply_world(WAKE)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_flash_message(_floor_title())
@@ -667,6 +683,12 @@ func _act_tint(color: Color) -> Color:
 
 ## Shown as a floor starts: where you are in the act, and what kind of floor this is.
 func _floor_title() -> String:
+	if RunState.is_race():
+		var keys := layout.sigils.size()
+		var line := "%d KEYS  ·  ONE MAZE FOR EVERYONE  ·  BEAT THE DEVIL: %s" % [keys, Race.format(Race.medal_times(race_par)["devil"])]
+		if Race.best > 0.0:
+			line = "%d KEYS  ·  YOUR BEST %s  ·  YOUR GHOST RUNS IT WITH YOU" % [keys, Race.format(Race.best)]
+		return "THE LONG NIGHT  #%d\n%s" % [RunState.race_week, line]
 	if RunState.is_daily():
 		return "%s  ·  FLOOR %d / %d\n%s" % [_daily_name(), RunState.daily_floor, Daily.FLOORS,
 				"PRACTICE  ·  NOTHING IS BANKED" if RunState.mode == "practice" else "ONE TRY  ·  MAKE IT COUNT"]
@@ -715,6 +737,8 @@ func _process(delta: float) -> void:
 	if paper_map.opening and _map_unsafe():
 		_close_map("devil")
 	elapsed += delta
+	if RunState.is_race():
+		_tick_race(delta)
 	time_left -= delta
 	catch_grace = maxf(catch_grace - delta, 0.0)
 	enrage_left = maxf(enrage_left - delta, 0.0)
@@ -802,7 +826,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("restart") and not game_state in ["dying", "won", "choosing", "unlocking"]:
 		if game_state == "playing" and not restart_armed:
 			restart_armed = true
-			_flash_message("PRESS R AGAIN: RESTART ACT %d ON A NEW MAZE" % rule.act)
+			_flash_message("PRESS R AGAIN: RUN IT AGAIN FROM THE START" if RunState.is_race() else "PRESS R AGAIN: RESTART ACT %d ON A NEW MAZE" % rule.act)
 			get_tree().create_timer(RESTART_ARM_TIME).timeout.connect(_disarm_restart)
 			return
 		get_tree().paused = false
@@ -1033,7 +1057,7 @@ func _keep_devil_fair() -> void:
 			options.append(layout.cell_at(i))
 	if options.is_empty():
 		return
-	devil_cell = options[rng.randi_range(0, options.size() - 1)]
+	devil_cell = options[fair_rng.randi_range(0, options.size() - 1)]
 	devil.position = _devil_world_position()
 
 ## Only when NIGHTMARE_CHANGE > 0: if its cell is a wall in this world, it reappears on the nearest open one.
@@ -1210,6 +1234,8 @@ func _take_key(i: int) -> void:
 	if sigils_collected == layout.sigils.size():
 		key_hud.all_found()
 		_open_exit()
+	if RunState.is_race():
+		_race_split()
 	_refresh_minimap()
 
 func _open_exit() -> void:
@@ -1385,7 +1411,7 @@ func _cell_near_player(near: int, far: int) -> Vector2i:
 	for i in player_dist.size():
 		if player_dist[i] >= near and player_dist[i] <= far:
 			spots.append(layout.cell_at(i))
-	return spots[rng.randi_range(0, spots.size() - 1)] if not spots.is_empty() else player_cell
+	return spots[fair_rng.randi_range(0, spots.size() - 1)] if not spots.is_empty() else player_cell
 
 ## Same cell or a cross-through starts a 0.35 s lunge; it only kills if it really reaches you.
 func _check_catch(delta: float) -> void:
@@ -1773,8 +1799,8 @@ func _start_retreat(distance := CIRCLE_RETREAT_DISTANCE) -> void:
 
 ## Shards for something you did: counted now, popped on the HUD, banked by _bank().
 func _earn(amount: int, why := "") -> void:
-	if RunState.mode == "practice":
-		return  # the same maze again would be a farm
+	if not RunState.banks():
+		return  # the same maze again would be a farm (the Long Night pays its medals instead)
 	amount = roundi(amount * shard_factor)
 	floor_shards += amount
 	_pop(("+%d  %s" % [amount, why]).strip_edges())
@@ -1829,8 +1855,8 @@ func _open_detour_chest(cell: Vector2i) -> void:
 ## entries) pops and is returned. Quitting mid-floor banks nothing: the floor replays.
 func _bank() -> Array[String]:
 	var news: Array[String] = []
-	if fixed_seed != 0 or RunState.mode == "practice" or (floor_shards == 0 and floor_finds.is_empty() and floor_stats.is_empty()):
-		return news  # a debug floor never touches the save, and practice banks nothing
+	if fixed_seed != 0 or not RunState.banks() or (floor_shards == 0 and floor_finds.is_empty() and floor_stats.is_empty()):
+		return news  # a debug floor never touches the save; practice and the Long Night bank nothing
 	RunState.bank(floor_shards)
 	for find in floor_finds:
 		MetaState.keep_find(find)
@@ -3022,7 +3048,7 @@ func _build_pause_menu(overlays: CanvasLayer) -> void:
 		button.pressed.connect(entry[2])
 		column.add_child(button)
 	var hint := Label.new()
-	hint.text = "R TWICE RESTARTS THE ACT ON A NEW MAZE"
+	hint.text = "R TWICE RUNS IT AGAIN FROM THE START" if RunState.is_race() else "R TWICE RESTARTS THE ACT ON A NEW MAZE"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_override("font", DeathScreen.ui_font())
 	hint.add_theme_font_size_override("font_size", 15)
@@ -3095,6 +3121,8 @@ func _build_status(hud: CanvasLayer) -> void:
 	floor_label.text = "%d/%d" % [rule.floor_in_act, StageRule.FLOORS_PER_ACT]
 	if RunState.is_daily():
 		floor_label.text = "%d/%d" % [RunState.daily_floor, Daily.FLOORS]
+	elif RunState.is_race():
+		floor_label.text = "#%d" % RunState.race_week
 	elif rule.act == StageRule.ABYSS_ACT:
 		floor_label.text = str(rule.floor_in_act)  # the depth
 	var stairs := _hud_art("icon_floor.png", Art.cell(menu_icons, MainMenu.Icon.MAZE, MainMenu.ICON_CELL))
@@ -3210,7 +3238,7 @@ func _build_hints(hud: CanvasLayer) -> void:
 		else:
 			row.add_child(label)
 		var action := Label.new()
-		action.text = hint[1] + "   "
+		action.text = ("RUN IT AGAIN" if key == "R R" and RunState.is_race() else hint[1]) + "   "
 		action.add_theme_font_override("font", DeathScreen.ui_font())
 		action.add_theme_font_size_override("font_size", 15)
 		action.add_theme_color_override("font_color", Color(0.55, 0.7, 0.82, 0.85))
@@ -3223,7 +3251,7 @@ func _format_time(seconds: float) -> String:
 	return "%d:%02d" % [total / 60, total % 60]
 
 func _update_hud() -> void:
-	clock_label.text = _format_time(maxf(time_left, 0.0))
+	clock_label.text = Race.format(elapsed) if RunState.is_race() else _format_time(maxf(time_left, 0.0))
 	clock_label.modulate = Color(1.0, 0.35, 0.3, 0.6 + 0.4 * absf(sin(elapsed * 6.0))) if panic else Color.WHITE
 	# The flip icon shows only while Flipping Time holds you, red, with the seconds until your controls come back.
 	flip_icon.visible = flip.forced_active
@@ -3282,6 +3310,9 @@ func _win_game() -> void:
 	game_state = "won"
 	win_player.play()
 	_stop_tension_audio()
+	if RunState.is_race():
+		_finish_race()
+		return
 	var grade := StageRule.grade(elapsed, tour_m, feel.walk_speed, floor_revives, chased_time)
 	var pay := MetaState.floor_clear_shards(rule.floor_in_act, grade)
 	if rule.is_gate:
@@ -3356,7 +3387,78 @@ func _finish_daily() -> void:
 	_show_ending(_daily_name() + "  ·  CLEARED", "%d / %d floors in %s. Copy your result and paste it anywhere: Discord, X, a group chat. Tomorrow brings a new maze." % [
 			cleared, Daily.FLOORS, _format_time(Daily.result_time)], Daily.share_text(RunState.daily_date, Daily.result, Daily.result_time))
 
-func _show_ending(title: String, text: String, share := "") -> void:
+## The Long Night (plans/11): the medals' par, and the week's best run walking beside you once there is one.
+func _start_race() -> void:
+	race_par = Race.par(layout, feel.walk_speed)
+	var samples := Race.load_ghost(RunState.race_week)
+	if samples.is_empty():
+		return
+	race_ghost = RaceGhost.new()
+	race_ghost.name = "RaceGhost"
+	race_ghost.samples = samples
+	race_ghost.position.y = PLAYER_HEIGHT
+	add_child(race_ghost)
+	race_ghost.build(PLAYER_MODEL, WALL_HEIGHT * PLAYER_HEIGHT_RATIO, PLAYER_MESH_Y, PLAYER_MESH_YAW, feel.walk_speed,
+			feel.walk_speed * feel.sprint_multiplier, HANDS_LAYER)  # you see it, the Devil Cams never do
+
+## Every race frame: this run's ghost sample when one is due, and the best run's ghost where it was by now.
+func _tick_race(delta: float) -> void:
+	if RaceGhost.due(race_tape.size(), elapsed):
+		race_tape.append_array([player.global_position.x, player.global_position.z, yaw + body_turn])
+	if race_ghost != null:
+		race_ghost.seek(elapsed, delta, player.global_position)
+
+## A key taken in the Long Night: its split, against the best run's at the same key (the last one under the exit's call).
+func _race_split() -> void:
+	race_splits.append(elapsed)
+	var n := race_splits.size()
+	var line := "%d/%d   %s" % [n, layout.sigils.size(), Race.format(elapsed)]
+	if Race.splits.size() >= n:
+		line += "   %+.1f" % (elapsed - Race.splits[n - 1])
+	if exit_open:
+		_show_message("ALL KEYS FOUND — GET TO THE CHEST\n" + line)
+	else:
+		_flash_message(line)
+
+## Out of the Long Night: the time and medal kept (Race.finish), a new best's ghost saved and sent to the board, then
+## its page once the chest has opened.
+func _finish_race() -> void:
+	race_tape.append_array([player.global_position.x, player.global_position.z, yaw + body_turn])
+	var was := Race.best
+	var result := Race.finish(RunState.race_week, elapsed, race_splits, race_par)
+	if result["best"]:
+		Race.save_ghost(RunState.race_week, race_tape)
+		if RunState.race_week == Race.this_week():  # a run begun before Monday's reset stays off the new board
+			Portal.submit_time(roundi(elapsed * 1000.0))
+	RunState.end_run()
+	RunState.log_event("race", {"week": RunState.race_week, "time": snappedf(elapsed, 0.1), "medal": result["medal"],
+			"best": result["best"], "keys": layout.sigils.size()})
+	_show_message("ESCAPED  ·  %s" % Race.format(elapsed))
+	get_tree().create_timer(FLOOR_CLEAR_TIME).timeout.connect(_show_race_result.bind(result, was))
+
+func _show_race_result(result: Dictionary, was: float) -> void:
+	var got: String = result["medal"]
+	var lines: Array[String] = []
+	if not result["best"]:
+		lines.append("%s. Your best this week stands: %s." % [Race.format(elapsed), Race.format(Race.best)])
+	elif was > 0.0:
+		lines.append("%s: a new best, %.1f s faster." % [Race.format(elapsed), was - elapsed])
+	else:
+		lines.append("%s: your first time this week." % Race.format(elapsed))
+	lines.append("%s medal%s." % [got.to_upper(), ": +%d shards" % result["shards"] if result["shards"] > 0 else ""])
+	var times := Race.medal_times(race_par)
+	for id: String in ["silver", "gold", "devil"]:
+		if elapsed > times[id]:
+			lines.append("Next: %s at %s." % [id.to_upper(), Race.format(times[id])])
+			break
+	if result["best"] and Portal.ready():
+		lines.append("On the CrazyGames board: the top 3 and the top 1%, 5% and 10% earn trophies when the week ends.")
+	lines.append("Your ghost runs your best with you next time. A new maze opens every Monday.")
+	_show_ending("THE LONG NIGHT  #%d  ·  %s" % [RunState.race_week, got.to_upper()], "\n".join(lines),
+			Race.share_text(RunState.race_week, Race.best, Race.top_medal()), _restart_game)
+
+## `again` (optional) adds RUN IT AGAIN, focused first: the Long Night's next try.
+func _show_ending(title: String, text: String, share := "", again := Callable()) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_show_message("")
 	var page := ColorRect.new()
@@ -3416,6 +3518,21 @@ func _show_ending(title: String, text: String, share := "") -> void:
 		column.add_child(copy)
 	column.add_child(carry_on)
 	carry_on.grab_focus()
+	if again.is_valid():
+		var retry := Button.new()
+		retry.name = "RunAgain"
+		retry.text = "RUN IT AGAIN"
+		retry.flat = true
+		retry.add_theme_font_size_override("font_size", 20)
+		retry.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		retry.add_theme_color_override("font_focus_color", GOLD)
+		retry.add_theme_color_override("font_hover_color", GOLD)
+		retry.pressed.connect(func() -> void:
+			page.queue_free()
+			again.call())
+		column.add_child(retry)
+		column.move_child(retry, carry_on.get_index())
+		retry.grab_focus()
 	page.modulate.a = 0.0
 	page.create_tween().tween_property(page, "modulate:a", 1.0, 0.6)
 
@@ -3525,7 +3642,7 @@ func _lose_game(cause: String = "devil") -> void:
 	_count("deaths_" + cause)
 	if RunState.is_daily() and fixed_seed == 0:
 		RunState.note_daily("died", elapsed)
-	elif fixed_seed == 0:
+	elif fixed_seed == 0 and RunState.is_campaign():
 		MetaState.note_death(rule.floor_number)  # hidden mercy (plans/06 G3)
 	if fixed_seed == 0:
 		RunState.log_event("death", {"floor": rule.floor_number, "act": rule.act, "mode": RunState.mode, "cause": cause,
@@ -3565,6 +3682,12 @@ func _lose_game(cause: String = "devil") -> void:
 		business = "%s  ·  FLOOR %d / %d" % [_daily_name(), RunState.daily_floor, Daily.FLOORS]
 		if RunState.mode == "daily":
 			share = Daily.share_text(RunState.daily_date, Daily.result, Daily.result_time)
+	if RunState.is_race():
+		detail = "%d m from the exit   ·   The Long Night #%d, keys %d / %d\n%s" % [roundi(steps * CELL_SIZE),
+				RunState.race_week, sigils_collected, layout.sigils.size(), comeback]
+		retry = "RUN IT AGAIN  ·  [R]"
+		revive_text = "NO REVIVES IN THE LONG NIGHT"
+		business = "THE LONG NIGHT  #%d  ·  %s" % [RunState.race_week, "BEST " + Race.format(Race.best) if Race.best > 0.0 else "NO TIME YET"]
 	if not news.is_empty():
 		business += "\n" + "   ·   ".join(news)
 	death_screen.show_death(DEATH_TEXT[cause][0], DEATH_TEXT[cause][1], detail, revive_text, can_revive, retry, business, share)
@@ -3803,6 +3926,8 @@ func _restart_game() -> void:
 	_bank()
 	if fixed_seed == 0 and RunState.is_daily():
 		RunState.start_daily(true)
+	elif fixed_seed == 0 and RunState.is_race():
+		RunState.start_race()  # the same maze again, from the start
 	elif fixed_seed == 0:
 		var to_sanctuary := game_state == "lost" and RunState.restart_at_sanctuary()
 		if not to_sanctuary:

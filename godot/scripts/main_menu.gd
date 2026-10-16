@@ -64,6 +64,14 @@ const PLAY_SIZE := Vector2(454, 151)
 const CARD_TOP := 546.0
 const CARD_SIZE := Vector2(146, 150)
 const CARD_GAP := 8.0
+## The mode tabs between the quests and PLAY (CAMPAIGN | THE LONG NIGHT), and the slide between the two pages: a drag
+## of SWIPE_MIN px sideways (the page follows at DRAG_FOLLOW), a wheel tilt, or a tab.
+const TABS_TOP := 344.0
+const TABS_H := 32.0
+const PAGE_SLIDE := 220.0
+const PAGE_TIME := 0.35
+const SWIPE_MIN := 70.0
+const DRAG_FOLLOW := 0.6
 const HERO_X := 300.0
 const HERO_H := 500.0
 const HERO_SINK := 14.0
@@ -87,6 +95,8 @@ const GOLD := Color(1.0, 0.76, 0.28)
 const EMBER := Color(1.0, 0.42, 0.12)
 const PANEL_FILL := Color(0.05, 0.03, 0.06, 0.8)
 const PANEL_BORDER := Color(0.45, 0.3, 0.25)
+## Medal stand-ins until menu/medal_<id>.png lands: the star and demon icons, tinted.
+const MEDAL_TINTS := {"bronze": Color(0.85, 0.52, 0.3), "silver": Color(0.82, 0.86, 0.92), "gold": GOLD, "devil": BLOOD}
 const FOG_CALM := Color(0.5, 0.18, 0.42, 0.16)
 const FOG_AWAKE := Color(0.7, 0.08, 0.05, 0.26)
 const DEMON_AWAKE := Color(1.6, 1.4, 1.4)
@@ -205,6 +215,16 @@ var _quests: Array[Control] = []
 var _play: Button
 var _cards: Array[Button] = []
 var _shard_count: Label
+## The right side's two pages (plans/11): the campaign's (quests, PLAY, act stars, as it always was) and the Long
+## Night's, a weekly race beside it. _page is the one showing; the tabs and a sideways slide switch them.
+var _campaign: Control
+var _pages: Array[Control] = []
+var _page := 0
+var _tab_bar: Control
+var _tabs: Array[Button] = []
+var _race_play: Button
+var _drag_from := Vector2.INF
+var _page_tween: Tween
 ## The open hub screen (null when none) and the row focus returns to when it closes.
 var _screen: Control
 var _screen_row: Control
@@ -230,8 +250,9 @@ func _ready() -> void:
 	RunState.load_save()
 	Settings.load_settings()
 	Settings.apply()
-	if RunState.is_daily():
-		RunState.leave_daily()  # the menu always shows the campaign
+	var from_race := RunState.is_race()
+	if not RunState.is_campaign():
+		RunState.leave_daily()  # the menu always holds the campaign (back from a race, its page shows)
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_body = _base_font()
 	_display = _tracked(_body, 1)
@@ -243,6 +264,8 @@ func _ready() -> void:
 	_build_stage()
 	_build_column()
 	_build_right()
+	if from_race:
+		_show_page(1, false)
 	_build_how_to()
 	_build_acts()
 	_fade = ColorRect.new()
@@ -417,7 +440,7 @@ func _intro() -> void:
 		tween.tween_property(_quit, "modulate:a", 1.0, 0.4).set_delay(delay)
 
 	delay = 0.9
-	for node: Control in [_top_bar] + _quests:
+	for node: Control in [_top_bar] + _quests + [_tab_bar]:
 		node.modulate.a = 0.0
 		tween.tween_property(node, "modulate:a", 1.0, 0.4).set_delay(delay)
 		tween.tween_property(node, "position:x", node.position.x, 0.5).from(node.position.x + ENTER_SLIDE).set_delay(delay)
@@ -761,6 +784,7 @@ func _build_right() -> void:
 	_how_row = _icon_button(Icon.HELMET, "Guide", _open_how_to)
 	_icon_button(Icon.MAIL, "Inbox", _open_archive)
 
+	_campaign = _page_holder("Campaign")
 	# Unfinished business (plans/06 E5): the next unlock, and how far the next act's shortcut is (once floor 50 has
 	# fallen, how deep you've been: floor 100 is the bragging goal).
 	_quests.append(_next_unlock_quest())
@@ -778,6 +802,8 @@ func _build_right() -> void:
 	_build_play()
 	for act_number in range(1, StageRule.ACT_COUNT + 1):
 		_star_tile(act_number)
+	_build_race_page()
+	_build_tabs()
 
 
 ## NEXT UNLOCK: the cheapest Altar item you can't have yet, and how far your shards are from it.
@@ -859,7 +885,7 @@ func _quest(y: float, title: String, hint: String, done: int, goal: int, icon: I
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.position = Vector2(RIGHT_W - QUEST_SIZE.x, y)
 	panel.size = QUEST_SIZE
-	_right.add_child(panel)
+	_campaign.add_child(panel)
 	_image(panel, _frame, TextureRect.STRETCH_SCALE, true)
 	_place(_image(panel, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2(22, 15), Vector2(52, 52))
 	_label(panel, title, 17, BONE).position = Vector2(86, 11)
@@ -885,13 +911,20 @@ func _quest(y: float, title: String, hint: String, done: int, goal: int, icon: I
 
 
 func _build_play() -> void:
-	_play = Button.new()
-	_play.name = "BigPlay"
-	_play.flat = true
-	_right.add_child(_play)
-	_place(_play, Vector2(0, PLAY_TOP), PLAY_SIZE)
-	_play.pivot_offset = PLAY_SIZE * 0.5
-	var content := _holder(_play, "Content")
+	_play = _big_button(_campaign, "BigPlay", "PLAY", "ENTER THE MAZE")
+	_play.pressed.connect(_play_now)
+
+
+## The big heartbeat button under the tabs (PLAY, or the Long Night's RACE): its art with a light sweep, an arrow and
+## two lines of words. Focus wakes the demon.
+func _big_button(parent: Control, id: String, title: String, sub: String) -> Button:
+	var button := Button.new()
+	button.name = id
+	button.flat = true
+	parent.add_child(button)
+	_place(button, Vector2(0, PLAY_TOP), PLAY_SIZE)
+	button.pivot_offset = PLAY_SIZE * 0.5
+	var content := _holder(button, "Content")
 	content.pivot_offset = PLAY_SIZE * 0.5
 	var art := _image(content, load(ART + "ui_play_button.png"), TextureRect.STRETCH_SCALE, true)
 	var sweep := ShaderMaterial.new()
@@ -919,8 +952,8 @@ func _build_play() -> void:
 	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	words.add_theme_constant_override("separation", -8)
 	line.add_child(words)
-	_label(words, "PLAY", 54, Color.WHITE)
-	_label(words, "ENTER THE MAZE", 13, BONE, _tracked(_body, 3)).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_label(words, title, 54, Color.WHITE)
+	_label(words, sub, 13, BONE, _tracked(_body, 3)).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	# A heartbeat: two quick swells, then rest.
 	var beat := content.create_tween().set_loops().set_trans(Tween.TRANS_SINE)
@@ -928,14 +961,222 @@ func _build_play() -> void:
 		beat.tween_property(content, "scale", Vector2.ONE * step.x, step.y)
 	beat.tween_interval(0.9)
 
-	_hoverable(_play)
-	_play.pressed.connect(_play_now)
-	_play.focus_entered.connect(_grow.bind(_play, true))
-	_play.focus_exited.connect(_grow.bind(_play, false))
-	_play.focus_entered.connect(_set_nightmare.bind(true))
-	_play.focus_exited.connect(_set_nightmare.bind(false))
-	_play.button_down.connect(_press.bind(_play, true))
-	_play.button_up.connect(_grow.bind(_play, true))
+	_hoverable(button)
+	button.focus_entered.connect(_grow.bind(button, true))
+	button.focus_exited.connect(_grow.bind(button, false))
+	button.focus_entered.connect(_set_nightmare.bind(true))
+	button.focus_exited.connect(_set_nightmare.bind(false))
+	button.button_down.connect(_press.bind(button, true))
+	button.button_up.connect(_grow.bind(button, true))
+	return button
+
+
+# --- The Long Night page (plans/11) ------------------------------------------------------------------------------
+
+## A full-size page on the right side, laid out in the same coordinates as the campaign's always were.
+func _page_holder(page_name: String) -> Control:
+	var page := Control.new()
+	page.name = page_name
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_right.add_child(page)
+	_pages.append(page)
+	return page
+
+
+## This week's race: what it is and when it changes, your best, the board; RACE; the four medals and their times.
+func _build_race_page() -> void:
+	var page := _page_holder("LongNight")
+	page.visible = false
+	var week := Race.this_week()
+	Race.refresh(week)
+	var times := Race.medal_times(Race.par_of(week))
+	var step := QUEST_SIZE.y + 10
+	_race_tile(page, QUEST_TOP, Icon.CROWN, "THE LONG NIGHT  #%d" % week,
+			"ONE MAZE FOR EVERYONE  ·  NEW MAZE IN %s" % _span(Race.seconds_left(week, Time.get_unix_time_from_system())), "")
+	_race_tile(page, QUEST_TOP + step, Icon.TARGET, "YOUR BEST", "YOUR GHOST RUNS IT WITH YOU" if Race.best > 0.0
+			else "ESCAPE ONCE TO SET A TIME", Race.format(Race.best) if Race.best > 0.0 else "--:--")
+	_race_tile(page, QUEST_TOP + 2 * step, Icon.CHART, "THE BOARD", "TOP 3 & TOP 1%, 5%, 10% WIN TROPHIES" if Portal.ready()
+			else "ON CRAZYGAMES  ·  NOT IN THIS VERSION", "")
+	_race_play = _big_button(page, "RacePlay", "RACE", "THE LONG NIGHT  ·  %d KEYS" % Race.KEYS)
+	_race_play.pressed.connect(_play_race)
+	var count := Race.MEDALS.size()
+	var extent := Vector2((RIGHT_W - CARD_GAP * (count - 1)) / count, CARD_SIZE.y)
+	for i in count:
+		var id := Race.MEDALS[i]
+		_medal_tile(page, Rect2(Vector2(i * (extent.x + CARD_GAP), CARD_TOP), extent), id,
+				"ESCAPE" if id == "bronze" else Race.format(times[id]))
+
+
+## A quest-sized plate: icon, title, a hint under it and a big number on the right.
+func _race_tile(parent: Control, y: float, icon: Icon, title: String, hint: String, value: String) -> void:
+	var panel := Control.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.position = Vector2(RIGHT_W - QUEST_SIZE.x, y)
+	panel.size = QUEST_SIZE
+	parent.add_child(panel)
+	_image(panel, _frame, TextureRect.STRETCH_SCALE, true)
+	_place(_image(panel, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2(22, 15), Vector2(52, 52))
+	_label(panel, title, 17, BONE).position = Vector2(86, 11)
+	_label(panel, hint, 11, DIM).position = Vector2(87, 34)
+	if not value.is_empty():
+		var big := _label(panel, value, 24, GOLD)
+		big.name = "Value"
+		big.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		_place(big, Vector2(QUEST_SIZE.x - 166, 20), Vector2(130, 34))
+
+
+## One medal: its picture (gold-framed and lit once earned this week), its name and the time it asks for.
+func _medal_tile(parent: Control, rect: Rect2, id: String, target: String) -> void:
+	var earned := Race.medals.has(id)
+	var tile := Panel.new()
+	tile.name = "Medal_" + id
+	tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.add_theme_stylebox_override("panel", _panel_style(GOLD if earned else PANEL_BORDER, 2))
+	parent.add_child(tile)
+	_place(tile, rect.position, rect.size)
+	var path := ART + "medal_%s.png" % id
+	var picture := _image(tile, load(path) if ResourceLoader.exists(path) else _icon(Icon.DEMON if id == "devil" else Icon.STAR),
+			TextureRect.STRETCH_KEEP_ASPECT_CENTERED)
+	if not ResourceLoader.exists(path):
+		picture.modulate = MEDAL_TINTS[id]
+	if not earned:
+		picture.modulate *= LOCKED_TINT
+	_place(picture, Vector2((rect.size.x - 58) * 0.5, 14), Vector2(58, 58))
+	var title := _label(tile, id.to_upper(), 16, BONE if earned else DIM)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(title, Vector2(0, 80), Vector2(rect.size.x, 0))
+	var time := _label(tile, target, 14, GOLD if earned else DIM)
+	time.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(time, Vector2(0, 104), Vector2(rect.size.x, 0))
+
+
+## CAMPAIGN | THE LONG NIGHT, between the quests and the big button: the one showing is gold and underlined.
+func _build_tabs() -> void:
+	_tab_bar = PanelContainer.new()
+	_tab_bar.name = "ModeTabs"
+	_tab_bar.add_theme_stylebox_override("panel", _panel_style(PANEL_BORDER, 1))
+	_right.add_child(_tab_bar)
+	_place(_tab_bar, Vector2(0, TABS_TOP), Vector2(RIGHT_W, TABS_H))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	_tab_bar.add_child(row)
+	for i in 2:
+		var tab := Button.new()
+		tab.name = ["CampaignTab", "LongNightTab"][i]
+		tab.text = ["CAMPAIGN", "LONG NIGHT  ·  WEEKLY"][i]
+		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tab.add_theme_font_override("font", _display)
+		tab.add_theme_font_size_override("font_size", 14)
+		tab.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		tab.pressed.connect(_show_page.bind(i))
+		row.add_child(tab)
+		_tabs.append(tab)
+	_paint_tabs()
+
+
+func _paint_tabs() -> void:
+	for i in _tabs.size():
+		var on := i == _page
+		var line := StyleBoxFlat.new()
+		line.bg_color = Color(GOLD, 0.16) if on else Color.TRANSPARENT
+		line.border_color = GOLD
+		line.border_width_bottom = 2 if on else 0
+		line.set_corner_radius_all(6)
+		var hover := line.duplicate() as StyleBoxFlat
+		if not on:
+			hover.bg_color = Color(BONE, 0.07)
+		for state: String in ["normal", "pressed"]:
+			_tabs[i].add_theme_stylebox_override(state, line)
+		_tabs[i].add_theme_stylebox_override("hover", hover)
+		for color: String in ["font_color", "font_pressed_color"]:
+			_tabs[i].add_theme_color_override(color, GOLD if on else DIM)
+		_tabs[i].add_theme_color_override("font_hover_color", GOLD if on else BONE)
+		_tabs[i].add_theme_color_override("font_focus_color", GOLD if on else BONE)
+
+
+## Slides the right side to page `page` (0 campaign, 1 the Long Night), from wherever a drag left it; a focused button
+## on the page going away hands focus to the big button of the one coming in.
+func _show_page(page: int, animate := true) -> void:
+	page = clampi(page, 0, _pages.size() - 1)
+	var from := _pages[_page]
+	var to := _pages[page]
+	if page == _page and is_zero_approx(to.position.x) and to.modulate.a >= 1.0:
+		return
+	var focus := get_viewport().gui_get_focus_owner()
+	var hand_over := focus != null and from.is_ancestor_of(focus) and from != to
+	var direction := signf(page - _page)
+	_page = page
+	_paint_tabs()
+	if _page_tween != null:
+		_page_tween.kill()
+	if not animate:
+		for i in _pages.size():
+			_pages[i].visible = i == page
+			_pages[i].position.x = 0.0
+			_pages[i].modulate.a = 1.0
+		return
+	to.visible = true
+	if from != to:
+		to.position.x = direction * PAGE_SLIDE
+		to.modulate.a = 0.0
+	_page_tween = create_tween().set_parallel().set_trans(Tween.TRANS_QUINT).set_ease(Tween.EASE_OUT)
+	_page_tween.tween_property(to, "position:x", 0.0, PAGE_TIME)
+	_page_tween.tween_property(to, "modulate:a", 1.0, PAGE_TIME * 0.6)
+	if from != to:
+		_page_tween.tween_property(from, "position:x", -direction * PAGE_SLIDE, PAGE_TIME)
+		_page_tween.tween_property(from, "modulate:a", 0.0, PAGE_TIME * 0.5)
+		_page_tween.chain().tween_callback(func() -> void:
+			from.visible = false
+			from.position.x = 0.0
+			from.modulate.a = 1.0)
+	if hand_over:
+		([_play, _race_play][page] as Button).grab_focus()
+
+
+## The dashboard slides: a sideways drag that starts off the buttons (they keep their clicks), or a wheel tilt.
+func _input(event: InputEvent) -> void:
+	var mouse := event as InputEventMouseButton
+	if mouse != null and mouse.pressed and mouse.button_index in [MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
+		if _can_slide():
+			_show_page(_page + (1 if mouse.button_index == MOUSE_BUTTON_WHEEL_RIGHT else -1))
+		return
+	if mouse != null and mouse.button_index == MOUSE_BUTTON_LEFT:
+		if mouse.pressed:
+			_drag_from = mouse.position if _can_slide() and not _on_button(mouse.position) else Vector2.INF
+		elif _drag_from != Vector2.INF:
+			var moved := mouse.position - _drag_from
+			_drag_from = Vector2.INF
+			var swiped := absf(moved.x) >= SWIPE_MIN and absf(moved.x) > absf(moved.y)
+			_show_page(_page + (1 if moved.x < 0.0 else -1) if swiped else _page)
+		return
+	var motion := event as InputEventMouseMotion
+	if motion != null and _drag_from != Vector2.INF:
+		var dx := clampf(motion.position.x - _drag_from.x, -PAGE_SLIDE, PAGE_SLIDE)
+		_pages[_page].position.x = dx * DRAG_FOLLOW
+		_pages[_page].modulate.a = 1.0 - absf(dx) / PAGE_SLIDE * 0.5
+
+
+func _can_slide() -> bool:
+	return not _leaving and _screen == null and not _how_to.visible and not _acts.visible
+
+
+func _on_button(at: Vector2) -> bool:
+	for button: BaseButton in find_children("*", "BaseButton", true, false):
+		if button.is_visible_in_tree() and button.get_global_rect().has_point(at):
+			return true
+	return false
+
+
+## "4D 6H", "6H 12M", "12M".
+func _span(seconds: float) -> String:
+	var minutes := maxi(floori(seconds / 60.0), 0)
+	var hours := floori(minutes / 60.0)
+	if hours >= 24:
+		return "%dD %dH" % [floori(hours / 24.0), hours % 24]
+	if hours > 0:
+		return "%dH %02dM" % [hours, minutes % 60]
+	return "%dM" % minutes
 
 
 ## An act's mastery stars (plans/06 D6) in the row under PLAY, gold once earned. Opens the Mirror.
@@ -944,7 +1185,7 @@ func _star_tile(act: int) -> void:
 	var tile := Button.new()
 	tile.name = "Stars%d" % act
 	tile.flat = true
-	_right.add_child(tile)
+	_campaign.add_child(tile)
 	_place(tile, Vector2((act - 1) * (extent.x + CARD_GAP), CARD_TOP), extent)
 	_cards.append(tile)
 	var content := _holder(tile, "Content")
@@ -1292,6 +1533,14 @@ func _play_daily(practice: bool) -> void:
 	if _leaving:
 		return
 	RunState.start_daily(practice)
+	_start()
+
+
+## RACE: this week's Long Night from the start (plans/11).
+func _play_race() -> void:
+	if _leaving:
+		return
+	RunState.start_race()
 	_start()
 
 

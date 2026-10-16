@@ -1128,6 +1128,122 @@ func test_the_last_daily_floor_ends_on_its_result() -> void:
 	assert_eq(copy.text, "COPIED", "pasted anywhere: Discord, X, a group chat")
 
 
+## One seed, one maze for everyone: when Flipping Time lands it too close, it reappears in the same cell on every
+## machine, however the lights flickered there (rng is randomized per launch; fair_rng comes from the seed).
+func test_the_devil_reappears_in_the_same_cell_on_the_same_seed() -> void:
+	var cells: Array[Vector2i] = []
+	for flickers in [0, 7]:
+		var main := _spawn_floor()
+		for i in flickers:
+			main.rng.randf()
+		main._wake_devil()
+		main.player_dist = main.layout.distances(main.world, main.player_cell)
+		for i in main.player_dist.size():
+			if main.player_dist[i] == 2:
+				main.devil_cell = main.layout.cell_at(i)
+				break
+		main._keep_devil_fair()
+		var cell: Vector2i = main.devil_cell
+		assert_true(main.player_dist[cell.y * main.layout.size + cell.x] >= main.DEVIL_RETREAT_DISTANCE, "sent well away")
+		cells.append(cell)
+	assert_eq(cells[0], cells[1], "the same cell on the same seed")
+
+
+# --- plans/11: the Long Night ----------------------------------------------------------------------------------------
+
+const RACE_GHOST := "user://test_race_ghost.bin"
+
+
+## A debug Long Night floor of week 3 (no ghost unless the test saved one).
+func _spawn_race() -> Node3D:
+	Race.ghost_path = RACE_GHOST
+	RunState.mode = "race"
+	RunState.race_week = 3
+	Race.refresh(3)
+	return _spawn_floor(Race.cards(3), Race.STAGE_FLOOR)
+
+
+func _clear_race() -> void:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(RACE_GHOST))
+	Race.refresh(0)
+
+
+func test_a_long_night_floor_hides_four_keys_and_counts_up() -> void:
+	var main := _spawn_race()
+	assert_eq(main.layout.sigils.size(), roundi(Cards.fold(Race.cards(3), "keys", Race.KEYS)), "the long maze")
+	assert_eq(main.time_left, INF, "no time limit: the Devil is the threat")
+	assert_true(main._floor_title().begins_with("THE LONG NIGHT  #3"), main._floor_title())
+	assert_eq(main.floor_label.text, "#3")
+	assert_eq(main.race_par, Race.par(main.layout, main.feel.walk_speed))
+	assert_eq(Race.CELL_M, main.CELL_SIZE, "the dashboard prices medals on the floor's cell size")
+	main.elapsed = 12.5
+	main._update_hud()
+	assert_eq(main.clock_label.text, "0:12.5", "the race clock, to the tenth")
+	_clear_race()
+
+
+func test_a_long_night_escape_keeps_the_best_its_splits_and_its_ghost() -> void:
+	var main := _spawn_race()
+	var keys: int = main.layout.sigils.size()
+	for i in keys:
+		main.elapsed = 30.0 + 10.0 * i
+		main._take_key(i)
+	assert_eq(main.race_splits.size(), keys, "a split at every key")
+	assert_eq(main.race_splits[0], 30.0)
+	assert_true(main.exit_open)
+	main.elapsed = 100.0
+	main._tick_race(0.016)
+	main._win_game()
+	assert_eq(Race.best, 100.0)
+	assert_eq(Race.splits.size(), keys)
+	assert_false(Race.load_ghost(3).is_empty(), "the best run's ghost is kept for the next try")
+	assert_eq(main.floor_shards, 0, "the floor pays nothing: the medals pay, once a week")
+	main._show_race_result({"best": true, "medal": "bronze", "shards": Race.MEDAL_SHARDS["bronze"]}, 0.0)
+	var page: Node = main.get_node("Overlays/Ending")
+	assert_ne(page.find_child("RunAgain", true, false), null, "straight back in")
+	assert_ne(page.find_child("CopyResult", true, false), null, "the share line")
+	_clear_race()
+
+
+func test_the_weeks_best_run_walks_beside_you() -> void:
+	Race.ghost_path = RACE_GHOST
+	Race.save_ghost(3, PackedFloat32Array([0.0, 0.0, 0.0, 2.4, 0.0, 0.0, 4.8, 0.0, 0.0]))
+	var main := _spawn_race()
+	assert_ne(main.race_ghost, null, "a ghost once there is a best run")
+	main.race_ghost.seek(RaceGhost.STEP, 0.016, Vector3(100.0, 0.0, 100.0))
+	assert_true(is_equal_approx(main.race_ghost.position.x, 2.4), "where the run was at that moment")
+	assert_true(main.race_ghost.visible, "seen from afar")
+	main.race_ghost.seek(RaceGhost.STEP, 0.016, main.race_ghost.position)
+	assert_false(main.race_ghost.visible, "clear when you walk into it")
+	_clear_race()
+
+
+func test_dying_in_the_long_night_offers_another_run_not_a_revive() -> void:
+	var main := _spawn_race()
+	main._lose_game("devil")
+	assert_true(main.death_screen._retry_sub.text.begins_with("RUN IT AGAIN"), main.death_screen._retry_sub.text)
+	assert_true(main.death_screen._revive.disabled, "no revives in a race")
+	var detail: String = main.death_screen._detail.text
+	assert_true(detail.contains("The Long Night #3"), detail)
+	_clear_race()
+
+
+## The dashboard prices the medals on the maze the floor really builds (same seed, card, size and keys).
+func test_the_dashboard_and_the_floor_build_the_same_long_night() -> void:
+	Race.ghost_path = RACE_GHOST
+	RunState.start_race()
+	var main: Node3D = load("res://scenes/main.tscn").instantiate()
+	(Engine.get_main_loop() as SceneTree).root.add_child(main)
+	track(main)
+	var maze := Race.layout(RunState.race_week)
+	assert_eq(main.layout.spawn, maze.spawn)
+	assert_eq(main.layout.exit, maze.exit)
+	assert_eq(main.layout.sigils, maze.sigils)
+	assert_eq(main.race_par, Race.par_of(RunState.race_week))
+	RunState.leave_daily()
+	_clear_race()
+
+
 # --- plans/06 P7: the Devil's senses and the Director on the floor ---------------------------------------------------
 
 ## You walk `steps` cells along the route; the Devil wakes at its far spawn, sensing nothing.

@@ -74,6 +74,7 @@ static func load_profile() -> void:
 	rank = cfg.get_value("meta", "rank", 0)
 	abyss_best = cfg.get_value("meta", "abyss_best", 0)
 	Daily.load_state(cfg)
+	Race.load_state(cfg)
 
 
 static func save() -> void:
@@ -91,6 +92,7 @@ static func save() -> void:
 	cfg.set_value("meta", "rank", rank)
 	cfg.set_value("meta", "abyss_best", abyss_best)
 	Daily.save_state(cfg)
+	Race.save_state(cfg)
 	cfg.save(profile_path)
 	Portal.push(profile_path)
 
@@ -324,7 +326,6 @@ static func note_depth(depth: int) -> void:
 	if depth > abyss_best:
 		abyss_best = depth
 		save()
-		Portal.submit_depth(depth)
 
 
 ## Opens every act up to `act` for good (capped at the last act that is out: LiveOps.released_acts).

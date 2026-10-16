@@ -75,7 +75,7 @@ func test_locked_acts_wear_the_padlock_until_the_act_before_is_cleared() -> void
 	var menu := _spawn_menu(10, 2, true)
 	for act in range(1, StageRule.ACT_COUNT + 1):
 		var locked := act > 2
-		assert_eq(menu._right.get_node("Stars%d" % act).find_child("Lock", true, false) != null, locked, "tile %d" % act)
+		assert_eq(menu._campaign.get_node("Stars%d" % act).find_child("Lock", true, false) != null, locked, "tile %d" % act)
 		assert_eq(menu._acts.find_child("Act%d" % act, true, false).find_child("Lock", true, false) != null, locked,
 				"card %d" % act)
 
@@ -117,7 +117,7 @@ func test_a_setting_changes_at_once_and_is_kept() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(Settings.settings_path))
 	Settings.read(Settings.settings_path)
 	for act in range(1, StageRule.ACT_COUNT + 1):
-		assert_true(menu._right.has_node("Stars%d" % act), "act %d's stars sit where the mode cards were" % act)
+		assert_true(menu._campaign.has_node("Stars%d" % act), "act %d's stars sit where the mode cards were" % act)
 
 
 func test_the_altar_sells_and_the_dashboard_follows() -> void:
@@ -147,7 +147,7 @@ func test_the_mirror_shows_stars_and_challenges() -> void:
 	MetaState.stars = {1: [true, false, true]}
 	MetaState.stats = {"chests": 7}
 	var menu := _spawn_menu(1)
-	var tile: Control = menu._right.get_node("Stars1")
+	var tile: Control = menu._campaign.get_node("Stars1")
 	assert_eq((tile.find_child("Star0", true, false) as CanvasItem).modulate, MainMenu.GOLD)
 	assert_ne((tile.find_child("Star1", true, false) as CanvasItem).modulate, MainMenu.GOLD)
 	menu._open_mirror()
@@ -288,6 +288,62 @@ func test_continue_names_the_depth_in_the_abyss() -> void:
 	var menu := _spawn_menu(StageRule.LAST_FLOOR + 7, StageRule.ACT_COUNT)
 	var sub: Label = menu._menu.get_node("Continue/Content/Sub")
 	assert_eq(sub.text, "DEPTH 7  ·  THE ABYSS")
+
+
+## plans/11: the dashboard stays the campaign's; the Long Night is a second page beside it, behind a tab or a slide.
+func test_the_long_night_is_a_page_beside_the_campaign() -> void:
+	var menu := _spawn_menu(1)
+	var campaign: Control = menu.find_child("Campaign", true, false)
+	var night: Control = menu.find_child("LongNight", true, false)
+	assert_true(campaign.visible and not night.visible, "the dashboard opens on the campaign, as it always did")
+	assert_true(campaign.is_ancestor_of(menu._play), "PLAY is the campaign's")
+	(menu.find_child("LongNightTab", true, false) as Button).pressed.emit()
+	assert_eq(menu._page, 1, "its tab slides the Long Night in")
+	assert_true(night.visible)
+	assert_ne(night.find_child("RacePlay", true, false), null, "its own big button")
+	for id in Race.MEDALS:
+		assert_ne(night.find_child("Medal_" + id, true, false), null, id)
+	var texts := _texts(night)
+	assert_true(texts.has("THE LONG NIGHT  #%d" % Race.this_week()), str(texts))
+	assert_true(texts.has("--:--"), "no time yet this week")
+	(menu.find_child("CampaignTab", true, false) as Button).pressed.emit()
+	assert_eq(menu._page, 0, "and back")
+
+
+func test_a_sideways_slide_off_the_buttons_switches_the_page() -> void:
+	var menu := _spawn_menu(1)
+	menu._input(_mouse(Vector2(640, 110), true))  # the art between the menu and the right side: no button there
+	menu._input(_mouse(Vector2(640 - SLIDE, 116), false))
+	assert_eq(menu._page, 1, "a slide to the left brings the Long Night")
+	menu._input(_mouse(Vector2(640, 110), true))
+	menu._input(_mouse(Vector2(640 - 20, 110), false))
+	assert_eq(menu._page, 1, "a nudge is not a slide")
+	menu._input(_mouse(Vector2(640, 110), true))
+	menu._input(_mouse(Vector2(640 + SLIDE, 110), false))
+	assert_eq(menu._page, 0, "a slide to the right brings the campaign back")
+	var play_at: Vector2 = menu._play.get_global_rect().get_center()
+	menu._input(_mouse(play_at, true))
+	menu._input(_mouse(play_at - Vector2(SLIDE, 0), false))
+	assert_eq(menu._page, 0, "a drag that starts on a button is that button's, not a slide")
+
+
+func test_back_from_a_race_the_dashboard_shows_its_page() -> void:
+	RunState.mode = "race"
+	var menu := _spawn_menu(1)
+	assert_true(RunState.is_campaign(), "the menu holds the campaign")
+	assert_eq(menu._page, 1, "straight back to the Long Night")
+	assert_true((menu.find_child("LongNight", true, false) as Control).visible)
+
+
+const SLIDE := 200.0
+
+
+func _mouse(at: Vector2, down: bool) -> InputEventMouseButton:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.pressed = down
+	event.position = at
+	return event
 
 
 func _texts(root: Node) -> Array:
