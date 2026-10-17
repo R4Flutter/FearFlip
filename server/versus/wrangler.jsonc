@@ -1,0 +1,19 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	// VERSUS's relay (plans/12): one Durable Object per room passes each player's messages to the other. Free tier.
+	"name": "fearflip-versus",
+	"main": "src/index.js",
+	"compatibility_date": "2026-10-01",
+	"durable_objects": {
+		"bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+	},
+	// The free plan only runs SQLite-backed Durable Objects: a room stores nothing, but its class must be one.
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+	"vars": {
+		// Pages that may open a room: each hostname here and anything under it. A socket with no Origin (desktop
+		// builds, tests) gets in too: this only stops other websites from spending the free quota.
+		"ALLOWED_ORIGINS": "crazygames.com,localhost,127.0.0.1"
+	},
+	// One log line per round (the result, its length, the mode), read in the Cloudflare dashboard.
+	"observability": { "enabled": true }
+}

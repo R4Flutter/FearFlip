@@ -2,14 +2,11 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cvjoqj6wkovbu"
+uid="uid://cnjn3i4m528yy"
 path.s3tc="res://.godot/imported/map_hand_Color_e20556c9-7832-42f6-8879-e5e99a251e06.jpg-140cc1ad065e2cd8e126f59c4a972769.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
-}
-generator_parameters={
-"md5": "5fd17a0d42ab6457b3e8f4664ff5f0c0"
 }
 
 [deps]

@@ -140,7 +140,8 @@ static func _present(sdk: String) -> bool:
 	if not OS.has_feature("web"):
 		return false
 	JavaScriptBridge.eval(JS, true)
-	return JavaScriptBridge.eval("window.fearflipAds.present('%s')" % sdk, true) == true
+	# A JS boolean comes back as an int (0/1), and int == bool is a script error: take its truth.
+	return true if JavaScriptBridge.eval("window.fearflipAds.present('%s')" % sdk, true) else false
 
 
 static func _started(_args: Array) -> void:
@@ -149,3 +150,34 @@ static func _started(_args: Array) -> void:
 
 static func _heard_page(args: Array) -> void:
 	heard({"watched": WATCHED, "off": OFF, "blocked": BLOCKED}.get(args[0], EMPTY))
+
+
+## A midgame ad between VERSUS rounds (plans/12), never during one: CrazyGames' (it caps how often), then `done` once,
+## watched or not. Off the web or with no CrazyGames SDK on the page, `done` at once; an ad that never answers gives up
+## after AD_WAIT_MS.
+static var _midgame_done: Callable
+static var _midgame_js: Array[JavaScriptObject] = []
+
+
+static func midgame(done: Callable) -> void:
+	if not _present("crazygames"):
+		done.call()
+		return
+	_midgame_done = done
+	if _midgame_js.is_empty():
+		_midgame_js = [JavaScriptBridge.create_callback(_started), JavaScriptBridge.create_callback(_midgame_over)]
+	var callbacks: Variant = JavaScriptBridge.create_object("Object")
+	callbacks.adStarted = _midgame_js[0]
+	callbacks.adFinished = _midgame_js[1]
+	callbacks.adError = _midgame_js[1]
+	var crazy: Variant = JavaScriptBridge.get_interface("CrazyGames")
+	crazy.SDK.ad.requestAd("midgame", callbacks)
+	(Engine.get_main_loop() as SceneTree).create_timer(AD_WAIT_MS / 1000.0).timeout.connect(_midgame_over.bind([]))
+
+
+static func _midgame_over(_args: Array) -> void:
+	AudioServer.set_bus_mute(0, false)
+	var done := _midgame_done
+	_midgame_done = Callable()
+	if done.is_valid():
+		done.call()

@@ -41,6 +41,21 @@ func _init(rng_seed: int = 0) -> void:
 	next_forced_in = first_forced_at
 
 
+## A floor's Flipping Time, armed: `rule`'s timings, each folded through `mod` (key, base) -> value (RunState.mod in
+## play; the week's card alone when the Long Night's server is told when a breach can happen, Race.flip_times).
+static func for_floor(rng_seed: int, rule: StageRule, mod: Callable) -> FlipSystem:
+	var flip := FlipSystem.new(rng_seed)
+	flip.first_forced_at = mod.call("flip_interval", rule.first_forced_at)
+	flip.arm()  # no flip button: the first Flipping Time comes at a random moment
+	flip.forced_interval_min = mod.call("flip_interval", rule.forced_interval_min)
+	flip.forced_interval_max = mod.call("flip_interval", rule.forced_interval_max)
+	flip.min_forced_interval = mod.call("flip_interval", rule.min_forced_interval)
+	flip.forced_duration_min = mod.call("flip_duration", flip.forced_duration_min)
+	flip.forced_duration_max = mod.call("flip_duration", flip.forced_duration_max)
+	flip.warning_time = rule.flip_warning
+	return flip
+
+
 ## Sets the first Flipping Time at a random moment around first_forced_at (after the floor sets the tunables).
 func arm() -> void:
 	next_forced_in = first_forced_at * _rng.randf_range(1.0 - first_jitter, 1.0 + first_jitter)

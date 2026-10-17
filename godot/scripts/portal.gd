@@ -14,9 +14,10 @@ const KEYS := {"user://profile.cfg": "fearflip_profile", "user://save.cfg": "fea
 const STAMPS := "user://cloud_stamps.cfg"
 
 
-## The SDK has finished initializing (the head include sets the flag).
+## The SDK has finished initializing (the head include sets the flag). eval hands a JS boolean back as an int (0/1) and
+## int == bool is a script error, so `and` takes its truth.
 static func ready() -> bool:
-	return OS.has_feature("web") and JavaScriptBridge.eval("!!(window.fearflipSdk && window.fearflipSdk.ready)", true) == true
+	return OS.has_feature("web") and JavaScriptBridge.eval("!!(window.fearflipSdk && window.fearflipSdk.ready)", true)
 
 
 ## Before `path` is read: the cloud copy replaces the local file when it's newer than this device's last write.
@@ -57,9 +58,67 @@ static func set_item_js(key: String, text: String) -> String:
 	return "window.CrazyGames.SDK.data.setItem(%s, %s)" % [JSON.stringify(key), JSON.stringify(text)]
 
 
+## The CrazyGames user token (a JWT the SDK keeps fresh; the Long Night server verifies it, plans/11 v2), or "" for a
+## guest, off the web, or when the SDK hasn't answered within ~10 s.
+static func user_token() -> String:
+	if not ready():
+		return ""
+	var got: Array = []
+	var take := func(args: Array) -> void: got.append(args[0] if not args.is_empty() and args[0] is String else "")
+	var ok := JavaScriptBridge.create_callback(take)
+	var fail := JavaScriptBridge.create_callback(take)  # userNotAuthenticated: a guest
+	var crazy: Variant = JavaScriptBridge.get_interface("CrazyGames")
+	crazy.SDK.user.getUserToken().then(ok, fail)
+	var tree := Engine.get_main_loop() as SceneTree
+	for _frame in 600:
+		if not got.is_empty():
+			break
+		await tree.process_frame
+	return got[0] if not got.is_empty() else ""
+
+
 ## A new best Long Night time in milliseconds (plans/11): the board keeps each player's lowest this season. It holds
 ## the race now, not Abyss depth (plans/06 F4): one maze for everyone is a fair comparison, depths in different mazes
-## aren't.
+## aren't. Only without a Race.SERVER: with one, the server verifies the run and submits it itself.
 static func submit_time(ms: int) -> void:
 	if ready():
 		JavaScriptBridge.eval("window.fearflipSubmitScore && window.fearflipSubmitScore(%d)" % ms, true)
+
+
+## VERSUS (plans/12): CrazyGames' invite link to room `code` (their Invite button shows it in the page around the
+## game while a room waits), and the room of the link this page was opened from ("" if none: instant multiplayer).
+## Names per CrazyGames' SDK v3 game module; web only.
+static func show_invite(code: String) -> void:
+	if ready():
+		JavaScriptBridge.eval("window.CrazyGames.SDK.game.showInviteButton(%s)" % JSON.stringify({"room": code}), true)
+
+
+static func hide_invite() -> void:
+	if ready():
+		JavaScriptBridge.eval("window.CrazyGames.SDK.game.hideInviteButton()", true)
+
+
+static func invite_link(code: String) -> String:
+	if not ready():
+		return ""
+	var link: Variant = JavaScriptBridge.eval("window.CrazyGames.SDK.game.inviteLink(%s)" % JSON.stringify({"room": code}), true)
+	return link if link is String else ""
+
+
+static func invite_room() -> String:
+	if not ready():
+		return ""
+	var room: Variant = JavaScriptBridge.eval("window.CrazyGames.SDK.game.getInviteParam('room')", true)
+	return room if room is String else ""
+
+
+## The CrazyGames username in the user token (user_token), or "" for a guest or off the web.
+static func username() -> String:
+	var token: String = await user_token()
+	var parts := token.split(".")
+	if parts.size() != 3:
+		return ""
+	var body := parts[1].replace("-", "+").replace("_", "/")
+	body += "=".repeat((4 - body.length() % 4) % 4)
+	var claims: Variant = JSON.parse_string(Marshalls.base64_to_utf8(body))
+	return str(claims.get("username", "")) if claims is Dictionary else ""

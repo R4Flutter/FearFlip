@@ -1,0 +1,24 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	// The Long Night's server (plans/11 v2): verified weekly race times on the free tier.
+	"name": "fearflip-long-night",
+	"main": "src/index.js",
+	"compatibility_date": "2026-10-01",
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "fearflip-long-night",
+			// `wrangler d1 create fearflip-long-night` prints the real id: paste it here before deploying.
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	"vars": {
+		// CrazyGames' id for FearFlip: once set, tokens issued to other games are refused.
+		"CG_GAME_ID": "",
+		"CG_LEADERBOARD_URL": "https://leaderboard.crazygames.com/leaderboard/scores"
+	},
+	// The secret CG_API_KEY (the Leaderboard API key) is set with `wrangler secret put CG_API_KEY`, never here.
+	// Every 10 minutes: resend bests CrazyGames hasn't taken yet, and drop weeks past KEEP_WEEKS.
+	"triggers": { "crons": ["*/10 * * * *"] }
+}

@@ -5,9 +5,10 @@ the copies here are cropped to their alpha bounds and downscaled to ~2x display 
 
 | File | Used as | Notes |
 |---|---|---|
-| `menu_bg.png` | key art, cover-fit on a drifting parallax stage | spots on it (portal, braziers) are pinned as fractions in `main_menu.gd` |
-| `menu_demon.png` | apparition in the sky | painted on pure black, drawn additively (black = invisible) |
-| `menu_hero.png` | foreground hero + ledge, own parallax layer | transparent |
+| `menu_bg.png` | key art, cover-fit on a drifting parallax stage; the fallback since `lobby_bg.png` came | spots on it (portal, braziers) are pinned as fractions in `main_menu.gd` |
+| `lobby_bg.png` | the key art since 17 Oct 2026: the terrace the 3D hero stands on, the maze beyond; its horizon sits ~28% down and `lobby_stage.gd`'s camera matches it; its braziers glow at `LOBBY_BRAZIERS` | opaque 16:9 |
+| `menu_demon.png` | the death screen's apparition; off the dashboard since 17 Oct 2026 (user: ugly over `lobby_bg.png`'s sky) | painted on pure black, drawn additively (black = invisible) |
+| `menu_hero.png` | not shown since 17 Oct 2026: the dashboard's centre is the 3D lobby now (`scripts/lobby_stage.gd`) | kept as the image-to-3D reference for `player.glb` |
 | `logo.png` | title | split at `LOGO_SPLIT` (x fraction) so FLIP can turn over |
 | `ui_frame.png` / `ui_frame_active.png` | menu rows + quest cards | active = red-glow version, built from the frame with PIL |
 | `ui_play_button.png` | big PLAY | text is drawn by Godot, art must stay text-free |
@@ -174,3 +175,12 @@ watermark:")
 | `beast_phantom.png` | a pale translucent figure in an old nurse's uniform at the end of a blue corridor, a flashlight beam flickering on it |
 | `beast_sentinel.png` | a mechanical searchlight eye in the ceiling sweeping a corridor, a heavy iron eyelid half closed |
 | `beast_ripper.png` | ceiling lights dying one by one toward the viewer, a long clawed shape rushing out of the dark |
+
+## Lobby (17 Oct 2026, BGMI-style 3D hero)
+
+The dashboard's centre is a live 3D view (`scripts/lobby_stage.gd`): your body standing on `lobby_bg.png`'s terrace,
+empty-handed (`DevilRig.showcase`; the folded map came out 17 Oct 2026), feet planted.
+
+| File | Used as | Generate at | Ship here at |
+|---|---|---|---|
+| `lobby_bg.png` | delivered 17 Oct 2026 (1672x941): the dashboard background; the 3D camera is matched to its horizon (~28% down) | 2560x1440, opaque | as delivered |

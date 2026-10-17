@@ -53,8 +53,8 @@ static var sanctuary := {}
 ## True once the run has ended (death or act clear): playing again starts a new run, never resumes it.
 static var run_over := false
 ## The run's kind (plans/06 §6): "campaign" (saved), "daily" (today's ranked try), "practice" (the Daily again,
-## for nothing) or "race" (the Long Night, plans/11). Only a campaign saves mid-run, so the others never touch it;
-## leave_daily() reloads the campaign.
+## for nothing), "race" (the Long Night, plans/11) or "versus" (a 1v1 round, plans/12). Only a campaign saves mid-run,
+## so the others never touch it; leave_daily() reloads the campaign.
 static var mode := "campaign"
 ## In a Daily: its floor (1..Daily.FLOORS) and the date it belongs to.
 static var daily_floor := 0
@@ -198,7 +198,13 @@ static func start_race() -> void:
 	_start_side_run(Race.seed_of(race_week), Race.STAGE_FLOOR, [])
 
 
-## A Daily or a Long Night, beside the campaign: its own seed and floor, no revives, nothing owed.
+## A VERSUS round (plans/12) on the room's seed for it: the same floor on both players' screens, nothing folded in.
+static func start_versus(seed_value: int) -> void:
+	mode = "versus"
+	_start_side_run(seed_value, Versus.STAGE_FLOOR, [])
+
+
+## A Daily, a Long Night or a versus round, beside the campaign: its own seed and floor, no revives, nothing owed.
 static func _start_side_run(seed_value: int, floor_number: int, cards: Array) -> void:
 	run_seed = seed_value
 	current_floor = floor_number
@@ -234,6 +240,10 @@ static func is_daily() -> bool:
 
 static func is_race() -> bool:
 	return mode == "race"
+
+
+static func is_versus() -> bool:
+	return mode == "versus"
 
 
 ## A floor banks its shards and counters: not in practice or the Long Night, where the same maze again would be a farm
@@ -460,8 +470,10 @@ static func take(id: String) -> void:
 
 ## One mod for this floor: `base` folded through its cards, the run's, the gear worn (MetaState.gear), the run's
 ## rank and hidden mercy (a campaign floor that keeps killing you), held inside the fairness limits (Cards.fold).
-## The Long Night folds only its card: the same kit for everyone on one board.
+## The Long Night folds only its card: the same kit for everyone on one board. A versus round folds nothing (Versus.mod).
 static func mod(key: String, base: float) -> float:
+	if is_versus():
+		return Versus.mod(key, base)
 	if is_race():
 		return Cards.fold(floor_cards + run_cards, key, base)
 	var ids: Array[String] = floor_cards + run_cards + MetaState.gear() + Cards.ranks(rank)
@@ -471,6 +483,9 @@ static func mod(key: String, base: float) -> float:
 
 
 static func _deal() -> void:
+	if is_versus():
+		floor_cards.clear()
+		return
 	if is_race():
 		floor_cards = Race.cards(race_week)
 		return

@@ -327,6 +327,19 @@ func test_a_sideways_slide_off_the_buttons_switches_the_page() -> void:
 	assert_eq(menu._page, 0, "a drag that starts on a button is that button's, not a slide")
 
 
+func test_a_drag_on_the_hero_turns_him_and_the_dashboard_stays() -> void:
+	var menu := _spawn_menu(1)
+	var hero: Vector2 = menu._lobby.get_global_rect().get_center()
+	menu._input(_mouse(hero, true))
+	var motion := InputEventMouseMotion.new()
+	motion.position = hero - Vector2(SLIDE, 0)
+	motion.relative = Vector2(-SLIDE, 0)
+	menu._input(motion)
+	menu._input(_mouse(hero - Vector2(SLIDE, 0), false))
+	assert_eq(menu._page, 0, "the hero turns, the page stays")
+	assert_true(menu._lobby._spin < 0.0, "turned the way the drag went")
+
+
 func test_back_from_a_race_the_dashboard_shows_its_page() -> void:
 	RunState.mode = "race"
 	var menu := _spawn_menu(1)

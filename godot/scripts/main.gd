@@ -360,11 +360,16 @@ var devil_facing := Vector2i.ZERO
 var tape: Array = []
 var devil_cam: SubViewportContainer
 ## The Long Night (plans/11): the route's par (the medal times), when each key was taken, this run as a ghost's
-## samples (RaceGhost), and the week's best run walking beside you.
+## samples (RaceGhost), where the Devil broke a wall on it (sent with it: the server lets the tape through), the
+## week's best run walking beside you, and (v2) the run just ahead of yours on the board.
 var race_par := 0.0
 var race_splits: Array[float] = []
 var race_tape := PackedFloat32Array()
+var race_breach: Array = []
 var race_ghost: RaceGhost
+## A VERSUS round's glue (plans/12), on both players' machines; null on every other floor.
+var versus: VersusMatch
+var rival_ghost: RaceGhost
 var _tape_clock := 0.0
 var _replay_time := 0.0
 ## The top-left corner while it hunts: the live Devil Cam and its distance under it (_update_devil_corner).
@@ -567,15 +572,7 @@ func _ready() -> void:
 	_fold_cards()
 	layout = FloorLayout.generate(seed_value, rooms if rooms > 0 else roundi(RunState.mod("rooms", rule.rooms)),
 			roundi(RunState.mod("keys", Race.KEYS if RunState.is_race() else FloorLayout.SIGIL_COUNT)), rule.box_empties)
-	flip = FlipSystem.new(seed_value)
-	flip.first_forced_at = RunState.mod("flip_interval", rule.first_forced_at)
-	flip.arm()  # no flip button: the first Flipping Time comes at a random moment
-	flip.forced_interval_min = RunState.mod("flip_interval", rule.forced_interval_min)
-	flip.forced_interval_max = RunState.mod("flip_interval", rule.forced_interval_max)
-	flip.min_forced_interval = RunState.mod("flip_interval", rule.min_forced_interval)
-	flip.forced_duration_min = RunState.mod("flip_duration", flip.forced_duration_min)
-	flip.forced_duration_max = RunState.mod("flip_duration", flip.forced_duration_max)
-	flip.warning_time = rule.flip_warning
+	flip = FlipSystem.for_floor(seed_value, rule, func(key: String, base: float) -> float: return RunState.mod(key, base))
 	flip.flipped.connect(_on_flipped)
 	flip.flipping_time_warning.connect(_on_flipping_time_warning)
 	route = layout.route(layout.spawn, layout.exit)
@@ -635,6 +632,8 @@ func _ready() -> void:
 	if RunState.is_race():
 		_start_race()
 	_apply_world(WAKE)
+	if RunState.is_versus():
+		_start_versus()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_flash_message(_floor_title())
 	if not RunState.floor_cards.is_empty():
@@ -683,6 +682,9 @@ func _act_tint(color: Color) -> Color:
 
 ## Shown as a floor starts: where you are in the act, and what kind of floor this is.
 func _floor_title() -> String:
+	if RunState.is_versus():
+		return "VERSUS  ·  ROUND %d / 2\n%s  ·  %s" % [Versus.round_number, "YOU RUN" if Versus.i_run() else "YOU ARE THE DEVIL",
+				"HARD: NO MAP" if Versus.hard else "EASY"]
 	if RunState.is_race():
 		var keys := layout.sigils.size()
 		var line := "%d KEYS  ·  ONE MAZE FOR EVERYONE  ·  BEAT THE DEVIL: %s" % [keys, Race.format(Race.medal_times(race_par)["devil"])]
@@ -713,6 +715,9 @@ func _process(delta: float) -> void:
 	if game_state == "waking":
 		_tick_wake(delta)  # the world holds still while the camera is away
 		return
+	if versus != null and not versus.runner:
+		_flicker_landmark()
+		return  # the Devil's machine: the referee plays the floor, VersusMatch shows it
 	_update_flashlight(delta)
 	_flicker_landmark()
 	_animate_devil(delta)
@@ -770,6 +775,8 @@ func _physics_process(delta: float) -> void:
 	if look_input != Vector2.ZERO:
 		_apply_look(-look_input.x * feel.stick_look_speed * delta, -look_input.y * feel.stick_look_speed * delta)
 	var move_input := _move_input()
+	if versus != null and not versus.lets_move():
+		move_input = Vector2.ZERO  # the Devil asleep or stunned, or the menu up (a match never pauses)
 	if move_input != Vector2.ZERO:
 		_stand_up()  # never stuck on your knees
 	var direction := player.transform.basis * Vector3(move_input.x, 0.0, move_input.y)
@@ -780,6 +787,8 @@ func _physics_process(delta: float) -> void:
 	var target_speed := feel.walk_speed * (feel.sprint_multiplier if sprinting else 1.0)
 	if reading:
 		target_speed *= feel.map_walk_ratio
+	if versus != null:
+		target_speed *= versus.pace()
 	var horizontal_velocity := Vector3(player.velocity.x, 0.0, player.velocity.z)
 	var rate := feel.acceleration if move_input != Vector2.ZERO else feel.friction
 	if not player.is_on_floor():
@@ -787,6 +796,8 @@ func _physics_process(delta: float) -> void:
 	horizontal_velocity = horizontal_velocity.move_toward(direction * target_speed, rate * delta)
 	if opening_box >= 0:
 		horizontal_velocity = _kneel_glide()
+	if versus != null:
+		horizontal_velocity = versus.steer(horizontal_velocity)
 	player.velocity.x = horizontal_velocity.x
 	player.velocity.z = horizontal_velocity.z
 
@@ -801,7 +812,7 @@ func _physics_process(delta: float) -> void:
 	var real_velocity := player.get_real_velocity()
 	var h_speed := Vector2(real_velocity.x, real_velocity.z).length()
 	_update_head_bob(h_speed if opening_box < 0 and kneel_w <= 0.0 else 0.0, sprinting, delta)  # no steps sliding onto your knees
-	if player_rig != null:
+	if player_rig != null and (versus == null or versus.runner):  # the Devil's machine wears the runner on a puppet
 		_pose_player(real_velocity, delta)
 
 ## One sprint lasts up to feel.sprint_time; when it ends (run dry or let go) you rest feel.sprint_recover_time.
@@ -823,7 +834,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_end_wake_cut()  # any key or button skips it
 		return
 	# Not while the keys turn in the chest either: one stray R there would throw the cleared floor away.
-	if event.is_action_pressed("restart") and not game_state in ["dying", "won", "choosing", "unlocking"]:
+	if event.is_action_pressed("restart") and versus == null and not game_state in ["dying", "won", "choosing", "unlocking"]:
 		if game_state == "playing" and not restart_armed:
 			restart_armed = true
 			_flash_message("PRESS R AGAIN: RUN IT AGAIN FROM THE START" if RunState.is_race() else "PRESS R AGAIN: RESTART ACT %d ON A NEW MAZE" % rule.act)
@@ -840,10 +851,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
 		_toggle_pause()
 		return
-	if get_tree().paused:
+	if get_tree().paused or (versus != null and pause_menu.visible):
 		if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_Q:
 			_to_menu()
 		return
+	if versus != null and not versus.runner and (event.is_action_pressed("interact") or event.is_action_pressed("map")
+			or event.is_action_pressed("flashlight")):
+		return  # the Devil opens no boxes, reads no map and keeps its glare
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		_apply_look(-motion.relative.x * feel.mouse_sensitivity, -motion.relative.y * feel.mouse_sensitivity)
@@ -881,6 +895,12 @@ func _apply_look(yaw_delta: float, pitch_delta: float) -> void:
 	camera_pivot.rotation.x = pitch
 
 func _toggle_pause() -> void:
+	if versus != null:  # the other player plays on: the menu comes up, the match never stops
+		pause_menu.visible = not pause_menu.visible
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if pause_menu.visible else Input.MOUSE_MODE_CAPTURED
+		if pause_menu.visible:
+			(pause_menu.find_child("Resume", true, false) as Control).grab_focus()
+		return
 	var paused := not get_tree().paused
 	get_tree().paused = paused
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if paused else Input.MOUSE_MODE_CAPTURED
@@ -891,7 +911,7 @@ func _toggle_pause() -> void:
 ## Alt-tab, or a browser tab switched away, pauses the floor: never left running blind.
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and is_inside_tree() and player != null and game_state == "playing" \
-			and not get_tree().paused:
+			and not get_tree().paused and versus == null:
 		_toggle_pause()
 
 ## The second R never came: back to normal.
@@ -918,7 +938,10 @@ func _update_head_bob(h_speed: float, sprinting: bool, delta: float) -> void:
 	camera.fov = lerpf(camera.fov, target_fov, clampf(feel.fov_blend_speed * delta, 0.0, 1.0))
 
 func _play_footstep(sprinting: bool) -> void:
-	_noise(player_cell, DevilBrain.HEAR_SPRINT_TILES if sprinting and not quiet_sprint else DevilBrain.NOISE_WALK)
+	var loud := sprinting and not quiet_sprint
+	if versus != null:
+		versus.heard(Versus.Sound.SPRINT if loud else Versus.Sound.STEP, DevilBrain.HEAR_SPRINT_TILES if loud else DevilBrain.NOISE_WALK)
+	_noise(player_cell, DevilBrain.HEAR_SPRINT_TILES if loud else DevilBrain.NOISE_WALK)
 	if footstep_player == null:
 		return
 	footstep_player.volume_db = feel.footstep_volume_db + (feel.sprint_footstep_boost_db if sprinting else 0.0)
@@ -968,6 +991,8 @@ func _spot_open(target_world: int) -> bool:
 ## The map stays in your hands through a flip (plans/10 §4: 20 of 52 closes were flips, 7 reopened within 3 s).
 ## Only the Devil close (_map_unsafe) snaps it shut.
 func _on_flipped(new_world: int, forced: bool) -> void:
+	if versus != null:
+		versus.report(Versus.Event.FLIP, new_world)
 	_apply_world(new_world)
 	_stand_up()
 	if player_rig != null:
@@ -1002,6 +1027,8 @@ func _on_flipped(new_world: int, forced: bool) -> void:
 		_keep_devil_fair()
 
 func _on_flipping_time_warning() -> void:
+	if versus != null:
+		versus.report(Versus.Event.WARN, flip.next_forced_in)
 	warning_player.play()
 	warning_label.visible = true
 	if warning_overlay != null:
@@ -1059,6 +1086,8 @@ func _keep_devil_fair() -> void:
 		return
 	devil_cell = options[fair_rng.randi_range(0, options.size() - 1)]
 	devil.position = _devil_world_position()
+	if versus != null:
+		versus.snapped()
 
 ## Only when NIGHTMARE_CHANGE > 0: if its cell is a wall in this world, it reappears on the nearest open one.
 func _move_devil_into_world() -> void:
@@ -1075,12 +1104,16 @@ func _move_devil_into_world() -> void:
 	devil_cell = best
 	prev_devil_cell = best
 	devil.position = _devil_world_position()  # teleport: never glide through a wall
+	if versus != null:
+		versus.snapped()
 
 # --- Boxes, keys, exit, Devil ----------------------------------------------
 
 ## The closed box in your cell that you're facing (within BOX_FACE_ANGLE of your view: the grid decides, not physics),
 ## else -1. None while both hands hold the map.
 func _box_in_reach() -> int:
+	if versus != null and not versus.runner:
+		return -1  # the Devil's machine: your body is the Devil's
 	var i := layout.boxes.find(player_cell)
 	if i < 0 or box_opened[i] or paper_map.is_up():
 		return -1
@@ -1103,6 +1136,8 @@ func _open_box(i: int) -> void:
 func _start_lid(i: int) -> void:
 	box_nodes[i].open()
 	box_open_player.play()
+	if versus != null:
+		versus.report(Versus.Event.BOX, i, 1.0 if layout.sigils.has(layout.boxes[i]) else 0.0)
 	_noise(player_cell, DevilBrain.NOISE_BOX)
 
 ## The lid is up: its key is yours (your left fist takes it if you're still kneeling there), or there's nothing but
@@ -1227,6 +1262,8 @@ func _take_key(i: int) -> void:
 	(sigil_nodes[i] as KeyPickup).collect()
 	key_hud.fly_in(sigils_collected, _screen_point(sigil_nodes[i].global_position))
 	sigils_collected += 1
+	if versus != null:
+		versus.report(Versus.Event.KEY, i, sigils_collected)
 	_count("sigils")
 	_earn(MetaState.SIGIL_SHARDS)
 	sigil_player.pitch_scale = 1.0
@@ -1241,6 +1278,8 @@ func _take_key(i: int) -> void:
 func _open_exit() -> void:
 	exit_open = true
 	enrage_left = DEVIL_ENRAGE_DURATION
+	if versus != null:
+		versus.report(Versus.Event.EXIT)
 	_noise(player_cell, 1 << 20)  # it hears the last key from anywhere
 	director.menace = maxf(director.menace, Director.PEAK_AT)
 	_set_exit_look()
@@ -1260,6 +1299,8 @@ func _screen_point(at: Vector3) -> Vector2:
 func _unlock_chest() -> void:
 	game_state = "unlocking"
 	_show_message("")
+	if versus != null:
+		versus.round_over(Versus.Result.ESCAPED)  # out: the chest is only the show
 	var exit_world := cell_to_world(layout.exit)
 	var arrival := cell_to_world(last_player_cell) - exit_world
 	arrival = arrival.normalized() if arrival.length() > 0.1 else chest.global_transform.basis.z
@@ -1282,6 +1323,8 @@ func _on_key_turned(index: int) -> void:
 
 ## The lid is up: the chest pays its roll for this floor's seed (plans/06 C5), then the floor is cleared.
 func _on_chest_opened() -> void:
+	if versus != null:
+		return  # a versus round pays nothing and has no next floor (VersusMatch shows the round)
 	_pay_chest({"kind": "rare", "shards": MetaState.RARE_SHARDS} if rare_chest else MetaState.chest_roll(seed_value))
 	_screen_flash(Color(1.0, 0.85, 0.5, 0.55))
 	var tween := create_tween()
@@ -1290,6 +1333,8 @@ func _on_chest_opened() -> void:
 
 ## Seconds per cell: DevilBrain's rubber band (far = faster, close = slower), enraged once the exit opens.
 func _devil_step_interval() -> float:
+	if versus != null and versus.remote_devil:
+		return CELL_SIZE / (feel.walk_speed * Versus.DEVIL_WALK)  # a player's Devil walks at its walk (the map's ETA)
 	var enraged := enrage_left > 0.0
 	var ratio := rule.devil_base_ratio * devil_speed * DevilBrain.WORLD_SPEED[NIGHTMARE if follow_flips else world] * (DEVIL_ENRAGE_MULTIPLIER if enraged else 1.0)
 	var speed := DevilBrain.speed(_devil_distance(), feel.walk_speed, feel.walk_speed * feel.sprint_multiplier, ratio, enraged)
@@ -1311,6 +1356,10 @@ func _animate_devil(delta: float) -> void:
 		return  # frozen by a Camera Flash, mid-stride
 	var goal_position := _devil_world_position()
 	var move_speed := CELL_SIZE / _devil_step_interval()
+	var net: Array = versus.devil_sample() if versus != null and versus.remote_devil and devil_active else []
+	if not net.is_empty():
+		goal_position = net[0]  # the other player's Devil, never faster than its top speed (a speed hack goes nowhere)
+		move_speed = Versus.devil_top_speed(feel)
 	if lunge_left > 0.0:
 		goal_position = Vector3(player.global_position.x, DEVIL_Y, player.global_position.z)
 		move_speed = LUNGE_SPEED
@@ -1320,7 +1369,9 @@ func _animate_devil(delta: float) -> void:
 	var face := Vector3.ZERO
 	var in_sight := devil_active and _devil_distance() <= DevilBrain.SIGHT_TILES and DevilBrain.line_of_sight(layout, world, devil_cell, player_cell)
 	var at_wall := thin_wall != DevilBrain.NOWHERE and devil_cell == thin_wall_from
-	if moved.length_squared() > 0.000001:
+	if not net.is_empty() and lunge_left <= 0.0:
+		face = Vector3(sin(net[1]), 0.0, cos(net[1]))  # where that player looks
+	elif moved.length_squared() > 0.000001:
 		face = moved
 	elif at_wall:
 		face = cell_to_world(thin_wall) - devil.position  # at the wall, staring through it at you; claws up once it pounds
@@ -1336,12 +1387,21 @@ func _animate_devil(delta: float) -> void:
 func _tick_devil(delta: float) -> void:
 	if not devil_enabled:
 		return
+	var player_devil := versus != null and versus.remote_devil
 	if not devil_active:
-		if not devil_spawning and DevilBrain.can_spawn(elapsed, devil_delay, _progress(), circles.protects(player_cell)):
+		if player_devil:
+			if elapsed >= Versus.HEAD_START:
+				_wake_devil()  # it tears out of its wall where it slept: no wake cut, the other player is already looking
+				versus.report(Versus.Event.WAKE)
+		elif not devil_spawning and DevilBrain.can_spawn(elapsed, devil_delay, _progress(), circles.protects(player_cell)):
 			_try_spawn_devil()
 		return
 	if devil_stun > 0.0:
 		devil_stun -= delta  # a Camera Flash: it neither walks nor grabs
+		return
+	if player_devil:
+		_follow_player_devil()
+		_check_catch(delta)
 		return
 	var sees := _devil_sees()
 	brain.sense(sees, false, delta)
@@ -1369,6 +1429,15 @@ func _step_devil() -> void:
 	if devil_cell != prev_devil_cell:
 		devil_facing = devil_cell - prev_devil_cell
 
+## VERSUS: the cell under the other player's Devil (the grid decides the catch, as for the AI's), kept while its body
+## passes the corner of a wall cell.
+func _follow_player_devil() -> void:
+	var cell := world_to_cell(devil.position)
+	if cell != devil_cell and layout.is_open(world, cell):
+		prev_devil_cell = devil_cell
+		devil_cell = cell
+		devil_facing = devil_cell - prev_devil_cell
+
 ## Where it walks: always at you (user, 9 Oct 2026), unless an Echo Step echo draws it aside. With Flipping Time coming
 ## it may take the wall beside you instead, to break through when the world flips (_tick_wall).
 func _devil_goal() -> Vector2i:
@@ -1390,6 +1459,8 @@ func _devil_sees() -> bool:
 ## A noise at `cell` carrying `radius` path tiles (master plan §7). At your cell it hears you (it knows where you
 ## are for a while); elsewhere it goes to look.
 func _noise(cell: Vector2i, radius: int) -> void:
+	if versus != null and versus.remote_devil:
+		return  # a player's Devil hears only footsteps and the map (VersusMatch.heard): nothing else
 	if not _hears(cell, radius):
 		return
 	if cell == player_cell:
@@ -1399,8 +1470,8 @@ func _noise(cell: Vector2i, radius: int) -> void:
 
 ## The Devil (awake) is within `radius` path tiles of `cell`: it would hear a noise there.
 func _hears(cell: Vector2i, radius: int) -> bool:
-	if not devil_active:
-		return false
+	if not devil_active and not (versus != null and versus.remote_devil):
+		return false  # asleep it hears nothing; a player's Devil listens while it sleeps
 	var from := player_dist if cell == player_cell else layout.distances(world, cell)
 	var reach := from[devil_cell.y * layout.size + devil_cell.x]
 	return reach >= 0 and reach <= radius
@@ -1431,6 +1502,8 @@ func _check_catch(delta: float) -> void:
 			else:
 				lunge_cooldown = LUNGE_MISS_STUN
 				_close_call("CLOSE CALL")
+				if versus != null:
+					versus.report(Versus.Event.STUN, LUNGE_MISS_STUN)
 		return
 	if catch_grace > 0.0 or lunge_cooldown > 0.0 or devil_retreating or circles.protects(player_cell):
 		return
@@ -1438,6 +1511,8 @@ func _check_catch(delta: float) -> void:
 	if devil_cell == player_cell or crossed:
 		lunge_left = LUNGE_TIME
 		_stand_up()
+		if versus != null:
+			versus.report(Versus.Event.LUNGE)
 
 ## Through the wall, each frame it hunts: rooms side by side, the way round long (DevilBrain.thin_wall). Flipping Time
 ## coming: it slips to the wall beside you, waits, and through the warning pounds it until the flip breaks it through
@@ -1514,6 +1589,8 @@ func _breach_thin_wall() -> bool:
 		return false
 	thin_walls += 1
 	_break_wall(wall)
+	if RunState.is_race():
+		race_breach = [wall.x, wall.y, snappedf(elapsed, 0.001)]
 	_slam_wall(wall, wall * 2 - thin_wall_from, true)
 	devil_stun = THIN_WALL_STUN
 	RunState.log_event("breach", {"floor": rule.floor_number, "act": rule.act, "gap": _devil_distance()})
@@ -1910,7 +1987,7 @@ func _enter_cell(cell: Vector2i) -> void:
 	brain.record(cell)
 	if bonus_chests.has(cell):
 		_open_detour_chest(cell)
-	if cell == layout.exit and not exit_open:
+	if cell == layout.exit and not exit_open and (versus == null or versus.runner):
 		var missing := layout.sigils.size() - sigils_collected
 		_flash_message("THE CHEST IS LOCKED   find %d more key%s" % [missing, "" if missing == 1 else "s"])
 	if traps.creak(cell):
@@ -3028,13 +3105,14 @@ func _build_pause_menu(overlays: CanvasLayer) -> void:
 	column.add_theme_constant_override("separation", 14)
 	veil.add_child(column)
 	var title := Label.new()
-	title.text = "PAUSED"
+	title.text = "THE MATCH GOES ON" if RunState.is_versus() else "PAUSED"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_override("font", DeathScreen.ui_font())
 	title.add_theme_font_size_override("font_size", 44)
 	title.add_theme_color_override("font_color", MainMenu.BONE)
 	column.add_child(title)
-	for entry: Array in [["Resume", "RESUME   [ESC]", _toggle_pause], ["Quit", "QUIT TO MENU   [Q]", _to_menu]]:
+	var quit := "LEAVE THE MATCH   [Q]" if RunState.is_versus() else "QUIT TO MENU   [Q]"
+	for entry: Array in [["Resume", "RESUME   [ESC]", _toggle_pause], ["Quit", quit, _to_menu]]:
 		var button := Button.new()
 		button.name = entry[0]
 		button.text = entry[1]
@@ -3049,11 +3127,22 @@ func _build_pause_menu(overlays: CanvasLayer) -> void:
 		column.add_child(button)
 	var hint := Label.new()
 	hint.text = "R TWICE RUNS IT AGAIN FROM THE START" if RunState.is_race() else "R TWICE RESTARTS THE ACT ON A NEW MAZE"
+	if RunState.is_versus():
+		hint.text = "LEAVING ENDS THE MATCH FOR YOU BOTH"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_override("font", DeathScreen.ui_font())
 	hint.add_theme_font_size_override("font_size", 15)
 	hint.add_theme_color_override("font_color", Color(0.55, 0.7, 0.82, 0.85))
 	column.add_child(hint)
+
+## The key bar. VERSUS (plans/12) never pauses or restarts; the runner reads a map only in Easy; the Devil has its legs.
+func _key_hints() -> Array:
+	if not RunState.is_versus():
+		return HINTS
+	if not Versus.i_run():
+		return [["WASD", "MOVE"], ["SHIFT", "CHARGE"], ["ESC", "MENU"]]
+	var keys := [["WASD", "MOVE"], ["SHIFT", "SPRINT"], ["F", "FLASHLIGHT"], ["M", "MAP"], ["ESC", "MENU"]]
+	return keys.filter(func(hint: Array) -> bool: return hint[0] != "M" or not Versus.hard)
 
 func _hud_label(hud: CanvasLayer, node_name: String, font_size: int, preset: Control.LayoutPreset, align: HorizontalAlignment) -> Label:
 	var label := Label.new()
@@ -3123,6 +3212,8 @@ func _build_status(hud: CanvasLayer) -> void:
 		floor_label.text = "%d/%d" % [RunState.daily_floor, Daily.FLOORS]
 	elif RunState.is_race():
 		floor_label.text = "#%d" % RunState.race_week
+	elif RunState.is_versus():
+		floor_label.text = "%d/2" % Versus.round_number  # the match's round
 	elif rule.act == StageRule.ABYSS_ACT:
 		floor_label.text = str(rule.floor_in_act)  # the depth
 	var stairs := _hud_art("icon_floor.png", Art.cell(menu_icons, MainMenu.Icon.MAZE, MainMenu.ICON_CELL))
@@ -3216,7 +3307,7 @@ func _build_hints(hud: CanvasLayer) -> void:
 	hud.add_child(row)
 	var cap := Art.tex(Art.HUD + "keycap.png")
 	var wide_cap := Art.tex(Art.HUD + "keycap_wide.png")
-	for hint: Array in HINTS:
+	for hint: Array in _key_hints():
 		var key: String = hint[0]
 		var label := Label.new()
 		label.text = key
@@ -3388,25 +3479,50 @@ func _finish_daily() -> void:
 			cleared, Daily.FLOORS, _format_time(Daily.result_time)], Daily.share_text(RunState.daily_date, Daily.result, Daily.result_time))
 
 ## The Long Night (plans/11): the medals' par, and the week's best run walking beside you once there is one.
+## VERSUS (plans/12): the round's glue on both machines; it holds the floor until both players are in.
+func _start_versus() -> void:
+	versus = VersusMatch.new()
+	versus.name = "Versus"
+	add_child(versus)
+	versus.begin(self)
+
 func _start_race() -> void:
 	race_par = Race.par(layout, feel.walk_speed)
+	Race.fetch_rival(RunState.race_week, _on_rival)
 	var samples := Race.load_ghost(RunState.race_week)
-	if samples.is_empty():
-		return
-	race_ghost = RaceGhost.new()
-	race_ghost.name = "RaceGhost"
-	race_ghost.samples = samples
-	race_ghost.position.y = PLAYER_HEIGHT
-	add_child(race_ghost)
-	race_ghost.build(PLAYER_MODEL, WALL_HEIGHT * PLAYER_HEIGHT_RATIO, PLAYER_MESH_Y, PLAYER_MESH_YAW, feel.walk_speed,
-			feel.walk_speed * feel.sprint_multiplier, HANDS_LAYER)  # you see it, the Devil Cams never do
+	if not samples.is_empty():
+		race_ghost = _add_ghost("RaceGhost", samples, RaceGhost.LOOK)
 
-## Every race frame: this run's ghost sample when one is due, and the best run's ghost where it was by now.
+## v2: the run just ahead of yours on the board runs with you too, ember red under its name and time.
+func _on_rival(rival: Variant) -> void:
+	var samples := Race.tape_of(rival)
+	if samples.is_empty() or game_state not in ["playing", "waking"]:
+		return  # the run ended before the rival arrived
+	rival_ghost = _add_ghost("RivalGhost", samples, RaceGhost.RIVAL_LOOK)
+	var line := "%s  %s" % [str(rival["name"]).to_upper(), Race.format(float(rival["ms"]) / 1000.0)]
+	rival_ghost.tag(line, WALL_HEIGHT * PLAYER_HEIGHT_RATIO, HANDS_LAYER)
+	if state_label != null and state_label.text.is_empty():
+		_flash_message("YOUR RIVAL RUNS WITH YOU:  " + line)
+
+## A pale copy of your body that walks `samples` (RaceGhost): you see it, the Devil Cams never do.
+func _add_ghost(ghost_name: String, samples: PackedFloat32Array, look: Color) -> RaceGhost:
+	var ghost := RaceGhost.new()
+	ghost.name = ghost_name
+	ghost.samples = samples
+	ghost.look = look
+	ghost.position.y = PLAYER_HEIGHT
+	add_child(ghost)
+	ghost.build(PLAYER_MODEL, WALL_HEIGHT * PLAYER_HEIGHT_RATIO, PLAYER_MESH_Y, PLAYER_MESH_YAW, feel.walk_speed,
+			feel.walk_speed * feel.sprint_multiplier, HANDS_LAYER)
+	return ghost
+
+## Every race frame: this run's ghost sample when one is due, and the ghosts where their runs were by now.
 func _tick_race(delta: float) -> void:
 	if RaceGhost.due(race_tape.size(), elapsed):
 		race_tape.append_array([player.global_position.x, player.global_position.z, yaw + body_turn])
-	if race_ghost != null:
-		race_ghost.seek(elapsed, delta, player.global_position)
+	for ghost: RaceGhost in [race_ghost, rival_ghost]:
+		if ghost != null:
+			ghost.seek(elapsed, delta, player.global_position)
 
 ## A key taken in the Long Night: its split, against the best run's at the same key (the last one under the exit's call).
 func _race_split() -> void:
@@ -3420,16 +3536,19 @@ func _race_split() -> void:
 	else:
 		_flash_message(line)
 
-## Out of the Long Night: the time and medal kept (Race.finish), a new best's ghost saved and sent to the board, then
-## its page once the chest has opened.
+## Out of the Long Night: the time and medal kept (Race.finish), a new best's ghost saved and sent to the board (with
+## a server, sent there to be verified first), then its page once the chest has opened.
 func _finish_race() -> void:
 	race_tape.append_array([player.global_position.x, player.global_position.z, yaw + body_turn])
 	var was := Race.best
-	var result := Race.finish(RunState.race_week, elapsed, race_splits, race_par)
+	var result := Race.finish(RunState.race_week, elapsed, race_splits, race_par, race_breach)
 	if result["best"]:
 		Race.save_ghost(RunState.race_week, race_tape)
 		if RunState.race_week == Race.this_week():  # a run begun before Monday's reset stays off the new board
-			Portal.submit_time(roundi(elapsed * 1000.0))
+			if Race.server.is_empty():
+				Portal.submit_time(roundi(elapsed * 1000.0))
+			else:
+				Race.sync(Callable())
 	RunState.end_run()
 	RunState.log_event("race", {"week": RunState.race_week, "time": snappedf(elapsed, 0.1), "medal": result["medal"],
 			"best": result["best"], "keys": layout.sigils.size()})
@@ -3451,7 +3570,9 @@ func _show_race_result(result: Dictionary, was: float) -> void:
 		if elapsed > times[id]:
 			lines.append("Next: %s at %s." % [id.to_upper(), Race.format(times[id])])
 			break
-	if result["best"] and Portal.ready():
+	if result["best"] and not Race.server.is_empty():
+		lines.append(Race.board_note())
+	elif result["best"] and Portal.ready():
 		lines.append("On the CrazyGames board: the top 3 and the top 1%, 5% and 10% earn trophies when the week ends.")
 	lines.append("Your ghost runs your best with you next time. A new maze opens every Monday.")
 	_show_ending("THE LONG NIGHT  #%d  ·  %s" % [RunState.race_week, got.to_upper()], "\n".join(lines),
@@ -3592,6 +3713,8 @@ func _next_floor() -> void:
 	get_tree().reload_current_scene()
 
 func _to_menu() -> void:
+	if RunState.is_versus():
+		Net.leave()  # the other player hears you left (the relay tells them)
 	get_tree().paused = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_tree().change_scene_to_file(DeathScreen.MENU_SCENE)
@@ -3638,6 +3761,9 @@ func _lose_game(cause: String = "devil") -> void:
 	_stop_tension_audio()
 	_show_message("")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if versus != null:
+		versus.round_over(Versus.Result.CAUGHT if cause == "devil" else Versus.Result.TIME)
+		return  # no death screen, revive or bank: VersusMatch shows the round
 	_count("deaths")
 	_count("deaths_" + cause)
 	if RunState.is_daily() and fixed_seed == 0:
@@ -3815,7 +3941,7 @@ func _build_devil_corner(hud: CanvasLayer) -> void:
 ## Its live eyes and its distance, which pulse faster, amber then red, as it closes in. Only while it hunts on a live
 ## floor: its glare lights the real maze, so it goes out with the corner.
 func _update_devil_corner() -> void:
-	var on := devil_active and game_state == "playing"
+	var on := devil_active and game_state == "playing" and not (versus != null and Versus.hard)  # Hard: no Devil Cam
 	devil_corner.visible = on
 	var eye := _devil_eye(live_cam)
 	(eye.get_child(0) as SpotLight3D).visible = on
@@ -3964,6 +4090,8 @@ func _toggle_map() -> void:
 				_stand_up()
 				paper_map.open()
 				map_opened_at = elapsed
+				if versus != null:
+					versus.heard(Versus.Sound.MAP, Versus.NOISE_MAP)  # it rustles: a player's Devil hears that
 				_refresh_minimap()
 				if fixed_seed == 0:
 					RunState.log_event("map_open", {"floor": rule.floor_number, "act": rule.act, "world": world,

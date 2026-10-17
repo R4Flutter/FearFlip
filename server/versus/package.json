@@ -1,0 +1,15 @@
+{
+  "name": "fearflip-versus",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.3",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.0"
+  }
+}

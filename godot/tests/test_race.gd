@@ -24,6 +24,8 @@ func teardown() -> void:
 		RunState.leave_daily()
 	MetaState.unlocked.clear()
 	MetaState.equipped = {}
+	Race.server = Race.SERVER
+	Race.guest = false
 	_fresh()
 	RunState.start_run(1)
 
@@ -150,6 +152,120 @@ func test_a_race_carries_the_same_kit_and_never_touches_the_campaign() -> void:
 	RunState.end_run()
 	RunState.leave_daily()
 	assert_eq(RunState.current_floor, 3, "the campaign as its save left it")
+
+
+# --- v2: the server (server/long-night) ----------------------------------------------------------------------------
+
+func test_the_server_reads_the_run_the_way_the_game_sends_it() -> void:
+	var body := Race.run_body("a.b.c", 3, 401.3456, [10.0, 20.5], PackedFloat32Array([1.0, 2.0, 0.5]), [5, 6, 40.1])
+	assert_eq(body["tape"], "AACAPwAAAEAAAAA/", "base64 little-endian floats: server/long-night/test/checks.test.js pins the same")
+	assert_eq(body["time_ms"], 401346)
+	assert_eq(body["week"], 3)
+	assert_eq(body["splits"], [10.0, 20.5])
+	assert_eq(body["breach"], [5, 6, 40.1])
+	assert_eq(Race.tape_of({"tape": body["tape"]}), PackedFloat32Array([1.0, 2.0, 0.5]), "a rival's tape comes back the same way")
+	assert_true(Race.tape_of({"tape": "AACAPw=="}).is_empty(), "not whole samples")
+	assert_true(Race.tape_of(null).is_empty())
+
+
+func test_your_place_on_the_board_is_read_by_the_id_in_your_token() -> void:
+	var payload := Marshalls.utf8_to_base64(JSON.stringify({"userId": "UOuZ-8_b", "username": "RustyCake.ZU9H"}))
+	payload = payload.replace("+", "-").replace("/", "_").trim_suffix("=").trim_suffix("=")
+	assert_eq(Race.player_of("eyJhbGciOiJSUzI1NiJ9.%s.c2ln" % payload), "UOuZ-8_b")
+	assert_eq(Race.player_of(""), "", "a guest")
+	assert_eq(Race.player_of("not a token"), "")
+
+
+func test_whoever_took_your_place_is_named() -> void:
+	var board: Dictionary = JSON.parse_string(JSON.stringify({"you": {"rank": 4, "ms": 401300},
+			"top": [{"rank": 1, "name": "Ash", "ms": 390000}, {"rank": 2, "name": "Bo", "ms": 399000},
+				{"rank": 3, "name": "Vex.QX", "ms": 400900}, {"rank": 4, "name": "", "ms": 401300, "me": true}],
+			"around": [{"rank": 3, "name": "Vex.QX", "ms": 400900}, {"rank": 4, "name": "", "ms": 401300, "me": true}]}))
+	assert_eq(Race.passed_line(board, 3), "VEX.QX TOOK YOUR 3RD PLACE BY 0.4 S")
+	assert_eq(Race.passed_line(board, 4), "", "still where you were")
+	assert_eq(Race.passed_line(board, 0), "", "first look this week")
+	board["you"]["rank"] = 40.0
+	assert_eq(Race.passed_line(board, 15), "25 RUNNERS PASSED YOU", "your old place is off the rows sent")
+	board["you"]["rank"] = null
+	assert_eq(Race.passed_line(board, 15), "", "past the ranks the server counts")
+	for pair: Array in [[1, "1ST"], [2, "2ND"], [3, "3RD"], [4, "4TH"], [11, "11TH"], [12, "12TH"], [13, "13TH"],
+			[21, "21ST"], [22, "22ND"], [101, "101ST"], [111, "111TH"]]:
+		assert_eq(Race.ordinal(pair[0]), pair[1])
+
+
+## A best goes to the server once: its answer (taken, or refused and why) is kept, a new best asks again, a new week
+## starts clean.
+func test_a_best_is_answered_for_once() -> void:
+	Race.finish(5, 300.0, [100.0], 400.0, [3, 4, 50.0])
+	assert_eq(Race.breach, [3, 4, 50.0], "where the Devil broke through goes with it")
+	assert_eq(Race.board_note(), "Sending your time to the board...")
+	Race.sent = 300000
+	Race.refused = "too fast"
+	Race.seen_rank = 7
+	MetaState.save()
+	_relaunch()
+	assert_eq(Race.sent, 300000, "kept in the profile")
+	assert_eq(Race.refused, "too fast")
+	assert_eq(Race.seen_rank, 7)
+	assert_true(Race.board_note().contains("too fast"), Race.board_note())
+	Race.finish(5, 290.0, [90.0], 400.0)
+	assert_eq(Race.refused, "", "a new best is a new question")
+	assert_true(Race.breach.is_empty())
+	assert_eq(Race.board_note(), "Sending your time to the board...")
+	Race.sent = 290000
+	assert_true(Race.board_note().begins_with("Verified"), Race.board_note())
+	Race.guest = true
+	assert_true(Race.board_note().begins_with("Log in"), Race.board_note())
+	Race.refresh(6)
+	assert_true(Race.sent == 0 and Race.seen_rank == 0 and Race.refused.is_empty() and Race.breach.is_empty())
+
+
+func test_without_a_server_the_client_submits_as_before() -> void:
+	Race.server = ""
+	var called := [false]
+	Race.sync(func(_board: Variant) -> void: called[0] = true)
+	Race.fetch_rival(1, func(_rival: Variant) -> void: called[0] = true)
+	assert_false(called[0], "no requests: v1's Portal.submit_time stands")
+
+
+## The server checks each week's runs against what export_weeks.gd wrote from this game: the maze open in either world,
+## its keys, and when each Flipping Time begins (the race's only flips: a stepped schedule within a frame of the
+## frame-by-frame one). The committed export must still match the game, or honest runs are refused.
+func test_the_server_holds_the_mazes_the_game_builds() -> void:
+	var n := 3
+	var maze := Race.layout(n)
+	var week := Race.export_week(n)
+	var open: String = week["open"]
+	assert_eq(open.length(), maze.size * maze.size)
+	for i in open.length():
+		assert_eq(open[i] == "1", maze.is_open(FloorLayout.ANY, maze.cell_at(i)))
+	assert_eq(week["spawn"], [maze.spawn.x, maze.spawn.y])
+	assert_eq(week["exit"], [maze.exit.x, maze.exit.y])
+	assert_eq(week["keys"].size(), maze.sigils.size())
+	var flips: Array[float] = week["flips"]
+	assert_gt(flips.size(), 20, "an hour of Flipping Times")
+	var mod := func(key: String, base: float) -> float: return Cards.fold(Race.cards(n), key, base)
+	var flip := FlipSystem.for_floor(Race.floor_seed(n), StageRule.for_floor(Race.STAGE_FLOOR), mod)
+	var frame := 1.0 / 60.0
+	var k := 0
+	for step in roundi(600.0 / frame):
+		var was := flip.forced_active
+		flip.advance(frame, true, true)
+		if flip.forced_active and not was:
+			assert_true(absf((step + 1) * frame - flips[k]) <= (2 * k + 2) * frame, "flip %d: %f vs %f" % [k, (step + 1) * frame, flips[k]])
+			k += 1
+	assert_gt(k, 5)
+	RunState.start_race()
+	for key in ["flip_interval", "flip_duration"]:
+		assert_eq(RunState.mod(key, 1.0), mod.call(key, 1.0), "the race folds the same card the export does: " + key)
+	var path := ProjectSettings.globalize_path("res://").path_join("../server/long-night/src/weeks.json")
+	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	assert_true(data is Dictionary, "server/long-night/src/weeks.json: run export_weeks.gd")
+	var now := str(Race.this_week())
+	assert_true(data["weeks"].has(now), "the server must know this week's maze: run export_weeks.gd, then redeploy")
+	var fresh := func(value: Variant) -> String: return JSON.stringify(JSON.parse_string(JSON.stringify(value)))
+	assert_eq(JSON.stringify(data["weeks"][now]), fresh.call(Race.export_week(int(now))), "the maze code changed: re-export")
+	assert_eq(JSON.stringify(data["rules"]), fresh.call(Race.server_rules()), "the pace or stamina changed: re-export")
 
 
 func test_times_read_to_the_tenth() -> void:

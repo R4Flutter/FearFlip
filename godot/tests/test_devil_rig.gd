@@ -265,6 +265,49 @@ func test_kneeling_and_reaching_tear_no_strips() -> void:
 	assert_true(_worst_growth(cowering, mi, rest) < 0.11, "cowering: longest edge growth %.3f" % _worst_growth(cowering, mi, rest))
 
 
+## The dashboard's lobby stance (user, 17 Oct 2026: "look straight"; map removed 17 Oct 2026): the right arm hangs loose at the side
+## and nothing tears.
+func test_the_lobby_stance_tears_no_strips() -> void:
+	var rig := _player()
+	var mi: MeshInstance3D = rig.skeleton.get_parent().find_children("*", "MeshInstance3D", true, false)[0]
+	var rest := _skinned(rig, mi)
+	_flee(rig, 1, 0.0)
+	rig.showcase(1.0)
+	assert_true(rig.skeleton.find_child("FoldedMap", false, false) == null, "no folded map in the lobby stance")
+	assert_true(_worst_growth(rig, mi, rest) < 0.11, "longest edge growth %.3f" % _worst_growth(rig, mi, rest))
+	_flee(rig, 1, 0.0, 0.55)  # the demon awake (a play control focused)
+	rig.showcase(1.0)
+	assert_true(_worst_growth(rig, mi, rest) < 0.11, "tensed: longest edge growth %.3f" % _worst_growth(rig, mi, rest))
+
+
+## The lobby stance plants the feet (user, 17 Oct 2026: "keep foot static on the floor, let upper body move"): the
+## breathing, the sway, the demon waking (fear) and a flinch move the upper body, never the boots or the body's height.
+func test_the_lobby_stance_plants_the_feet() -> void:
+	var rig := _player()
+	var boots: Array[String] = ["LeftFoot", "RightFoot", "LeftToeBase", "RightToeBase"]
+	_flee(rig, 1, 0.0)
+	var height := rig.showcase(1.0)
+	var leg := _at(rig, "LeftUpLeg").distance_to(_at(rig, "LeftFoot"))
+	var planted: Array[Vector3] = []
+	for bone in boots:
+		planted.append(_at(rig, bone))
+	var head := _at(rig, "Head")
+	var drift := 0.0
+	var lift := 0.0
+	var nod := 0.0
+	for frame in 180:  # three seconds: calm, then tense, a flinch on the way
+		if frame == 90:
+			rig.startle(1.0)
+		_flee(rig, 1, 0.0, 0.0 if frame < 60 else 0.55)
+		lift = maxf(lift, absf(rig.showcase(1.0) - height))
+		for i in boots.size():
+			drift = maxf(drift, _at(rig, boots[i]).distance_to(planted[i]))
+		nod = maxf(nod, _at(rig, "Head").distance_to(head))
+	assert_true(drift < leg * 0.002, "the boots moved %.4f (leg %.3f)" % [drift, leg])
+	assert_true(lift < 0.0001, "the body rose or sank %.4f m" % lift)
+	assert_true(nod > leg * 0.02, "the upper body moves: head %.4f (leg %.3f)" % [nod, leg])
+
+
 ## How much the most stretched edge of the skin has grown since `rest` (mesh units).
 func _worst_growth(rig: DevilRig, mi: MeshInstance3D, rest: PackedVector3Array) -> float:
 	var posed := _skinned(rig, rig.skeleton.get_parent().find_children("*", "MeshInstance3D", true, false)[0])

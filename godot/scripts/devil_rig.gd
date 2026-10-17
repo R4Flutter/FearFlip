@@ -65,6 +65,18 @@ const WELD := 0.45
 const MAP_HELD := Vector2(0.2, -0.04)
 const MAP_HALF_WIDTH := 0.11
 const MAP_SIZE := Vector2(0.26, 0.19)
+## showcase() (the dashboard's lobby stance, with attitude): the feet stay planted (user, 17 Oct 2026: "keep foot static
+## on the floor, let upper body move"): the hips and legs hold one stance, the knees bent SHOWCASE_BEND degrees and the
+## right one eased SHOWCASE_KNEE more (the weight on the left leg), whatever flee()'s idle, fear or a flinch would do with
+## them. Above them the body sways SHOWCASE_SWAY degrees side to side, the chest lifts SHOWCASE_CHEST degrees, the left
+## fist sits on the hip SHOWCASE_FIST from the hips (out to the left, forward, up; skeleton units), and the right arm
+## hangs loose, the elbow bent SHOWCASE_ELBOW.
+const SHOWCASE_BEND := 4.0
+const SHOWCASE_SWAY := 2.0
+const SHOWCASE_CHEST := 8.0
+const SHOWCASE_KNEE := 10.0
+const SHOWCASE_FIST := Vector3(0.11, 0.0, 0.02)
+const SHOWCASE_ELBOW := 15.0
 
 ## Re-weighted mesh, shared by every devil and kept across scene reloads.
 static var _smooth_mesh: ArrayMesh
@@ -406,6 +418,38 @@ func _map_sheet() -> MeshInstance3D:
 			_sheet.layers = (body[0] as MeshInstance3D).layers  # the Devil Cams see it; your own eyes don't
 		skeleton.add_child(_sheet)
 	return _sheet
+
+
+## The dashboard's lobby stance over a standing flee(), with attitude: chest out, the weight on the left leg (the right
+## knee eased), the left fist on the hip, the right arm loose at the side, face to the front. The feet stay planted: only
+## the upper body breathes, sways and tenses, and a flinch takes the hands up to the chest. Mixed in by `w`. Returns the
+## body's vertical offset (metres) for the stance (in place of flee()'s at w = 1).
+func showcase(w: float) -> float:
+	if skeleton == null or w <= 0.0:
+		return 0.0
+	var forward := _left_axis.cross(Vector3.UP)
+	var steady := w * (1.0 - _startle * _bump(_startle_t, 0.0, 0.07, 0.15, STARTLE_TIME))
+	# Planted: the hips and legs hold still, feet flat (the right heel a little up), so the boots never shift on the
+	# floor; flee()'s slow weight shift moves up to the waist instead.
+	var bend := deg_to_rad(SHOWCASE_BEND)
+	_mix("Hips", Quaternion.IDENTITY, w)
+	for side: String in ["Left", "Right"]:
+		var ease_off := deg_to_rad(SHOWCASE_KNEE) if side == "Right" else 0.0
+		_mix(side + "UpLeg", Quaternion(_left_axis, -bend - ease_off * 0.5), w)
+		_mix(side + "Leg", Quaternion(_left_axis, 2.0 * bend + ease_off), w)
+		_mix(side + "Foot", Quaternion(_left_axis, -bend), w)
+		_mix(side + "ToeBase", Quaternion.IDENTITY, w)
+	_turn(_bones["Spine"], Quaternion(forward, deg_to_rad(SHOWCASE_SWAY) * sin(_idle_time * 0.7)), w)
+	for bone: String in ["Spine1", "Spine2"]:
+		_turn(_bones[bone], Quaternion(_left_axis, -deg_to_rad(SHOWCASE_CHEST) * 0.5), w)
+	var hips := skeleton.get_bone_global_pose(_bones["Hips"]).origin
+	var on_hip := hips + _left_axis * SHOWCASE_FIST.x + forward * SHOWCASE_FIST.y + Vector3.UP * SHOWCASE_FIST.z
+	# The elbow out, back and down: any higher and the jacket's side pulls into a web under the arm.
+	_put_palm("Left", on_hip, _left_axis - forward * 0.6 + Vector3.DOWN * 0.6, steady)
+	_curl("Left", deg_to_rad(FIST.y), 0.0, w, THUMB_SHARE)
+	_turn(_bones["RightForeArm"], Quaternion(_left_axis, -deg_to_rad(SHOWCASE_ELBOW)), steady)
+	grip("Right", w)
+	return -_crouch_sink(bend) * w
 
 
 ## Which way the body turns and how it walks for a move (`velocity` in the body's own space, -Z ahead): x = the turn

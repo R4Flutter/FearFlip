@@ -1,13 +1,16 @@
 class_name MainMenu
 extends Control
-## Title dashboard. Key art (hellscape + additive demon apparition + flickering braziers) under fog,
-## embers and lightning, with the hero on his own parallax layer. The left column is the menu and the hub
-## (plans/06 P5: Altar, Mirror, Bestiary, Archive); the right side is the unfinished business: shards, the
-## next unlock, the next shortcut, PLAY and each act's mastery stars.
-## Focusing a play control wakes the demon, reddens the fog and turns the word FLIP upside down.
+## Title dashboard. Key art (lobby_bg.png: a terrace over the maze, flickering braziers; no demon over its sky, user
+## 17 Oct 2026) under fog, embers and lightning, with your body in 3D standing on the terrace in the middle, BGMI-lobby
+## style (LobbyStage: feet planted, a drag turns it, a tap makes it flinch); it rides the key art's parallax and zoom, so
+## it never slides on the floor. The left column is the menu and the hub (plans/06 P5: Altar, Mirror, Bestiary,
+## Archive); the right side, one column edge for everything, is the unfinished business: shards, the next unlock, the
+## next shortcut, PLAY and each act's mastery stars.
+## Focusing a play control wakes the demon: the fog reddens, the body tenses and the word FLIP turns upside down.
 ## Art lives in assets/images/menu/ (originals in src/, ignored by Godot); see PROMPTS.md there.
 
 const GAME_SCENE := "res://scenes/main.tscn"
+const LobbyStage := preload("res://scripts/lobby_stage.gd")
 const ART := "res://assets/images/menu/"
 const UI_FONT := "res://assets/fonts/ui.ttf"
 ## The menu theme: a 30 s seamless orchestral loop (ElevenLabs, 9 Oct 2026).
@@ -36,15 +39,10 @@ const LOGO_SLAM := 1.6
 const BLEED := 40.0
 const PARALLAX_PX := 14.0
 const PARALLAX_FOLLOW := 4.0
-const HERO_DEPTH := 1.8  # the hero is closer than the key art, so he slides further
-const HERO_BREATH := 1.012
 const FLICKER_FOLLOW := 10.0
 const INTRO_ZOOM := 1.12
 const DRIFT_ZOOM := 1.04
 const DRIFT_TIME := 26.0
-const DEMON_ALPHA := Vector2(0.45, 0.75)
-const DEMON_SWELL := 1.03
-const DEMON_BREATH := 3.6
 const THUNDER_EVERY := Vector2(6.0, 13.0)
 const PRELOAD_AFTER := 1.0
 
@@ -57,8 +55,14 @@ const MENU_TOP := 146.0
 const ROW_SIZE := Vector2(268, 60)  # eight rows (with SETTINGS) fit above QUIT
 const ROW_GAP := 6
 const RIGHT_W := 454.0
+## The right side's plates span it edge to edge, like the tabs, PLAY and the act cards under them.
 const QUEST_TOP := 72.0
-const QUEST_SIZE := Vector2(376, 82)
+const QUEST_SIZE := Vector2(RIGHT_W, 82)
+## ui_frame.png's ornate ends (px of the art each): a plate stretches only between them (_plate).
+const FRAME_CAP := 96
+## Shades over the key art behind the menu column and the right side (darkest at the edge, clear this far in).
+const SHADE := Vector2(0.8, 0.45)
+const RIGHT_SHADE := Vector2(0.6, 0.42)
 const PLAY_TOP := 382.0
 const PLAY_SIZE := Vector2(454, 151)
 const CARD_TOP := 546.0
@@ -72,17 +76,18 @@ const PAGE_SLIDE := 220.0
 const PAGE_TIME := 0.35
 const SWIPE_MIN := 70.0
 const DRAG_FOLLOW := 0.6
-const HERO_X := 300.0
-const HERO_H := 500.0
-const HERO_SINK := 14.0
+## The 3D hero's view: centred in the gap between the menu column and the right side. A press that moves less than
+## TAP_SLOP px on him is a tap.
+const LOBBY := Rect2(268, 0, 560, 720)
+const TAP_SLOP := 8.0
 # Spots on menu_bg.png, as fractions of the image.
 const PORTAL := Vector2(0.715, 0.40)
 const PORTAL_SIZE := Vector2(0.16, 0.3)
 const BRAZIERS := [Vector2(0.335, 0.565), Vector2(0.383, 0.565), Vector2(0.522, 0.625),
 		Vector2(0.815, 0.695), Vector2(0.888, 0.53), Vector2(0.972, 0.64)]
+## The same on lobby_bg.png (its two braziers on the parapet; it has no gate, so no portal glow).
+const LOBBY_BRAZIERS := [Vector2(0.17, 0.435), Vector2(0.926, 0.435)]
 const BRAZIER_SIZE := Vector2(0.06, 0.1)
-const DEMON_AT := Vector2(0.56, 0.14)
-const DEMON_SIZE := Vector2(0.38, 0.47)
 
 const ICON_CELL := 160
 const ICON_COLUMNS := 4
@@ -99,8 +104,6 @@ const PANEL_BORDER := Color(0.45, 0.3, 0.25)
 const MEDAL_TINTS := {"bronze": Color(0.85, 0.52, 0.3), "silver": Color(0.82, 0.86, 0.92), "gold": GOLD, "devil": BLOOD}
 const FOG_CALM := Color(0.5, 0.18, 0.42, 0.16)
 const FOG_AWAKE := Color(0.7, 0.08, 0.05, 0.26)
-const DEMON_AWAKE := Color(1.6, 1.4, 1.4)
-const DEMON_STRUCK := Color(2.4, 2.2, 2.4)
 const LIGHTNING := Color(0.55, 0.45, 1.0, 0.22)
 ## Act mastery stars (plans/06 D6) in the row under PLAY.
 const STAR_SIZE := 22.0
@@ -197,11 +200,9 @@ var _frame: Texture2D
 var _frame_active: Texture2D
 var _icons: Texture2D
 var _stage: Control
-var _demon: TextureRect
 var _portal: TextureRect
 var _glows: Array[TextureRect] = []
-var _hero: TextureRect
-var _hero_rise := 0.0
+var _lobby: LobbyStage
 var _flash: ColorRect
 var _atmos: ShaderMaterial
 var _logo: Control
@@ -215,15 +216,34 @@ var _quests: Array[Control] = []
 var _play: Button
 var _cards: Array[Button] = []
 var _shard_count: Label
-## The right side's two pages (plans/11): the campaign's (quests, PLAY, act stars, as it always was) and the Long
-## Night's, a weekly race beside it. _page is the one showing; the tabs and a sideways slide switch them.
+## The right side's pages (plans/11, plans/12): the campaign's (quests, PLAY, act stars, as it always was), the Long
+## Night's (a weekly race beside it) and VERSUS's (a 1v1 room beside that). _page is the one showing; the tabs and a
+## sideways slide switch them.
 var _campaign: Control
 var _pages: Array[Control] = []
 var _page := 0
 var _tab_bar: Control
 var _tabs: Array[Button] = []
 var _race_play: Button
+## The Long Night's board tile: your place there once the server answers (plans/11 v2).
+var _race_board: Control
+## VERSUS (plans/12): its big button, the room tile (code and how it stands), the EASY/HARD tile, the code you type to
+## join, and true once both are in and the round is loading (the floor's messages wait for it in Net's inbox).
+var _versus_play: Button
+var _versus_room: Control
+var _versus_mode: Control
+var _versus_code: LineEdit
+var _versus_starting := false
+## A short note over the room's state for a moment ("COPIED"), and when it went up (ms).
+var _versus_note := ""
+var _versus_note_at := 0
+## The browser's answer to a copy, kept alive until it comes (a page's clipboard can refuse).
+var _copy_js: Array[JavaScriptObject] = []
+## An invite link opens its room once a launch (CrazyGames instant multiplayer), not every time the menu comes back.
+static var _invite_taken := false
 var _drag_from := Vector2.INF
+## Where a press on the hero started (he turns while it's held), INF when none.
+var _spin_from := Vector2.INF
 var _page_tween: Tween
 ## The open hub screen (null when none) and the row focus returns to when it closes.
 var _screen: Control
@@ -251,8 +271,10 @@ func _ready() -> void:
 	Settings.load_settings()
 	Settings.apply()
 	var from_race := RunState.is_race()
+	var from_versus := RunState.is_versus()
 	if not RunState.is_campaign():
 		RunState.leave_daily()  # the menu always holds the campaign (back from a race, its page shows)
+	Net.leave()  # a room lives only through its match
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_body = _base_font()
 	_display = _tracked(_body, 1)
@@ -266,6 +288,9 @@ func _ready() -> void:
 	_build_right()
 	if from_race:
 		_show_page(1, false)
+	elif from_versus:
+		_show_page(2, false)
+	_take_invite()
 	_build_how_to()
 	_build_acts()
 	_fade = ColorRect.new()
@@ -282,11 +307,15 @@ func _process(delta: float) -> void:
 	var target := (get_local_mouse_position() / size - Vector2(0.5, 0.5)) * -2.0 * PARALLAX_PX
 	_parallax = _parallax.lerp(target, 1.0 - exp(-PARALLAX_FOLLOW * delta))
 	_stage.position = Vector2(-BLEED, -BLEED) + _parallax
-	_hero.position = Vector2(HERO_X, size.y - HERO_H + HERO_SINK + _hero_rise) + _parallax * HERO_DEPTH
+	# The body rides the key art (parallax, intro zoom, drift), so its boots stay on one spot of the painted floor.
+	_lobby.position = _stage.get_transform() * (LOBBY.position + Vector2.ONE * BLEED)
+	_lobby.scale = _stage.scale
+	_lobby.parallax = _parallax / PARALLAX_PX
 	var flicker := 1.0 - exp(-FLICKER_FOLLOW * delta)
 	for glow in _glows:
 		glow.modulate.a = lerpf(glow.modulate.a, randf_range(0.45, 1.0), flicker)
 	_portal.modulate.a = 0.75 + 0.2 * sin(Time.get_ticks_msec() * 0.0017)
+	_tick_versus_room()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -417,10 +446,6 @@ func _intro() -> void:
 	_stage.scale = Vector2.ONE * INTRO_ZOOM
 	tween.tween_property(_stage, "scale", Vector2.ONE, 2.6).set_trans(Tween.TRANS_SINE)
 	tween.tween_callback(_drift).set_delay(2.6)
-	_hero_rise = ENTER_SLIDE
-	_hero.modulate.a = 0.0
-	tween.tween_property(self, "_hero_rise", 0.0, 1.4).set_delay(0.2).set_trans(Tween.TRANS_EXPO)
-	tween.tween_property(_hero, "modulate:a", 1.0, 0.8).set_delay(0.2)
 
 	_logo.scale = Vector2.ONE * LOGO_SLAM
 	_logo.modulate.a = 0.0
@@ -478,11 +503,12 @@ func _set_nightmare(on: bool) -> void:
 	var time := FLIP_IN_TIME if on else FLIP_OUT_TIME
 	_world_tween = create_tween().set_parallel().set_trans(Tween.TRANS_QUINT).set_ease(Tween.EASE_OUT)
 	_world_tween.tween_property(_atmos, "shader_parameter/fog_color", FOG_AWAKE if on else FOG_CALM, time)
-	_world_tween.tween_property(_demon, "modulate", DEMON_AWAKE if on else Color.WHITE, time)
 	_world_tween.tween_property(_flip_word, "scale:y", -1.0 if on else 1.0, WORD_FLIP_TIME).set_trans(Tween.TRANS_BACK)
+	_lobby.set_nightmare(on)
 
 
-## Lightning: a double flicker that lights the demon up. Gentle (low alpha, >= 6 s apart), not a strobe.
+## Lightning: a double flicker over the key art that lights the body from behind. Gentle (low alpha, >= 6 s apart),
+## not a strobe.
 func _on_thunder() -> void:
 	_thunder.start(randf_range(THUNDER_EVERY.x, THUNDER_EVERY.y))
 	if _nightmare_on or _how_to.visible or _acts.visible or _leaving or Settings.reduce_flashing:
@@ -493,9 +519,7 @@ func _on_thunder() -> void:
 	flash.tween_property(_flash, "color:a", 0.04, 0.06)
 	flash.tween_property(_flash, "color:a", LIGHTNING.a * 0.7, 0.04)
 	flash.tween_property(_flash, "color:a", 0.0, 0.6)
-	var demon := _retarget(_demon).set_parallel(false)
-	demon.tween_property(_demon, "modulate", DEMON_STRUCK, 0.05)
-	demon.tween_property(_demon, "modulate", Color.WHITE, 0.9)
+	_lobby.thunder()
 
 
 func _shake(strength: float, time: float) -> void:
@@ -552,7 +576,7 @@ func _retarget(node: Node) -> Tween:
 # --- Build: world -----------------------------------------------------------------------------
 
 ## Key art on an oversized, slowly drifting stage. The AspectRatioContainer gives the art its own
-## aspect, so glows and the demon can be pinned to spots on the image as fractions.
+## aspect, so glows can be pinned to spots on the image as fractions.
 func _build_stage() -> void:
 	_stage = Control.new()
 	_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -563,7 +587,9 @@ func _build_stage() -> void:
 	_stage.offset_bottom = BLEED
 	_stage.resized.connect(func() -> void: _stage.pivot_offset = _stage.size * 0.5)
 	add_child(_stage)
-	var bg: Texture2D = load(ART + "menu_bg.png")
+	# lobby_bg.png (a floor for the 3D hero to stand on, the maze beyond) replaces menu_bg.png once it exists.
+	var lobby_bg := Art.tex(ART + "lobby_bg.png")
+	var bg: Texture2D = lobby_bg if lobby_bg != null else load(ART + "menu_bg.png")
 	var fit := AspectRatioContainer.new()
 	fit.ratio = float(bg.get_width()) / bg.get_height()
 	fit.stretch_mode = AspectRatioContainer.STRETCH_COVER
@@ -576,22 +602,16 @@ func _build_stage() -> void:
 	_image(art, bg, TextureRect.STRETCH_SCALE, true)
 	var glow := _glow_texture(EMBER, 64)
 	_portal = _pin(art, glow, PORTAL, PORTAL_SIZE)
-	for spot: Vector2 in BRAZIERS:
+	_portal.visible = lobby_bg == null
+	for spot: Vector2 in BRAZIERS if lobby_bg == null else LOBBY_BRAZIERS:
 		_glows.append(_pin(art, glow, spot, BRAZIER_SIZE))
-	# Painted on black, added onto the sky: black vanishes and the demon reads as an apparition.
-	_demon = _pin(art, load(ART + "menu_demon.png"), DEMON_AT, DEMON_SIZE)
-	_demon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_demon.resized.connect(func() -> void: _demon.pivot_offset = _demon.size * 0.5)
-	_demon.self_modulate.a = DEMON_ALPHA.x
-	var breath := _demon.create_tween().set_loops().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	breath.tween_property(_demon, "self_modulate:a", DEMON_ALPHA.y, DEMON_BREATH)
-	breath.parallel().tween_property(_demon, "scale", Vector2.ONE * DEMON_SWELL, DEMON_BREATH)
-	breath.tween_property(_demon, "self_modulate:a", DEMON_ALPHA.x, DEMON_BREATH)
-	breath.parallel().tween_property(_demon, "scale", Vector2.ONE, DEMON_BREATH)
 
-	var shade_texture := _gradient(Color(0, 0, 0, 0.8), Color(0, 0, 0, 0), Vector2(1, 0))
-	shade_texture.gradient.set_offset(1, 0.45)
+	var shade_texture := _gradient(Color(0, 0, 0, SHADE.x), Color(0, 0, 0, 0), Vector2(1, 0))
+	shade_texture.gradient.set_offset(1, SHADE.y)
 	_image(self, shade_texture, TextureRect.STRETCH_SCALE, true)
+	var right_shade := _gradient(Color(0, 0, 0, 0), Color(0, 0, 0, RIGHT_SHADE.x), Vector2(1, 0))
+	right_shade.gradient.set_offset(0, 1.0 - RIGHT_SHADE.y)
+	_image(self, right_shade, TextureRect.STRETCH_SCALE, true)
 
 	_flash = ColorRect.new()
 	_flash.color = Color(LIGHTNING, 0.0)
@@ -600,13 +620,9 @@ func _build_stage() -> void:
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_flash)
 
-	var hero: Texture2D = load(ART + "menu_hero.png")
-	_hero = _image(self, hero, TextureRect.STRETCH_KEEP_ASPECT)
-	_hero.size = Vector2(HERO_H * hero.get_width() / hero.get_height(), HERO_H)
-	_hero.pivot_offset = Vector2(_hero.size.x * 0.5, _hero.size.y)
-	var stance := _hero.create_tween().set_loops().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	stance.tween_property(_hero, "scale:y", HERO_BREATH, 2.4)
-	stance.tween_property(_hero, "scale:y", 1.0, 2.4)
+	_lobby = LobbyStage.new()
+	_place(_lobby, LOBBY.position, LOBBY.size)
+	add_child(_lobby)
 
 	var embers := CPUParticles2D.new()
 	embers.amount = 70
@@ -732,8 +748,8 @@ func _row(title: String, sub: String, icon: Icon, action: Callable, primary := f
 	var content := _holder(row, "Content")
 	content.modulate.a = IDLE_ALPHA
 	content.pivot_offset = Vector2(0, ROW_SIZE.y * 0.5)  # press scales from the left edge
-	_image(content, _frame, TextureRect.STRETCH_SCALE, true)
-	var active := _image(content, _frame_active, TextureRect.STRETCH_SCALE, true)
+	_plate(content, _frame)
+	var active := _plate(content, _frame_active)
 	active.name = "Active"
 	active.modulate.a = 0.0
 	if primary:
@@ -803,6 +819,7 @@ func _build_right() -> void:
 	for act_number in range(1, StageRule.ACT_COUNT + 1):
 		_star_tile(act_number)
 	_build_race_page()
+	_build_versus_page()
 	_build_tabs()
 
 
@@ -886,10 +903,11 @@ func _quest(y: float, title: String, hint: String, done: int, goal: int, icon: I
 	panel.position = Vector2(RIGHT_W - QUEST_SIZE.x, y)
 	panel.size = QUEST_SIZE
 	_campaign.add_child(panel)
-	_image(panel, _frame, TextureRect.STRETCH_SCALE, true)
+	_plate(panel, _frame)
 	_place(_image(panel, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2(22, 15), Vector2(52, 52))
 	_label(panel, title, 17, BONE).position = Vector2(86, 11)
 	_label(panel, hint, 11, DIM).position = Vector2(87, 34)
+	var chest_x := QUEST_SIZE.x - 72.0
 	done = mini(done, goal)
 	var bar := ProgressBar.new()
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -904,9 +922,11 @@ func _quest(y: float, title: String, hint: String, done: int, goal: int, icon: I
 	bar.add_theme_stylebox_override("background", track)
 	bar.add_theme_stylebox_override("fill", fill)
 	panel.add_child(bar)
-	_place(bar, Vector2(87, 56), Vector2(166, 7))
-	_label(panel, "%d/%d" % [done, goal], 11, BONE).position = Vector2(260, 50)
-	_place(_image(panel, _icon(Icon.CHEST), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2(304, 15), Vector2(52, 52))
+	_place(bar, Vector2(87, 56), Vector2(chest_x - 87 - 54, 7))
+	var count := _label(panel, "%d/%d" % [done, goal], 11, BONE)
+	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_place(count, Vector2(chest_x - 52, 50), Vector2(44, 0))
+	_place(_image(panel, _icon(Icon.CHEST), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2(chest_x, 15), Vector2(52, 52))
 	return panel
 
 
@@ -996,8 +1016,9 @@ func _build_race_page() -> void:
 			"ONE MAZE FOR EVERYONE  ·  NEW MAZE IN %s" % _span(Race.seconds_left(week, Time.get_unix_time_from_system())), "")
 	_race_tile(page, QUEST_TOP + step, Icon.TARGET, "YOUR BEST", "YOUR GHOST RUNS IT WITH YOU" if Race.best > 0.0
 			else "ESCAPE ONCE TO SET A TIME", Race.format(Race.best) if Race.best > 0.0 else "--:--")
-	_race_tile(page, QUEST_TOP + 2 * step, Icon.CHART, "THE BOARD", "TOP 3 & TOP 1%, 5%, 10% WIN TROPHIES" if Portal.ready()
-			else "ON CRAZYGAMES  ·  NOT IN THIS VERSION", "")
+	_race_board = _race_tile(page, QUEST_TOP + 2 * step, Icon.CHART, "THE BOARD", "TOP 3 & TOP 1%, 5%, 10% WIN TROPHIES"
+			if Portal.ready() or not Race.server.is_empty() else "ON CRAZYGAMES  ·  NOT IN THIS VERSION", "")
+	Race.sync(_on_race_board)
 	_race_play = _big_button(page, "RacePlay", "RACE", "THE LONG NIGHT  ·  %d KEYS" % Race.KEYS)
 	_race_play.pressed.connect(_play_race)
 	var count := Race.MEDALS.size()
@@ -1008,22 +1029,49 @@ func _build_race_page() -> void:
 				"ESCAPE" if id == "bronze" else Race.format(times[id]))
 
 
-## A quest-sized plate: icon, title, a hint under it and a big number on the right.
-func _race_tile(parent: Control, y: float, icon: Icon, title: String, hint: String, value: String) -> void:
+## A quest-sized plate: icon, title, a hint under it ("Hint") and a big number on the right ("Value").
+func _race_tile(parent: Control, y: float, icon: Icon, title: String, hint: String, value: String) -> Control:
 	var panel := Control.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.position = Vector2(RIGHT_W - QUEST_SIZE.x, y)
 	panel.size = QUEST_SIZE
 	parent.add_child(panel)
-	_image(panel, _frame, TextureRect.STRETCH_SCALE, true)
+	_plate(panel, _frame)
 	_place(_image(panel, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2(22, 15), Vector2(52, 52))
 	_label(panel, title, 17, BONE).position = Vector2(86, 11)
-	_label(panel, hint, 11, DIM).position = Vector2(87, 34)
-	if not value.is_empty():
-		var big := _label(panel, value, 24, GOLD)
-		big.name = "Value"
-		big.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		_place(big, Vector2(QUEST_SIZE.x - 166, 20), Vector2(130, 34))
+	var under := _label(panel, hint, 11, DIM)
+	under.name = "Hint"
+	under.position = Vector2(87, 34)
+	var big := _label(panel, value, 24, GOLD)
+	big.name = "Value"
+	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_place(big, Vector2(QUEST_SIZE.x - 166, 20), Vector2(130, 34))
+	return panel
+
+
+## v2: your place on the server's board (where a guest's time would stand) and who has taken the place you held when
+## you last looked.
+func _on_race_board(board: Variant) -> void:
+	if not is_instance_valid(_race_board):
+		return
+	var hint := _race_board.get_node("Hint") as Label
+	var value := _race_board.get_node("Value") as Label
+	if not board is Dictionary:
+		hint.text = "THE BOARD IS OUT OF REACH RIGHT NOW"
+		return
+	var you: Variant = board.get("you")
+	var rank: Variant = you.get("rank") if you is Dictionary else null
+	value.text = "--" if not you is Dictionary else ("#%d" % int(rank) if rank != null else "1000+")
+	var passed := Race.passed_line(board, Race.seen_rank)
+	if not passed.is_empty():
+		hint.text = passed
+	elif Race.guest:
+		hint.text = "LOG IN TO CRAZYGAMES TO GO ON IT"
+	elif not Race.refused.is_empty():
+		hint.text = "YOUR BEST WASN'T VERIFIED: " + Race.refused.to_upper()
+	if not Race.guest and rank != null and int(rank) != Race.seen_rank:
+		Race.seen_rank = int(rank)
+		MetaState.save()
 
 
 ## One medal: its picture (gold-framed and lit once earned this week), its name and the time it asks for.
@@ -1051,7 +1099,229 @@ func _medal_tile(parent: Control, rect: Rect2, id: String, target: String) -> vo
 	_place(time, Vector2(0, 104), Vector2(rect.size.x, 0))
 
 
-## CAMPAIGN | THE LONG NIGHT, between the quests and the big button: the one showing is gold and underlined.
+# --- The VERSUS page (plans/12) ----------------------------------------------------------------------------------
+
+## A 1v1 room beside the Long Night: the room (its code to share and how it stands; click it to copy), EASY or HARD
+## (click to switch, before anyone joins), a friend's code to type; CREATE (LEAVE while in a room); the two roles.
+func _build_versus_page() -> void:
+	var page := _page_holder("Versus")
+	page.visible = false
+	var step := QUEST_SIZE.y + 10
+	_versus_room = _race_tile(page, QUEST_TOP, Icon.DEMON, "VERSUS  ·  1v1", "", "")
+	_tile_button(_versus_room, "CopyCode", _copy_code)
+	_versus_mode = _race_tile(page, QUEST_TOP + step, Icon.TARGET, "MODE  ·  CLICK", "", "")
+	_tile_button(_versus_mode, "SwitchMode", _switch_mode)
+	var join := _race_tile(page, QUEST_TOP + 2 * step, Icon.MAIL, "JOIN A FRIEND", "TYPE IT, THEN ENTER", "")
+	_versus_code = LineEdit.new()
+	_versus_code.name = "Code"
+	_versus_code.placeholder_text = "CODE"
+	_versus_code.max_length = Net.CODE_LENGTH
+	_versus_code.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_versus_code.add_theme_font_override("font", _display)
+	_versus_code.add_theme_font_size_override("font_size", 22)
+	_versus_code.add_theme_color_override("font_color", GOLD)
+	_versus_code.add_theme_color_override("font_placeholder_color", DIM)
+	_versus_code.add_theme_color_override("caret_color", GOLD)
+	_versus_code.add_theme_stylebox_override("normal", _panel_style(PANEL_BORDER, 1))
+	_versus_code.add_theme_stylebox_override("focus", _panel_style(GOLD, 1))
+	join.add_child(_versus_code)
+	_place(_versus_code, Vector2(QUEST_SIZE.x - 166, 20), Vector2(130, 40))
+	_versus_code.text_changed.connect(func(text: String) -> void:
+		var caret := _versus_code.caret_column
+		_versus_code.text = text.to_upper()
+		_versus_code.caret_column = caret)
+	_versus_code.text_submitted.connect(_join_typed)
+	_versus_play = _big_button(page, "VersusPlay", "CREATE", "")
+	_versus_play.pressed.connect(_versus_pressed)
+	var extent := Vector2((RIGHT_W - CARD_GAP) * 0.5, CARD_SIZE.y)
+	_role_card(page, Rect2(Vector2(0, CARD_TOP), extent), Icon.HELMET, "RUNNER",
+			"FIND THE KEYS IN THE BOXES\nREACH THE EXIT IN TIME\nEASY: THE MAP + DEVIL CAM")
+	_role_card(page, Rect2(Vector2(extent.x + CARD_GAP, CARD_TOP), extent), Icon.DEMON, "DEVIL",
+			"YOU SEE DOWN ONE CORRIDOR\nYOU HEAR STEPS AND THE MAP\nTHROUGH THE WALLS")
+	_paint_versus()
+
+
+## A see-through button over a whole tile.
+func _tile_button(tile: Control, id: String, action: Callable) -> void:
+	var button := Button.new()
+	button.name = id
+	button.flat = true
+	button.set_anchors_preset(Control.PRESET_FULL_RECT)
+	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	button.pressed.connect(action)
+	tile.add_child(button)
+
+
+## A role, laid out as a medal tile is: its icon, its name and three short lines.
+func _role_card(parent: Control, rect: Rect2, icon: Icon, title: String, text: String) -> void:
+	var card := Panel.new()
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_theme_stylebox_override("panel", _panel_style(PANEL_BORDER, 2))
+	parent.add_child(card)
+	_place(card, rect.position, rect.size)
+	_place(_image(card, _icon(icon), TextureRect.STRETCH_KEEP_ASPECT_CENTERED), Vector2((rect.size.x - 40) * 0.5, 10), Vector2(40, 40))
+	var head := _label(card, title, 17, GOLD)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(head, Vector2(0, 52), Vector2(rect.size.x, 0))
+	var words := _label(card, text, 12, BONE, _tracked(_body, 1))
+	words.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(words, Vector2(0, 82), Vector2(rect.size.x, 0))
+
+
+## The room's state on the page: its code, who is in (or why the link closed), the mode, CREATE or LEAVE.
+func _paint_versus() -> void:
+	if _versus_room == null:
+		return
+	# A hint beside the big code stays short; a long one (idle, or why the link closed) gets the tile to itself.
+	var in_room := not Net.code.is_empty()
+	var hint := _versus_room.get_node("Hint") as Label
+	(_versus_room.get_node("Value") as Label).text = Net.code if in_room and Net.problem.is_empty() else ""
+	if not Net.problem.is_empty():
+		hint.text = Net.problem
+	elif _versus_starting:
+		hint.text = "LOADING THE ROUND"
+	elif in_room and Net.peer_here:
+		hint.text = "%s IS IN" % Versus.peer().left(12)
+	elif in_room and Net.connected():
+		hint.text = "WAITING  ·  CLICK TO COPY" if Versus.host else "JOINING..."
+	elif in_room:
+		hint.text = "CONNECTING..."
+	else:
+		hint.text = "ONE OF YOU IS THE DEVIL  ·  ROLES SWAP"
+	if Net.problem.is_empty() and not _versus_note.is_empty() and Time.get_ticks_msec() - _versus_note_at < 2000:
+		hint.text = _versus_note
+	var mode := "HARD" if Versus.hard else "EASY"
+	(_versus_mode.get_node("Value") as Label).text = mode
+	(_versus_mode.get_node("Hint") as Label).text = "NO MAP  ·  NO DEVIL CAM" if Versus.hard else "RUNNER HAS MAP + DEVIL CAM"
+	var words := _versus_play.find_children("*", "Label", true, false)
+	(words[0] as Label).text = "LEAVE" if in_room else "CREATE"
+	(words[1] as Label).text = "THE ROOM  ·  %s" % Net.code if in_room else "A ROOM FOR YOU AND A FRIEND  ·  %s" % mode
+
+
+## CREATE: a new room and its code to share (CrazyGames shows its Invite button meanwhile); LEAVE while in one.
+func _versus_pressed() -> void:
+	if _leaving or _versus_starting:
+		return
+	if Net.code.is_empty():
+		_open_room(Net.new_code(), true)
+	else:
+		Net.leave()
+		Portal.hide_invite()
+		_paint_versus()
+
+
+func _open_room(code: String, made: bool) -> void:
+	Versus.reset()
+	Versus.host = made
+	if Net.join(code) and made:
+		Portal.show_invite(code)
+	_paint_versus()
+
+
+func _join_typed(text: String) -> void:
+	if _leaving or _versus_starting:
+		return
+	var code := Net.clean_code(text)
+	if code.is_empty():
+		_versus_note = "A CODE IS %d LETTERS" % Net.CODE_LENGTH
+		_versus_note_at = Time.get_ticks_msec()
+		_paint_versus()
+		return
+	_versus_code.release_focus()
+	_open_room(code, false)
+
+
+## The room's maker picks the mode, before anyone is in.
+func _switch_mode() -> void:
+	if Net.peer_here or _versus_starting or (not Net.code.is_empty() and not Versus.host):
+		return
+	Versus.hard = not Versus.hard
+	_paint_versus()
+
+
+func _copy_code() -> void:
+	if Net.code.is_empty():
+		return
+	var link := Portal.invite_link(Net.code)
+	var text := link if not link.is_empty() else Net.code
+	if not OS.has_feature("web"):
+		DisplayServer.clipboard_set(text)
+		_copied([], true)
+		return
+	# A page may not write the clipboard (no permission, an iframe that doesn't allow it): say COPIED only once it did.
+	var clipboard: Variant = JavaScriptBridge.get_interface("navigator").clipboard
+	if clipboard == null:
+		_copied([], false)
+		return
+	_copy_js = [JavaScriptBridge.create_callback(_copied.bind(true)), JavaScriptBridge.create_callback(_copied.bind(false))]
+	clipboard.writeText(text).then(_copy_js[0], _copy_js[1])
+
+
+func _copied(_args: Array, ok: bool) -> void:
+	_versus_note = "COPIED  ·  SEND IT" if ok else "COPY BLOCKED  ·  READ IT OUT"
+	_versus_note_at = Time.get_ticks_msec()
+	_paint_versus()
+
+
+## Opened from a CrazyGames invite link: straight into its room (instant multiplayer), once a launch.
+func _take_invite() -> void:
+	if Versus.my_name.is_empty():
+		_fetch_name()
+	if _invite_taken:
+		return
+	_invite_taken = true
+	var code := Net.clean_code(Portal.invite_room())
+	if not code.is_empty():
+		_show_page(2, false)
+		_open_room(code, false)
+
+
+func _fetch_name() -> void:
+	Versus.my_name = (await Portal.username()).left(Versus.MAX_NAME)
+
+
+## While in a room: say hello once both are in, then the maker deals the match (START) and both load round 1.
+func _tick_versus_room() -> void:
+	if Net.code.is_empty() or _versus_starting:
+		return
+	Net.poll()
+	for msg in Net.drain():
+		match msg[0]:
+			Versus.PEER_JOINED:
+				Net.send([Versus.HELLO, Versus.PROTOCOL, Versus.my_name])
+			Versus.HELLO:
+				if msg[1] != Versus.PROTOCOL:
+					Net.leave()
+					Net.problem = "ANOTHER VERSION  ·  BOTH REFRESH THE PAGE"
+					_paint_versus()
+					return
+				Versus.peer_name = msg[2]
+				if Versus.host:
+					Versus.match_seed = Versus.new_seed()
+					Versus.round_number = 1
+					Net.send([Versus.START, Versus.match_seed, int(Versus.hard), 1])
+					_begin_versus()
+					return
+			Versus.START:
+				if not Versus.host:
+					Versus.match_seed = msg[1]
+					Versus.hard = msg[2] != 0
+					Versus.round_number = msg[3]
+					_begin_versus()
+					return
+	_paint_versus()
+
+
+func _begin_versus() -> void:
+	_versus_starting = true
+	Versus.dealt_at = Time.get_ticks_msec() / 1000.0
+	Portal.hide_invite()
+	_paint_versus()
+	RunState.start_versus(Versus.round_seed())
+	_start()
+
+
+## CAMPAIGN | THE LONG NIGHT | VERSUS, between the quests and the big button: the one showing is gold and underlined.
 func _build_tabs() -> void:
 	_tab_bar = PanelContainer.new()
 	_tab_bar.name = "ModeTabs"
@@ -1061,12 +1331,14 @@ func _build_tabs() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 0)
 	_tab_bar.add_child(row)
-	for i in 2:
+	for i in 3:
 		var tab := Button.new()
-		tab.name = ["CampaignTab", "LongNightTab"][i]
-		tab.text = ["CAMPAIGN", "LONG NIGHT  ·  WEEKLY"][i]
+		tab.name = ["CampaignTab", "LongNightTab", "VersusTab"][i]
+		# One word each, three equal segments: the pages say the rest (weekly, 1v1).
+		tab.text = ["CAMPAIGN", "LONG NIGHT", "VERSUS"][i]
 		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		tab.add_theme_font_override("font", _display)
+		tab.clip_text = true
+		tab.add_theme_font_override("font", _tracked(_body, 2))
 		tab.add_theme_font_size_override("font_size", 14)
 		tab.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 		tab.pressed.connect(_show_page.bind(i))
@@ -1095,7 +1367,7 @@ func _paint_tabs() -> void:
 		_tabs[i].add_theme_color_override("font_focus_color", GOLD if on else BONE)
 
 
-## Slides the right side to page `page` (0 campaign, 1 the Long Night), from wherever a drag left it; a focused button
+## Slides the right side to page `page` (0 campaign, 1 the Long Night, 2 VERSUS), from wherever a drag left it; a focused button
 ## on the page going away hands focus to the big button of the one coming in.
 func _show_page(page: int, animate := true) -> void:
 	page = clampi(page, 0, _pages.size() - 1)
@@ -1131,10 +1403,11 @@ func _show_page(page: int, animate := true) -> void:
 			from.position.x = 0.0
 			from.modulate.a = 1.0)
 	if hand_over:
-		([_play, _race_play][page] as Button).grab_focus()
+		([_play, _race_play, _versus_play][page] as Button).grab_focus()
 
 
-## The dashboard slides: a sideways drag that starts off the buttons (they keep their clicks), or a wheel tilt.
+## The dashboard slides: a sideways drag that starts off the buttons (they keep their clicks), or a wheel tilt. A drag
+## that starts on the hero turns him round instead, and a tap makes him flinch.
 func _input(event: InputEvent) -> void:
 	var mouse := event as InputEventMouseButton
 	if mouse != null and mouse.pressed and mouse.button_index in [MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
@@ -1143,7 +1416,13 @@ func _input(event: InputEvent) -> void:
 		return
 	if mouse != null and mouse.button_index == MOUSE_BUTTON_LEFT:
 		if mouse.pressed:
-			_drag_from = mouse.position if _can_slide() and not _on_button(mouse.position) else Vector2.INF
+			var free := _can_slide() and not _on_button(mouse.position)
+			_spin_from = mouse.position if free and _lobby.grabs(mouse.position) else Vector2.INF
+			_drag_from = mouse.position if free and _spin_from == Vector2.INF else Vector2.INF
+		elif _spin_from != Vector2.INF:
+			if mouse.position.distance_to(_spin_from) < TAP_SLOP:
+				_lobby.flinch()
+			_spin_from = Vector2.INF
 		elif _drag_from != Vector2.INF:
 			var moved := mouse.position - _drag_from
 			_drag_from = Vector2.INF
@@ -1151,7 +1430,9 @@ func _input(event: InputEvent) -> void:
 			_show_page(_page + (1 if moved.x < 0.0 else -1) if swiped else _page)
 		return
 	var motion := event as InputEventMouseMotion
-	if motion != null and _drag_from != Vector2.INF:
+	if motion != null and _spin_from != Vector2.INF:
+		_lobby.spin(motion.relative.x)
+	elif motion != null and _drag_from != Vector2.INF:
 		var dx := clampf(motion.position.x - _drag_from.x, -PAGE_SLIDE, PAGE_SLIDE)
 		_pages[_page].position.x = dx * DRAG_FOLLOW
 		_pages[_page].modulate.a = 1.0 - absf(dx) / PAGE_SLIDE * 0.5
@@ -1878,6 +2159,25 @@ func _image(parent: Node, texture: Texture2D, stretch: TextureRect.StretchMode, 
 		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	parent.add_child(rect)
 	return rect
+
+
+## Frame art over the whole of `parent` as a 9-slice drawn at one scale (fitted to its height), so the ornate ends
+## (FRAME_CAP px of the art each) keep their shape however wide the plate gets.
+func _plate(parent: Control, texture: Texture2D) -> NinePatchRect:
+	var plate := NinePatchRect.new()
+	plate.texture = texture
+	plate.patch_margin_left = FRAME_CAP
+	plate.patch_margin_right = FRAME_CAP
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(plate)
+	var fit := func() -> void:
+		var k := parent.size.y / texture.get_height()
+		if k > 0.0:
+			plate.scale = Vector2.ONE * k
+			plate.size = parent.size / k
+	parent.resized.connect(fit)
+	fit.call()
+	return plate
 
 
 func _holder(parent: Node, holder_name: String) -> Control:
