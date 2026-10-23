@@ -52,6 +52,7 @@ dependencies:
   in_app_purchase: ^3.2.3
   in_app_purchase_android: ^0.4.0+10
   cloud_functions: ^6.2.0
+  share_plus: ^11.1.0
 
 dev_dependencies:
   flutter_test:

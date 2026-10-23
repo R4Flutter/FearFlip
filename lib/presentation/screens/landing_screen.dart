@@ -21,8 +21,19 @@ class LandingScreen extends StatefulWidget {
     required this.totalTrophies,
     required this.globalPanicRank,
     required this.adsService,
+    this.onDaily,
+    this.dailyNumber = 0,
+    this.dailyStreak = 0,
+    this.dailyFreezes = 0,
+    this.dailyEscapedToday = false,
+    this.dailyBestSeconds,
+    this.onSaveProgress,
+    this.isSigningIn = false,
     super.key,
   });
+
+  static const dailyKey = ValueKey<String>('landing_daily');
+  static const saveProgressKey = ValueKey<String>('landing_save_progress');
 
   final bool isStarting;
   final VoidCallback onPlay;
@@ -36,11 +47,40 @@ class LandingScreen extends StatefulWidget {
   final int? globalPanicRank;
   final AdsServiceBase adsService;
 
+  /// Opens today's Daily Nightmare; hidden when null.
+  final VoidCallback? onDaily;
+  final int dailyNumber;
+
+  /// The streak as it stands today and the freezes that cover missed days.
+  final int dailyStreak;
+  final int dailyFreezes;
+  final bool dailyEscapedToday;
+  final int? dailyBestSeconds;
+
+  /// Google sign-in for guests; hidden when null.
+  final VoidCallback? onSaveProgress;
+  final bool isSigningIn;
+
   @override
   State<LandingScreen> createState() => _LandingScreenState();
 }
 
 class _LandingScreenState extends State<LandingScreen> {
+  /// "Escaped today in 0:48 · 🔥 5-day streak" / "Same maze for everyone…".
+  String _dailySublabel() {
+    final streak = widget.dailyStreak;
+    final freezes = widget.dailyFreezes;
+    final streakText = streak > 0
+        ? '🔥 $streak-day streak${freezes > 0 ? ' · ❄ $freezes' : ''}'
+        : 'start a streak';
+    final best = widget.dailyBestSeconds;
+    if (widget.dailyEscapedToday && best != null) {
+      final time = '${best ~/ 60}:${(best % 60).toString().padLeft(2, '0')}';
+      return 'Escaped today in $time · $streakText';
+    }
+    return 'Same maze for everyone today · $streakText';
+  }
+
   // Solid slate backdrop. Lighter than the previous 50/50 grey/black split,
   // no pink in the chrome — the hero image does all the colour work.
   static const Color _backdrop = Color(0xFF181A24);
@@ -181,6 +221,19 @@ class _LandingScreenState extends State<LandingScreen> {
                                   enabled: !widget.isStarting,
                                   onPressed: widget.onPlay,
                                 ),
+                                if (widget.onDaily != null) ...[
+                                  SizedBox(height: actionGap),
+                                  _DashboardActionButton(
+                                    key: LandingScreen.dailyKey,
+                                    label: 'DAILY NIGHTMARE #${widget.dailyNumber}',
+                                    sublabel: _dailySublabel(),
+                                    icon: Icons.nightlight_round,
+                                    color: AppPalette.accentGold,
+                                    foreground: Colors.black,
+                                    enabled: !widget.isStarting,
+                                    onPressed: widget.onDaily!,
+                                  ),
+                                ],
                                 SizedBox(height: actionGap),
                                 _DashboardActionButton(
                                   label: 'CHOOSE CHARACTER',
@@ -214,6 +267,22 @@ class _LandingScreenState extends State<LandingScreen> {
                                   enabled: true,
                                   onPressed: widget.onLeaderboard,
                                 ),
+                                if (widget.onSaveProgress != null) ...[
+                                  SizedBox(height: actionGap),
+                                  _DashboardActionButton(
+                                    key: LandingScreen.saveProgressKey,
+                                    label: widget.isSigningIn
+                                        ? 'SIGNING IN...'
+                                        : 'SAVE YOUR PROGRESS',
+                                    sublabel:
+                                        'Sign in with Google to keep trophies and rank on any device',
+                                    icon: Icons.cloud_upload_rounded,
+                                    color: AppPalette.accentSteel,
+                                    foreground: Colors.black,
+                                    enabled: !widget.isSigningIn,
+                                    onPressed: widget.onSaveProgress!,
+                                  ),
+                                ],
                                 if (showRemoveAds) ...[
                                   SizedBox(height: actionGap),
                                   _DashboardActionButton(
@@ -579,6 +648,7 @@ class _TopMetaBar extends StatelessWidget {
 
 class _DashboardActionButton extends StatelessWidget {
   const _DashboardActionButton({
+    super.key,
     required this.label,
     required this.sublabel,
     required this.icon,

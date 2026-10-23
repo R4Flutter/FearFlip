@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../config/app_runtime_config.dart';
 import '../data/database/local_session_database.dart';
@@ -15,10 +17,12 @@ import '../presentation/screens/onboarding_consent_screen.dart';
 import '../presentation/screens/privacy_policy_screen.dart';
 import '../presentation/theme/app_palette.dart';
 import '../presentation/widgets/remove_ads_dialog.dart';
+import '../presentation/widgets/save_progress_dialog.dart';
 import '../services/audio_manager.dart';
 import '../services/account_deletion_service.dart';
 import '../services/ads_facade.dart';
 import '../services/consent_service.dart';
+import '../services/error_reporter.dart';
 import '../services/purchase_service.dart';
 
 class _CharacterOption {
@@ -405,6 +409,9 @@ class FearFlipApp extends StatefulWidget {
 
 class _FearFlipAppState extends State<FearFlipApp> {
   late final AppFlowProvider _flow;
+
+  /// For the mid-run "save your progress" offer, shown over the game.
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   AdsFacade get _adsManager => AdsFacade.instance;
   static const List<_CharacterOption> _characterOptions = <_CharacterOption>[
     _CharacterOption(
@@ -1493,6 +1500,106 @@ class _FearFlipAppState extends State<FearFlipApp> {
         false;
   }
 
+  /// A new player goes from the consent screen straight into the first maze:
+  /// no sign-in screen, no menu. It waits (briefly) for Google's ad-consent
+  /// form where one is shown, so the maze never runs underneath it.
+  Future<void> _onOnboardingAccepted() async {
+    await _flow.acceptOnboarding();
+    if (!AppRuntimeConfig.guestFirstStartEnabled) {
+      return;
+    }
+    await _waitForAdConsentFlow();
+    if (!mounted || !_flow.showLanding || _flow.dailyActive) {
+      return;
+    }
+    await _flow.startSurvival();
+  }
+
+  Future<void> _waitForAdConsentFlow() async {
+    final consent = ConsentService.instance;
+    if (!AppRuntimeConfig.supportsMobileAds || consent.consentFlowCompleted) {
+      return;
+    }
+    final done = Completer<void>();
+    void listener() {
+      if (consent.consentFlowCompletedNotifier.value && !done.isCompleted) {
+        done.complete();
+      }
+    }
+
+    consent.consentFlowCompletedNotifier.addListener(listener);
+    try {
+      await done.future.timeout(const Duration(seconds: 12));
+    } on TimeoutException {
+      // Start anyway; ads stay off until consent arrives.
+    } finally {
+      consent.consentFlowCompletedNotifier.removeListener(listener);
+    }
+  }
+
+  /// After a guest's first stage clear (once): offer Google sign-in to keep
+  /// the progress, over the stage-clear screen, before the next maze.
+  Future<void> _beforeNextStage(int clearedStage) async {
+    if (!_flow.shouldOfferSaveProgress(clearedStage)) {
+      return;
+    }
+    final context = _navigatorKey.currentContext;
+    if (context == null) {
+      return;
+    }
+    unawaited(_flow.markSaveProgressOffered());
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: const Color(0xB3000000),
+      builder: (dialogContext) => SaveProgressDialog(
+        onSignIn: _flow.signInToSaveProgress,
+        onClose: () => Navigator.of(dialogContext).pop(),
+      ),
+    );
+  }
+
+  /// Google sign-in from the menu, for guests.
+  Future<void> _saveProgressFromMenu(BuildContext context) async {
+    await _flow.signInWithGoogle();
+    if (!context.mounted) {
+      return;
+    }
+    final message = _flow.isGuest
+        ? _flow.authError
+        : 'Signed in. Your progress is saved.';
+    if (message == null || message.isEmpty) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppPalette.surfaceAlt,
+      ),
+    );
+  }
+
+  /// Shares the Daily Nightmare result: the share sheet on phones, the
+  /// clipboard on the web (and whenever sharing fails). True when a share
+  /// sheet opened.
+  Future<bool> _shareDaily(String text) async {
+    if (!kIsWeb) {
+      try {
+        await SharePlus.instance.share(ShareParams(text: text));
+        return true;
+      } catch (error, stackTrace) {
+        ErrorReporter.report(
+          reason: 'daily_share_failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+    return false;
+  }
+
   Future<void> _handlePlayPressed(BuildContext context) async {
     if (_flow.isStarting || _flow.showAuthGate) {
       return;
@@ -1560,6 +1667,7 @@ class _FearFlipAppState extends State<FearFlipApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       home: AnimatedBuilder(
         animation: _flow,
@@ -1570,7 +1678,11 @@ class _FearFlipAppState extends State<FearFlipApp> {
               fit: StackFit.expand,
               children: [
                 Offstage(
-                  offstage: _flow.showAuthGate || _flow.showLanding || _flow.showOnboarding,
+                  offstage:
+                      _flow.showAuthGate ||
+                      _flow.showLanding ||
+                      _flow.showOnboarding ||
+                      _flow.dailyActive,
                   child: GameScreen(
                     joystickSize: _flow.joystickSize,
                     useArrowController: kIsWeb
@@ -1578,16 +1690,36 @@ class _FearFlipAppState extends State<FearFlipApp> {
                         : _flow.useArrowController,
                     selectedCharacterIndex: _flow.selectedCharacterIndex,
                     totalTrophies: _flow.totalTrophies,
-                    isActive: !_flow.showAuthGate && !_flow.showLanding && !_flow.showOnboarding,
+                    isActive:
+                        !_flow.showAuthGate &&
+                        !_flow.showLanding &&
+                        !_flow.showOnboarding &&
+                        !_flow.dailyActive,
                     onExitToDashboard: _flow.returnToDashboard,
                     onStageCleared: _flow.onStageCleared,
+                    onBeforeNextStage: _beforeNextStage,
                     onRestartWithAd: _showRestartAd,
                     onReviveWithAd: _showReviveAd,
                   ),
                 ),
+                // Today's Daily Nightmare: its own run, gone again on exit.
+                if (_flow.activeDaily case final daily?)
+                  GameScreen(
+                    key: ValueKey<String>('daily-${daily.dayIndex}'),
+                    daily: daily,
+                    joystickSize: _flow.joystickSize,
+                    useArrowController: kIsWeb
+                        ? false
+                        : _flow.useArrowController,
+                    selectedCharacterIndex: _flow.selectedCharacterIndex,
+                    onExitToDashboard: _flow.exitDaily,
+                    onDailyEscaped: _flow.recordDailyEscape,
+                    onDailyFailed: _flow.recordDailyFailure,
+                    onDailyShare: _shareDaily,
+                  ),
                 if (_flow.showOnboarding)
                   OnboardingConsentScreen(
-                    onAccepted: () => unawaited(_flow.acceptOnboarding()),
+                    onAccepted: () => unawaited(_onOnboardingAccepted()),
                     onPrivacyPolicy: () =>
                         _openPrivacyPolicyDashbar(context),
                   )
@@ -1611,6 +1743,19 @@ class _FearFlipAppState extends State<FearFlipApp> {
                     totalTrophies: _flow.totalTrophies,
                     globalPanicRank: _flow.globalPanicRank,
                     adsService: _adsManager,
+                    onDaily: AppRuntimeConfig.dailyNightmareEnabled
+                        ? _flow.startDaily
+                        : null,
+                    dailyNumber: _flow.todaysDaily.number,
+                    dailyStreak: _flow.dailyStreakDays,
+                    dailyFreezes: _flow.dailyFreezes,
+                    dailyEscapedToday: _flow.dailyEscapedToday,
+                    dailyBestSeconds: _flow.dailyBestSecondsToday,
+                    onSaveProgress:
+                        _flow.isGuest && _flow.canOfferGoogleSignIn
+                        ? () => unawaited(_saveProgressFromMenu(context))
+                        : null,
+                    isSigningIn: _flow.isAuthenticating,
                   ),
               ],
             ),

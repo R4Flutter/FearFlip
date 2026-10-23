@@ -5,14 +5,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../config/app_runtime_config.dart';
 import '../../data/database/local_session_database.dart';
 import '../../domain/usecases/start_survival_use_case.dart';
+import '../../game/daily/daily_nightmare.dart';
 import '../../game/game.dart';
 import '../controllers/game_controller.dart';
 import '../../services/ads_facade.dart';
 import '../../services/audio_manager.dart';
 import '../../services/account_deletion_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/daily_nightmare_store.dart';
 import '../../services/error_reporter.dart';
 import '../../services/game_audio_event.dart';
 import '../../services/leaderboard_service.dart';
@@ -31,6 +34,10 @@ class AppFlowProvider extends ChangeNotifier {
   // and you need to re-show the onboarding screen to existing users.
   static const String _onboardingAcceptedPrefKey =
       'onboarding.consent.v1.accepted';
+  // The one-time "save your progress" Google sign-in offer after a guest's
+  // first stage clear.
+  static const String _saveProgressOfferedPrefKey =
+      'prompt.save_progress.v1.offered';
   static const double minJoystickSize = 90;
   static const double maxJoystickSize = 170;
   static const double defaultJoystickSize = 140;
@@ -46,8 +53,12 @@ class AppFlowProvider extends ChangeNotifier {
     bool enableAuthBootstrap = true,
     LeaderboardService? leaderboardService,
     AccountDeletionService? accountDeletionService,
+    DailyNightmareStore dailyStore = const DailyNightmareStore(),
+    DateTime Function()? clock,
   }) : _sessionDatabase = sessionDatabase,
        _startSurvivalUseCase = startSurvivalUseCase,
+       _dailyStore = dailyStore,
+       _clock = clock ?? DateTime.now,
        _authService =
            authService ?? (enableAuthBootstrap ? AuthService() : null),
        _accountDeletionService =
@@ -78,12 +89,15 @@ class AppFlowProvider extends ChangeNotifier {
       });
     }
     _loadUiSettings();
+    unawaited(_loadDaily());
   }
 
   final LocalSessionDatabase _sessionDatabase;
   final StartSurvivalUseCase _startSurvivalUseCase;
   final AuthService? _authService;
   final AccountDeletionService? _accountDeletionService;
+  final DailyNightmareStore _dailyStore;
+  final DateTime Function() _clock;
   StreamSubscription<User?>? _authSubscription;
 
   late final FearFlipGame game;
@@ -107,11 +121,32 @@ class AppFlowProvider extends ChangeNotifier {
   int _totalTrophies = 0;
   int _maxStageReached = 1;
   int? _globalPanicRank;
+  bool _saveProgressOffered = false;
+
+  DailyStreak _dailyStreak = const DailyStreak();
+  DailyDayRecord? _dailyRecord;
+  DailyChallenge? _activeDaily;
 
   /// True on first install (or after a policy version bump). The onboarding
   /// screen gates all further navigation until the user accepts.
   bool get showOnboarding => !_onboardingAccepted;
-  bool get showAuthGate => _currentUser == null && !_offlineGuestMode;
+
+  /// The sign-in screen. With [AppRuntimeConfig.guestFirstStartEnabled] it
+  /// never blocks: a guest session starts by itself and Google sign-in is
+  /// offered after the first stage clear instead.
+  bool get showAuthGate =>
+      !AppRuntimeConfig.guestFirstStartEnabled &&
+      _currentUser == null &&
+      !_offlineGuestMode;
+
+  /// Playing without a Google account (a Firebase guest, an offline guest or
+  /// before the guest session is ready).
+  bool get isGuest => _offlineGuestMode || (_currentUser?.isAnonymous ?? true);
+
+  /// Whether this build can sign in with Google at all.
+  bool get canOfferGoogleSignIn =>
+      _authService != null &&
+      (kIsWeb || AppRuntimeConfig.isGoogleSignInConfigured);
   bool get isAuthenticating => _isAuthenticating;
   bool get isDeletingAccount => _isDeletingAccount;
   String? get authError => _authError;
@@ -154,6 +189,11 @@ class AppFlowProvider extends ChangeNotifier {
           prefs.getBool(_onboardingAcceptedPrefKey) ?? false;
       if (onboardingAccepted != _onboardingAccepted) {
         _onboardingAccepted = onboardingAccepted;
+      }
+      _saveProgressOffered =
+          prefs.getBool(_saveProgressOfferedPrefKey) ?? false;
+      if (_onboardingAccepted) {
+        _ensureGuestSession();
       }
       final migrationApplied =
           prefs.getBool(_joystickSizeMigrationPrefKey) ?? false;
@@ -224,6 +264,7 @@ class AppFlowProvider extends ChangeNotifier {
   Future<void> acceptOnboarding() async {
     if (_onboardingAccepted) return;
     _onboardingAccepted = true;
+    _ensureGuestSession();
     notifyListeners();
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -344,7 +385,10 @@ class AppFlowProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> signInWithGoogle() async {
+  /// Google sign-in. A guest's progress carries over (the guest account is
+  /// linked). [returnToLanding] is false when called mid-run, from the
+  /// "save your progress" offer.
+  Future<void> signInWithGoogle({bool returnToLanding = true}) async {
     final authService = _authService;
     if (authService == null) {
       _authError = 'Authentication is unavailable in this environment.';
@@ -377,7 +421,9 @@ class AppFlowProvider extends ChangeNotifier {
       _offlineGuestMode = false;
       _offlineGuestName = null;
       _currentUser = signedInUser;
-      _showLanding = true;
+      if (returnToLanding) {
+        _showLanding = true;
+      }
       _authError = null;
       unawaited(_syncGlobalPanicProgress());
     } on AuthCancelledException {
@@ -421,14 +467,30 @@ class AppFlowProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> playAsGuest() async {
+  Future<void> playAsGuest() => _startGuestSession(returnToLanding: true);
+
+  /// Starts a guest session in the background when nobody is signed in, so
+  /// the sign-in screen never stands between a player and the first maze.
+  void _ensureGuestSession() {
+    if (!AppRuntimeConfig.guestFirstStartEnabled ||
+        _currentUser != null ||
+        _offlineGuestMode ||
+        _isAuthenticating) {
+      return;
+    }
+    unawaited(_startGuestSession(returnToLanding: false));
+  }
+
+  Future<void> _startGuestSession({required bool returnToLanding}) async {
     final authService = _authService;
     if (authService == null) {
       _offlineGuestMode = true;
       _offlineGuestName = _generateOfflineGuestName();
       _currentUser = null;
       _authError = null;
-      _showLanding = true;
+      if (returnToLanding) {
+        _showLanding = true;
+      }
       notifyListeners();
       return;
     }
@@ -453,13 +515,17 @@ class AppFlowProvider extends ChangeNotifier {
         _offlineGuestName = null;
         _currentUser = guestUser;
       }
-      _showLanding = true;
+      if (returnToLanding) {
+        _showLanding = true;
+      }
       _authError = null;
     } on TimeoutException {
       _offlineGuestMode = true;
       _offlineGuestName = _generateOfflineGuestName();
       _currentUser = null;
-      _showLanding = true;
+      if (returnToLanding) {
+        _showLanding = true;
+      }
       _authError = 'Guest sign-in timed out. Continuing in offline guest mode.';
     } on FirebaseAuthException {
       // Launch-safe fallback: keep game playable even when Firebase guest auth
@@ -467,7 +533,9 @@ class AppFlowProvider extends ChangeNotifier {
       _offlineGuestMode = true;
       _offlineGuestName = _generateOfflineGuestName();
       _currentUser = null;
-      _showLanding = true;
+      if (returnToLanding) {
+        _showLanding = true;
+      }
       _authError = null;
     } catch (error, stackTrace) {
       ErrorReporter.report(
@@ -478,7 +546,9 @@ class AppFlowProvider extends ChangeNotifier {
       _offlineGuestMode = true;
       _offlineGuestName = _generateOfflineGuestName();
       _currentUser = null;
-      _showLanding = true;
+      if (returnToLanding) {
+        _showLanding = true;
+      }
       _authError = null;
     } finally {
       _isAuthenticating = false;
@@ -503,6 +573,7 @@ class AppFlowProvider extends ChangeNotifier {
       _offlineGuestName = null;
       _currentUser = null;
       _showLanding = true;
+      _ensureGuestSession();
       notifyListeners();
       return;
     }
@@ -529,6 +600,7 @@ class AppFlowProvider extends ChangeNotifier {
       _authError = 'Sign out failed. Please try again.';
     } finally {
       _isAuthenticating = false;
+      _ensureGuestSession();
       notifyListeners();
     }
   }
@@ -548,6 +620,7 @@ class AppFlowProvider extends ChangeNotifier {
       _currentUser = null;
       _showLanding = true;
       _globalPanicRank = null;
+      _ensureGuestSession();
       _accountMessage = 'Local guest profile cleared on this device.';
       notifyListeners();
       return AccountDeletionResult(
@@ -572,6 +645,7 @@ class AppFlowProvider extends ChangeNotifier {
         _currentUser = null;
         _showLanding = true;
         _globalPanicRank = null;
+        _ensureGuestSession();
       }
       return result;
     } on TimeoutException {
@@ -599,6 +673,165 @@ class AppFlowProvider extends ChangeNotifier {
       _isDeletingAccount = false;
       notifyListeners();
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // "Save your progress": Google sign-in offered once, after a guest's first
+  // stage clear, instead of a sign-in screen before the first maze.
+  // ---------------------------------------------------------------------------
+
+  /// Whether to offer Google sign-in now that [clearedStage] is cleared.
+  bool shouldOfferSaveProgress(int clearedStage) =>
+      AppRuntimeConfig.guestFirstStartEnabled &&
+      clearedStage >= 1 &&
+      !_saveProgressOffered &&
+      isGuest &&
+      canOfferGoogleSignIn;
+
+  Future<void> markSaveProgressOffered() async {
+    _saveProgressOffered = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_saveProgressOfferedPrefKey, true);
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'save_progress_offer_persist_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  /// Signs in from the mid-run offer, staying in the run. Null on success;
+  /// otherwise the error to show ('' when the player just cancelled).
+  Future<String?> signInToSaveProgress() async {
+    await signInWithGoogle(returnToLanding: false);
+    if (!isGuest) {
+      return null;
+    }
+    return _authError ?? '';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Daily Nightmare
+  // ---------------------------------------------------------------------------
+
+  /// Today's maze (by this device's calendar date).
+  DailyChallenge get todaysDaily => DailyChallenge.forDate(_clock());
+
+  /// The daily maze being played, or null outside one.
+  DailyChallenge? get activeDaily => _activeDaily;
+  bool get dailyActive => _activeDaily != null;
+
+  /// The streak as it stands today (still alive while freezes cover the
+  /// missed days).
+  int get dailyStreakDays => _dailyStreak.currentOn(todaysDaily.dayIndex);
+  int get dailyBestStreak => _dailyStreak.best;
+  int get dailyFreezes => _dailyStreak.freezes;
+  bool get dailyEscapedToday => _dailyStreak.escapedOn(todaysDaily.dayIndex);
+
+  /// Today's fastest escape in seconds, or null.
+  int? get dailyBestSecondsToday {
+    final record = _dailyRecord;
+    return record != null && record.day == todaysDaily.dayIndex
+        ? record.bestSeconds
+        : null;
+  }
+
+  Future<void> _loadDaily() async {
+    try {
+      final (streak, record) = await _dailyStore.load();
+      _dailyStreak = streak;
+      _dailyRecord = record;
+      notifyListeners();
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'daily_load_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _saveDaily() async {
+    try {
+      await _dailyStore.save(_dailyStreak, _dailyRecord);
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'daily_save_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  DailyDayRecord _recordFor(int day) {
+    final record = _dailyRecord;
+    return record != null && record.day == day
+        ? record
+        : DailyDayRecord(day: day);
+  }
+
+  /// Opens today's maze.
+  void startDaily() {
+    if (!AppRuntimeConfig.dailyNightmareEnabled ||
+        _activeDaily != null ||
+        showAuthGate) {
+      return;
+    }
+    _activeDaily = todaysDaily;
+    _showLanding = false;
+    _sessionDatabase.markRunStarted();
+    notifyListeners();
+  }
+
+  /// Back to the menu from the daily maze.
+  void exitDaily() {
+    if (_activeDaily == null) {
+      return;
+    }
+    _activeDaily = null;
+    _showLanding = true;
+    notifyListeners();
+  }
+
+  Future<void> recordDailyFailure() async {
+    final day = (_activeDaily ?? todaysDaily).dayIndex;
+    _dailyRecord = _recordFor(day).withDeath();
+    notifyListeners();
+    await _saveDaily();
+  }
+
+  /// Records an escape (the streak counts the day's first) and returns what
+  /// the escape screen shows, share text included.
+  Future<DailySummary> recordDailyEscape(DailyRunResult result) async {
+    final daily = _activeDaily ?? todaysDaily;
+    final record = _recordFor(daily.dayIndex).withEscape(result.seconds);
+    _dailyRecord = record;
+    _dailyStreak = _dailyStreak.recordEscape(daily.dayIndex);
+    notifyListeners();
+    await _saveDaily();
+
+    final streak = _dailyStreak.currentOn(daily.dayIndex);
+    final best = record.bestSeconds ?? result.seconds;
+    final deaths = record.deathsBeforeEscape ?? 0;
+    return DailySummary(
+      number: daily.number,
+      seconds: result.seconds,
+      bestSeconds: best,
+      keys: result.keys,
+      deaths: deaths,
+      streak: streak,
+      freezes: _dailyStreak.freezes,
+      shareText: dailyShareText(
+        number: daily.number,
+        seconds: best,
+        keys: result.keys,
+        deaths: deaths,
+        streak: streak,
+        url: AppRuntimeConfig.dailyShareUrl,
+      ),
+    );
   }
 
   Future<void> startSurvival() async {
