@@ -6,9 +6,10 @@ import '../../theme/night_hud.dart';
 
 export '../../theme/night_hud.dart';
 
-/// The in-run HUD: icons and numbers, no word labels. Stage and checkpoint on
-/// the left, lives in the middle (limited-life bands only), the hourglass
-/// bar and the pause button on the right.
+/// The in-run HUD: icons and numbers, no word labels. Stage, checkpoint and
+/// (on key-hunt stages) the key slots and boxes left on the left, lives in the
+/// middle (limited-life bands only), the hourglass bar and the pause button on
+/// the right.
 class GameHud extends StatelessWidget {
   const GameHud({
     required this.stage,
@@ -19,10 +20,15 @@ class GameHud extends StatelessWidget {
     this.totalSeconds = 105,
     this.livesRemaining = -1,
     this.maxLives = 0,
+    this.keysFound = 0,
+    this.keysRequired = 0,
+    this.boxesLeft = 0,
+    this.stageLabel,
     super.key,
   });
 
   static const pauseKey = ValueKey<String>('hud_pause');
+  static const keysKey = ValueKey<String>('hud_keys');
 
   final int stage;
   final int checkpoint;
@@ -39,6 +45,15 @@ class GameHud extends StatelessWidget {
 
   /// Total hearts to display for the band. 0 when unlimited.
   final int maxLives;
+
+  /// Key hunt: keys found of [keysRequired] (0 = no hunt, nothing shown) and
+  /// shut boxes left.
+  final int keysFound;
+  final int keysRequired;
+  final int boxesLeft;
+
+  /// Shown instead of the stage number (the Daily Nightmare shows "#12").
+  final String? stageLabel;
 
   bool get _showHearts => livesRemaining >= 0 && maxLives > 0;
 
@@ -65,7 +80,7 @@ class GameHud extends StatelessWidget {
               _Metric(
                 icon: 'icon_maze',
                 fallback: Icons.grid_view_rounded,
-                value: '$stage',
+                value: stageLabel ?? '$stage',
                 size: 26 * uiScale,
                 fontSize: 21 * uiScale,
               ),
@@ -77,6 +92,16 @@ class GameHud extends StatelessWidget {
                   value: '$checkpoint',
                   size: 20 * uiScale,
                   fontSize: 15 * uiScale,
+                ),
+              ],
+              if (keysRequired > 0) ...[
+                SizedBox(height: 6 * uiScale),
+                _KeySlots(
+                  key: keysKey,
+                  found: keysFound,
+                  needed: keysRequired,
+                  boxesLeft: boxesLeft,
+                  scale: uiScale,
                 ),
               ],
             ],
@@ -339,6 +364,109 @@ class _HeartsDisplayState extends State<_HeartsDisplay>
             );
           }),
         ),
+      ),
+    );
+  }
+}
+
+/// The key hunt in the HUD: one slot per key the exit needs (gold once
+/// found; the newest pulses) and the shut boxes left, so the odds are in view.
+class _KeySlots extends StatefulWidget {
+  const _KeySlots({
+    required this.found,
+    required this.needed,
+    required this.boxesLeft,
+    required this.scale,
+    super.key,
+  });
+
+  final int found;
+  final int needed;
+  final int boxesLeft;
+  final double scale;
+
+  @override
+  State<_KeySlots> createState() => _KeySlotsState();
+}
+
+class _KeySlotsState extends State<_KeySlots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 450),
+  );
+  late final Animation<double> _scale = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.6), weight: 35),
+    TweenSequenceItem(tween: Tween(begin: 1.6, end: 1.0), weight: 65),
+  ]).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeOut));
+
+  @override
+  void didUpdateWidget(_KeySlots old) {
+    super.didUpdateWidget(old);
+    if (widget.found > old.found) {
+      _pulse.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = 22 * widget.scale;
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: 6 * widget.scale,
+        vertical: 3 * widget.scale,
+      ),
+      decoration: BoxDecoration(
+        color: NightHud.ink.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < widget.needed; i++)
+            AnimatedBuilder(
+              animation: _scale,
+              builder: (context, child) => Transform.scale(
+                scale: i == widget.found - 1 ? _scale.value : 1.0,
+                child: child,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                child: NightHud.art(
+                  i < widget.found ? 'icon_key' : 'icon_key_empty',
+                  width: size,
+                  fallback: Icon(
+                    i < widget.found
+                        ? Icons.vpn_key_rounded
+                        : Icons.vpn_key_outlined,
+                    color: i < widget.found ? NightHud.gold : NightHud.boneDim,
+                    size: size * 0.9,
+                  ),
+                ),
+              ),
+            ),
+          SizedBox(width: 8 * widget.scale),
+          NightHud.art(
+            'icon_chest',
+            width: size * 0.9,
+            fallback: Icon(
+              Icons.inventory_2_rounded,
+              color: NightHud.boneDim,
+              size: size * 0.8,
+            ),
+          ),
+          const SizedBox(width: 3),
+          Text(
+            '${widget.boxesLeft}',
+            style: NightHud.number(15 * widget.scale),
+          ),
+        ],
       ),
     );
   }

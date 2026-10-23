@@ -1,8 +1,13 @@
 """Turn the raw ElevenLabs takes in raw/ into game-ready clips in assets/audio (same names the game loads).
 
-Run: python tool/audio/build_sfx.py"""
+Run: python tool/audio/build_sfx.py            (every clip)
+     python tool/audio/build_sfx.py key_found.mp3 box_empty.mp3   (only those)"""
 import os
+import sys
+from fractions import Fraction
+
 import numpy as np
+from scipy import signal
 from dsp import *
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -43,6 +48,31 @@ def phone_whoosh(dur, f_from, f_to, peak_at=0.35):
     return out * env[:, None] / (np.abs(out).max() + 1e-9)
 
 
+def pitch(x, semitones):
+    """Resample to shift pitch (and length) by `semitones`."""
+    ratio = Fraction(2 ** (-semitones / 12)).limit_denominator(64)
+    return signal.resample_poly(x, ratio.numerator, ratio.denominator, axis=0)
+
+
+def place(x, seconds):
+    """`x` starting `seconds` in."""
+    return np.vstack([np.zeros((int(seconds * SR), 2)), x])
+
+
+def bell(notes, decay=0.35, length=1.2):
+    """Soft synthesized bell: (start_seconds, hz) partials with a fast attack and an exponential tail."""
+    n = int(length * SR)
+    t = np.arange(n) / SR
+    out = np.zeros((n, 2))
+    for start, hz in notes:
+        tt = t - start
+        on = tt >= 0
+        env = np.where(on, (1 - np.exp(-np.maximum(tt, 0) * 400)) * np.exp(-np.maximum(tt, 0) / decay), 0)
+        tone = np.sin(2 * np.pi * hz * tt) + 0.35 * np.sin(2 * np.pi * hz * 2.76 * tt) * np.exp(-np.maximum(tt, 0) * 6)
+        out += (tone * env)[:, None] * 0.3
+    return out
+
+
 def build():
     clips = {}
 
@@ -81,6 +111,25 @@ def build():
     fall = lowshelf(mix(exciter(trim(RAW("fall"), -45, -60), 0.5), phone_whoosh(0.75, 2600, 380) * 0.8), 140, -6)
     clips["trap_fall.mp3"] = oneshot(fall, -14, 0.12)
     clips["trap_impact.mp3"] = oneshot(exciter(lowshelf(hp(RAW("impact"), 38), 140, -5), 1.2, 250, 5.0), -12, 0.2)
+
+    # Key hunt. A lid creak, then a key's clink and a rising bell (C6 E6 G6): the reward.
+    creak = trim(hp(RAW("creak"), 180), -45, -60, 0.002, 0.05)
+    clink = trim(hp(pitch(RAW("metal_hit"), 7), 900), -45, -60, 0.001, 0.08)
+    found = mix(creak[:int(0.28 * SR)] * db(-6), place(clink * db(-3), 0.12),
+                place(bell([(0, 1047), (0.07, 1319), (0.14, 1568)], 0.32, 0.9), 0.16))
+    clips["key_found.mp3"] = oneshot(found, -14, 0.25)
+    # Empty: the lid's creak, lower, and a hollow breath of air.
+    hollow = lp(phone_whoosh(0.55, 900, 220), 1800) * db(-8)
+    clips["box_empty.mp3"] = oneshot(mix(pitch(creak, -3), place(hollow, 0.18)), -18, 0.15)
+    # The exit opens: a heavy hit, a chain snapping and a bell rising an octave (C5 G5 C6).
+    hit = lowshelf(hp(RAW("impact"), 38), 140, -4)
+    snap = trim(hp(pitch(RAW("metal_hit"), -2), 400), -45, -60, 0.001, 0.1)
+    unsealed = mix(hit[:int(1.1 * SR)] * db(-4), place(snap, 0.04),
+                   place(bell([(0, 523), (0.12, 784), (0.24, 1047)], 0.5, 1.5), 0.1))
+    clips["exit_unsealed.mp3"] = oneshot(unsealed, -12, 0.4)
+    # Bump into the sealed exit: a dull iron clunk.
+    clunk = trim(lp(pitch(RAW("metal_hit"), -9), 1800), -45, -60, 0.001, 0.08)
+    clips["exit_sealed.mp3"] = oneshot(clunk[:int(0.45 * SR)], -16, 0.1)
     return clips
 
 
@@ -91,6 +140,9 @@ def report(name, x):
 
 
 if __name__ == "__main__":
+    only = set(sys.argv[1:])
     for name, x in build().items():
+        if only and name not in only:
+            continue
         save(os.path.join(OUT, name), x)
         report(name, load(os.path.join(OUT, name)))

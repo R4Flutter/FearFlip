@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:fearflipgame/game/daily/daily_nightmare.dart';
+import 'package:fearflipgame/presentation/gameplay/widgets/daily_result_dialog.dart';
 import 'package:fearflipgame/presentation/gameplay/widgets/run_failed_dialog.dart';
 import 'package:fearflipgame/presentation/gameplay/widgets/run_paused_dialog.dart';
 import 'package:fearflipgame/presentation/gameplay/widgets/stage_clear_overlay.dart';
@@ -143,5 +145,108 @@ void main() {
     expect(_asset('medallion'), findsOneWidget);
     expect(_asset('icon_trophy'), findsOneWidget);
     expect(_colours(tester).where(_isNeon), isEmpty);
+  });
+
+  testWidgets('a loss says how close the run came', (tester) async {
+    await _show(
+      tester,
+      RunFailedDialog(
+        stage: 23,
+        maxStage: 23,
+        escapePercent: 23,
+        checkpointText: '2 stages to 25',
+        modeLabel: 'NORMAL',
+        timeRemainingLabel: '0:42',
+        lossReason: 'Devil intercepted you.',
+        comebackHook: 'Try again.',
+        lostByTime: false,
+        lostByTrap: false,
+        trapDeathQuote: null,
+        adActionInProgress: false,
+        nearMissText: '4 TILES FROM THE EXIT · 1 KEY SHORT',
+        nearMissDetail: '2 STAGES TO CHECKPOINT 25',
+        onRevivePressed: () async {},
+        onRestartPressed: () async {},
+      ),
+    );
+    expect(find.byKey(RunFailedDialog.nearMissKey), findsOneWidget);
+    expect(find.text('4 TILES FROM THE EXIT · 1 KEY SHORT'), findsOneWidget);
+    expect(find.text('2 STAGES TO CHECKPOINT 25'), findsOneWidget);
+    expect(find.text('EMERGENCY REVIVE'), findsOneWidget);
+    expect(_colours(tester).where(_isNeon), isEmpty);
+  });
+
+  testWidgets('a daily loss offers a free retry and the menu, no revive', (
+    tester,
+  ) async {
+    var retries = 0;
+    var exits = 0;
+    await _show(
+      tester,
+      RunFailedDialog(
+        stage: 14,
+        maxStage: 14,
+        escapePercent: 14,
+        checkpointText: '',
+        modeLabel: 'NORMAL',
+        timeRemainingLabel: '0:10',
+        lossReason: 'Clock hit zero.',
+        comebackHook: '',
+        lostByTime: true,
+        lostByTrap: false,
+        trapDeathQuote: null,
+        adActionInProgress: false,
+        nearMissText: '9 TILES FROM THE EXIT',
+        dailyNumber: 23,
+        dailyDeaths: 2,
+        onRevivePressed: () async => retries++,
+        onRestartPressed: () async => exits++,
+      ),
+    );
+    expect(find.text('#23'), findsOneWidget);
+    expect(find.text('EMERGENCY REVIVE'), findsNothing);
+    expect(find.text('CHECKPOINT RESTART'), findsNothing);
+    await tester.tap(find.text('TRY AGAIN'));
+    await tester.tap(find.text('BACK TO MENU'));
+    expect(retries, 1);
+    expect(exits, 1);
+  });
+
+  testWidgets('the daily escape screen shows the share text and shares it', (
+    tester,
+  ) async {
+    var shares = 0;
+    const summary = DailySummary(
+      number: 12,
+      seconds: 48,
+      bestSeconds: 41,
+      keys: 2,
+      deaths: 1,
+      streak: 5,
+      freezes: 1,
+      shareText: 'FearFlip Daily #12 — escaped 0:48 🗝🗝 💀1\n🔥 5-day streak',
+    );
+    await _show(
+      tester,
+      DailyResultDialog(
+        summary: summary,
+        onShare: () async {
+          shares++;
+          return false;
+        },
+        onPlayAgain: () {},
+        onMenu: () {},
+      ),
+    );
+    expect(find.text('0:48'), findsOneWidget);
+    expect(find.text('0:41'), findsOneWidget);
+    expect(find.text('5 DAYS'), findsOneWidget);
+    expect(find.text(summary.shareText), findsOneWidget);
+    expect(_colours(tester).where(_isNeon), isEmpty);
+
+    await tester.tap(find.byKey(DailyResultDialog.shareKey));
+    await tester.pump();
+    expect(shares, 1);
+    expect(find.text('COPIED TO CLIPBOARD'), findsOneWidget);
   });
 }

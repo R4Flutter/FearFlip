@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../config/app_runtime_config.dart';
+import '../../game/daily/daily_nightmare.dart';
+import '../../game/keys/key_box_planner.dart';
+import '../../game/keys/key_hunt.dart';
+import '../../game/mercy/quiet_mercy.dart';
 import '../../game/trap/trap_analytics.dart';
 import '../../game/trap/trap_audio_controller.dart';
 import '../../game/trap/trap_death_sequence.dart';
@@ -22,14 +26,17 @@ import 'maze_camera.dart';
 import 'maze_generator.dart';
 import 'maze_painter.dart';
 import 'maze_shift_manager.dart';
+import 'near_miss_text.dart';
 import 'player_controller.dart';
 import 'stage_rules.dart';
 import '../../domain/entities/direction4.dart';
 import 'widgets/cyber_horror_ui_components.dart';
+import 'widgets/daily_result_dialog.dart';
 import 'widgets/debug_stage_dropdown.dart';
 import 'widgets/game_controls.dart';
 import 'widgets/game_hud.dart';
 import 'widgets/run_failed_dialog.dart';
+import 'widgets/run_banner.dart';
 import 'widgets/run_paused_dialog.dart';
 import 'widgets/stage_100_win_dialog.dart';
 import 'widgets/stage_clear_overlay.dart';
@@ -45,6 +52,12 @@ class GameScreen extends StatefulWidget {
     this.onStageCleared = _noopStageCleared,
     this.onRestartWithAd = _alwaysAllow,
     this.onReviveWithAd = _alwaysAllow,
+    this.onBeforeNextStage = _noopStageCleared,
+    this.initialStage = 1,
+    this.daily,
+    this.onDailyEscaped,
+    this.onDailyFailed,
+    this.onDailyShare,
     super.key,
   });
 
@@ -61,6 +74,23 @@ class GameScreen extends StatefulWidget {
   final Future<void> Function(int clearedStage) onStageCleared;
   final Future<bool> Function() onRestartWithAd;
   final Future<bool> Function() onReviveWithAd;
+
+  /// Awaited after a stage-clear celebration, before the next maze loads
+  /// (the app offers Google sign-in here after a guest's first clear).
+  final Future<void> Function(int clearedStage) onBeforeNextStage;
+
+  /// The stage a run starts on.
+  final int initialStage;
+
+  /// Set for a Daily Nightmare run: one seeded maze, the same for everyone,
+  /// with free retries and no stage progress, revives or trophies.
+  final DailyChallenge? daily;
+
+  /// Daily Nightmare: an escape (returns what the result screen shows), a
+  /// failed try, and sharing the result (true when a share sheet opened).
+  final Future<DailySummary> Function(DailyRunResult result)? onDailyEscaped;
+  final Future<void> Function()? onDailyFailed;
+  final Future<bool> Function(String text)? onDailyShare;
 
   static void _noop() {}
   static Future<void> _noopStageCleared(int _) async {}
@@ -99,6 +129,46 @@ class _GameScreenState extends State<GameScreen>
 
   /// One-shot effects playing in the maze (smoke, the flip's crack burst).
   final List<MazeFx> _fx = <MazeFx>[];
+
+  /// The key hunt: boxes, keys and the sealed exit
+  /// (docs/retention_features.md).
+  final KeyBoxPlanner _keyBoxPlanner = KeyBoxPlanner(
+    balance: KeyHuntBalance(
+      boxCount: AppRuntimeConfig.keyHuntBoxCount,
+      keyCount: AppRuntimeConfig.keyHuntKeyCount,
+      keysToUnseal: AppRuntimeConfig.keyHuntKeysToUnseal,
+    ),
+  );
+  final KeyHuntController _keyHunt = KeyHuntController();
+  Set<Point<int>> _keyHuntReserved = const <Point<int>>{};
+  KeyBox? _nearestBox;
+  double _keyFlashAt = -100;
+  double _sealedBumpAt = -100;
+  Timer? _unsealAudioTimer;
+
+  /// Short messages at the top of the run ("KEY 1 OF 2", "SEALED").
+  final ValueNotifier<RunBannerMessage?> _banner =
+      ValueNotifier<RunBannerMessage?>(null);
+  Timer? _bannerTimer;
+  int _bannerSerial = 0;
+
+  /// Quiet help for a player stuck on a stage. Never in the Daily Nightmare,
+  /// which stays the same for everyone.
+  final QuietMercy _mercy = QuietMercy(
+    enabled: AppRuntimeConfig.mercyEnabled,
+    failThreshold: AppRuntimeConfig.mercyFailThreshold,
+    maxLevel: AppRuntimeConfig.mercyMaxLevel,
+    bonusSecondsPerLevel: AppRuntimeConfig.mercyBonusSecondsPerLevel,
+  );
+
+  /// Where the last run ended, for the near-miss line on the loss screen.
+  int _lossDistanceToExit = 0;
+  int _lossKeysShort = 0;
+
+  /// Daily Nightmare: the escape screen's numbers once escaped, and the
+  /// failed tries since this screen opened.
+  DailySummary? _dailySummary;
+  int _dailyDeaths = 0;
   static const int _animationFrameCount = 7;
   static const int _maxStage = 100;
   static const int _maxPlayableMazeSize = 17;
@@ -169,14 +239,19 @@ class _GameScreenState extends State<GameScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _stage =
+        widget.daily?.profileStage ??
+        widget.initialStage.clamp(1, _maxStage).toInt();
     _stageRule = StageRules.forStage(_stage);
     _difficulty = _difficultyForStage(_stage);
-    _maze = _generator.generate(rows: _difficulty, cols: _difficulty);
+    _maze = _generateMaze();
     _rebuildPathMetrics();
+    _remainingSeconds = _stageDurationSeconds;
     _playerController = PlayerController(
       maze: _maze,
       vsync: this,
-      onWin: _loadNextMaze,
+      onWin: _onPlayerReachedExit,
+      onStep: _onPlayerStep,
       animationFrameCount: _animationFrameCount,
       animationFrameStepMs: 80,
     );
@@ -280,6 +355,9 @@ class _GameScreenState extends State<GameScreen>
     _keyboardFocusNode.dispose();
     _countdownTimer?.cancel();
     _stageTimer?.cancel();
+    _bannerTimer?.cancel();
+    _unsealAudioTimer?.cancel();
+    _banner.dispose();
     _stageClearController.dispose();
     _trapDeathSequence.dispose();
     _playerController.dispose();
@@ -305,7 +383,17 @@ class _GameScreenState extends State<GameScreen>
         return;
       }
 
-      unawaited(_audioManager.handle(GameAudioEvent.matchResume));
+      // A Daily Nightmare played in between ends the match audio; restart
+      // it instead of resuming, or this run would come back silent.
+      final audioEnded =
+          !_audioManager.isMatchActive &&
+          !_audioManager.isWon &&
+          !_audioManager.isLost;
+      unawaited(
+        _audioManager.handle(
+          audioEnded ? GameAudioEvent.matchRestart : GameAudioEvent.matchResume,
+        ),
+      );
       unawaited(
         _audioManager.handle(
           GameAudioEvent.timeChanged,
@@ -428,8 +516,12 @@ class _GameScreenState extends State<GameScreen>
     if (!mounted || _roundResolved || _isStageTransition || _showLossOverlay) {
       return;
     }
+    if (!_keyHunt.exitUnsealed) {
+      return;
+    }
 
     _roundResolved = true;
+    _banner.value = null;
 
     _playerController.stop();
     _countdownTimer?.cancel();
@@ -444,6 +536,12 @@ class _GameScreenState extends State<GameScreen>
       );
     }
 
+    if (widget.daily != null) {
+      await _finishDailyRun();
+      return;
+    }
+
+    _mercy.clear();
     setState(() {
       _isStageTransition = true;
       _completedStage = _stage;
@@ -486,6 +584,20 @@ class _GameScreenState extends State<GameScreen>
       return;
     }
 
+    try {
+      await widget.onBeforeNextStage(_completedStage);
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_before_next_stage_failed',
+        error: error,
+        stackTrace: stackTrace,
+        context: <String, Object?>{'stage': _completedStage},
+      );
+    }
+    if (!mounted) {
+      return;
+    }
+
     // Capture checkpoint band BEFORE advancing the stage counter.
     final previousBandCheckpoint = _checkpoint;
 
@@ -493,7 +605,7 @@ class _GameScreenState extends State<GameScreen>
       _stage = min(_stage + 1, _maxStage);
       _stageRule = StageRules.forStage(_stage);
       _difficulty = _difficultyForStage(_stage);
-      _maze = _generator.generate(rows: _difficulty, cols: _difficulty);
+      _maze = _generateMaze();
       _rebuildPathMetrics();
       _remainingSeconds = _stageDurationSeconds;
       _isStageTransition = false;
@@ -508,6 +620,322 @@ class _GameScreenState extends State<GameScreen>
     _applyStageRule(resetMaze: false);
     unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
     _restartCountdown();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Key hunt (docs/retention_features.md)
+  // ---------------------------------------------------------------------------
+
+  bool get _isKeyHuntStage =>
+      AppRuntimeConfig.keyHuntEnabled &&
+      _stage >= AppRuntimeConfig.keyHuntStartStage;
+
+  /// Places this stage's boxes (or clears them). Runs after the safe zones
+  /// (boxes avoid them) and before the traps (traps avoid the box routes).
+  void _resetKeyHunt() {
+    _keyFlashAt = -100;
+    _sealedBumpAt = -100;
+    _unsealAudioTimer?.cancel();
+    if (!_isKeyHuntStage) {
+      _keyHunt.clear();
+      _keyHuntReserved = const <Point<int>>{};
+      _nearestBox = null;
+      return;
+    }
+    final plan = _keyBoxPlanner.plan(
+      maze: _maze,
+      stage: _stage,
+      seed: _stageTrapSeed() ^ 0x5EED,
+      avoid: _safeZones.keys.toSet(),
+    );
+    _keyHunt.reset(plan);
+    _keyHuntReserved = plan.reservedCells;
+    _nearestBox = _keyHunt.nearestUnopened(_maze, _maze.start);
+    if (!plan.isActive) {
+      return;
+    }
+    final keys = plan.boxes.where((box) => box.hasKey).length;
+    final need = plan.keysRequired == keys
+        ? '$keys KEYS'
+        : '${plan.keysRequired} OF $keys KEYS';
+    final daily = widget.daily;
+    final firstHunt =
+        daily == null && _stage == AppRuntimeConfig.keyHuntStartStage;
+    _showBanner(
+      daily == null ? 'THE EXIT IS SEALED' : 'DAILY NIGHTMARE #${daily.number}',
+      subtitle: firstHunt
+          ? 'STEP ON THE BOXES · FIND $need'
+          : '${plan.boxes.length} BOXES · $need',
+      duration: Duration(milliseconds: firstHunt ? 3400 : 2400),
+    );
+  }
+
+  /// Every cell the runner arrives on: opens a shut box there.
+  void _onPlayerStep(Point<int> cell) {
+    if (!_keyHunt.isActive || _roundResolved || _isStageTransition) {
+      return;
+    }
+    final result = _keyHunt.openAt(cell, _stageElapsedSeconds);
+    switch (result) {
+      case KeyBoxOpenResult.none:
+        if (!_keyHunt.exitUnsealed) {
+          _nearestBox = _keyHunt.nearestUnopened(_maze, cell);
+        }
+        return;
+      case KeyBoxOpenResult.empty:
+        _onKeyBoxEmpty(cell);
+      case KeyBoxOpenResult.key:
+      case KeyBoxOpenResult.unsealed:
+        _onKeyFound(cell, unsealed: result == KeyBoxOpenResult.unsealed);
+    }
+    _nearestBox = _keyHunt.exitUnsealed
+        ? null
+        : _keyHunt.nearestUnopened(_maze, cell);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _onKeyFound(Point<int> cell, {required bool unsealed}) {
+    final now = _stageElapsedSeconds;
+    _fx.add(
+      MazeFx(
+        MazeFxKind.keyRise,
+        Offset(cell.x.toDouble(), cell.y.toDouble()),
+        now,
+      ),
+    );
+    _keyFlashAt = now;
+    unawaited(_audioManager.handle(GameAudioEvent.keyFound));
+    if (unsealed) {
+      _fx.add(
+        MazeFx(
+          MazeFxKind.unseal,
+          Offset(_maze.end.x.toDouble(), _maze.end.y.toDouble()),
+          now,
+        ),
+      );
+      _unsealAudioTimer?.cancel();
+      _unsealAudioTimer = Timer(const Duration(milliseconds: 350), () {
+        if (mounted && !_roundResolved) {
+          unawaited(_audioManager.handle(GameAudioEvent.exitUnsealed));
+        }
+      });
+      unawaited(HapticFeedback.heavyImpact());
+      _showBanner(
+        'THE EXIT IS OPEN',
+        subtitle: 'RUN!',
+        duration: const Duration(milliseconds: 2200),
+      );
+      return;
+    }
+    unawaited(HapticFeedback.mediumImpact());
+    final left = _keyHunt.keysLeft;
+    _showBanner(
+      'KEY ${_keyHunt.keysFound} OF ${_keyHunt.keysRequired}',
+      subtitle: left == 1 ? 'ONE LOCK LEFT' : '$left LOCKS LEFT',
+    );
+  }
+
+  void _onKeyBoxEmpty(Point<int> cell) {
+    _fx.add(
+      MazeFx(
+        MazeFxKind.emptyPuff,
+        Offset(cell.x.toDouble(), cell.y.toDouble()),
+        _stageElapsedSeconds,
+      ),
+    );
+    unawaited(_audioManager.handle(GameAudioEvent.keyBoxEmpty));
+    unawaited(HapticFeedback.lightImpact());
+    final keysLeft = _keyHunt.keysLeft;
+    final boxesLeft = _keyHunt.boxesLeft;
+    // The odds stay honest: keys left and the boxes they can be in.
+    _showBanner(
+      'EMPTY…',
+      subtitle: keysLeft > 0
+          ? '$keysLeft KEY${keysLeft == 1 ? '' : 'S'} IN $boxesLeft '
+                'BOX${boxesLeft == 1 ? '' : 'ES'}'
+          : null,
+      color: NightHud.boneDim,
+    );
+  }
+
+  /// The runner arrived on the exit: escape if it's open, else it's sealed.
+  void _onPlayerReachedExit() {
+    if (_keyHunt.exitUnsealed) {
+      unawaited(_loadNextMaze());
+      return;
+    }
+    if (_roundResolved || _isStageTransition) {
+      return;
+    }
+    _sealedBumpAt = _stageElapsedSeconds;
+    unawaited(_audioManager.handle(GameAudioEvent.exitSealedBump));
+    unawaited(HapticFeedback.selectionClick());
+    final left = _keyHunt.keysLeft;
+    _showBanner(
+      'SEALED',
+      subtitle: 'FIND $left MORE KEY${left == 1 ? '' : 'S'}',
+      color: NightHud.blood,
+    );
+  }
+
+  void _showBanner(
+    String title, {
+    String? subtitle,
+    Color color = NightHud.gold,
+    Duration duration = const Duration(milliseconds: 1800),
+  }) {
+    _bannerTimer?.cancel();
+    _banner.value = RunBannerMessage(
+      title: title,
+      subtitle: subtitle,
+      color: color,
+      serial: ++_bannerSerial,
+    );
+    _bannerTimer = Timer(duration, () => _banner.value = null);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Losses: the near-miss line and quiet mercy
+  // ---------------------------------------------------------------------------
+
+  /// Bookkeeping for any loss (the Devil, a trap or the clock).
+  void _onRunLost() {
+    _bannerTimer?.cancel();
+    _banner.value = null;
+    _lossDistanceToExit =
+        _maze.shortestPathDistance(_playerController.position, _maze.end) ?? 0;
+    _lossKeysShort = _keyHunt.keysLeft;
+    if (widget.daily != null) {
+      _dailyDeaths += 1;
+      final onFailed = widget.onDailyFailed;
+      if (onFailed != null) {
+        unawaited(onFailed());
+      }
+      return;
+    }
+    _mercy.recordFailure(_stage);
+  }
+
+  /// "2 STAGES TO CHECKPOINT 25" under the near miss.
+  String _nearMissDetail() {
+    final daily = widget.daily;
+    if (daily != null) {
+      return 'DAILY NIGHTMARE #${daily.number} · FREE RETRIES';
+    }
+    return checkpointProgressText(
+      stage: _stage,
+      milestone: _nextMilestoneStage(),
+      maxStage: _maxStage,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Daily Nightmare
+  // ---------------------------------------------------------------------------
+
+  /// The daily maze comes from the day's seed, the same for everyone; a run
+  /// maze is random.
+  MazeGrid _generateMaze() => _generator.generate(
+    rows: _difficulty,
+    cols: _difficulty,
+    seed: widget.daily?.seed,
+  );
+
+  Future<void> _finishDailyRun() async {
+    final daily = widget.daily!;
+    final seconds = max(0, _stageDurationSeconds - _remainingSeconds);
+    final keys = _keyHunt.keysFound;
+    setState(() => _isStageTransition = true);
+    try {
+      await _audioManager.handle(GameAudioEvent.playerWon);
+    } catch (error, stackTrace) {
+      ErrorReporter.report(
+        reason: 'game_audio_player_won_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    final result = DailyRunResult(seconds: seconds, keys: keys);
+    var summary = DailySummary(
+      number: daily.number,
+      seconds: seconds,
+      bestSeconds: seconds,
+      keys: keys,
+      deaths: _dailyDeaths,
+      streak: 1,
+      freezes: 0,
+      shareText: dailyShareText(
+        number: daily.number,
+        seconds: seconds,
+        keys: keys,
+        deaths: _dailyDeaths,
+        streak: 1,
+      ),
+    );
+    final onEscaped = widget.onDailyEscaped;
+    if (onEscaped != null) {
+      try {
+        summary = await onEscaped(result);
+      } catch (error, stackTrace) {
+        ErrorReporter.report(
+          reason: 'daily_escape_record_failed',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    unawaited(HapticFeedback.heavyImpact());
+    setState(() => _dailySummary = summary);
+  }
+
+  /// Another try at the same daily maze (after a loss, or to beat a time).
+  void _restartDaily() {
+    _countdownTimer?.cancel();
+    setState(() {
+      _dailySummary = null;
+      _isStageTransition = false;
+      _isTimeUpHandling = false;
+      _showLossOverlay = false;
+      _lostByTime = false;
+      _lostByTrap = false;
+      _trapDeathQuote = null;
+      _trapDeathInProgress = false;
+      _adActionInProgress = false;
+      // Fresh from the seed, so even shifted walls are back as they were.
+      _maze = _generateMaze();
+      _rebuildPathMetrics();
+      _remainingSeconds = _stageDurationSeconds;
+    });
+    _trapDeathSequence.cancel();
+    _playerController.resetForMaze(_maze);
+    _applyStageRule(resetMaze: false);
+    unawaited(_audioManager.handle(GameAudioEvent.matchExit));
+    unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
+    _restartCountdown();
+    _requestKeyboardFocusIfNeeded();
+  }
+
+  Future<void> _exitDaily() async {
+    await _audioManager.handle(GameAudioEvent.matchExit);
+    widget.onExitToDashboard();
+  }
+
+  Future<bool> _shareDaily() async {
+    final summary = _dailySummary;
+    if (summary == null) {
+      return false;
+    }
+    final share = widget.onDailyShare;
+    if (share != null) {
+      return share(summary.shareText);
+    }
+    await Clipboard.setData(ClipboardData(text: summary.shareText));
+    return false;
   }
 
   String get _modeLabel {
@@ -537,11 +965,18 @@ class _GameScreenState extends State<GameScreen>
     return min(10 + (normalized - 1), _maxPlayableMazeSize);
   }
 
-  int _stageDurationFor(int stage) {
-    return _defaultStageDurationSeconds;
+  /// The clock: the base, plus time for the box detours on key-hunt stages,
+  /// plus quiet mercy for a player stuck on this stage.
+  int get _stageDurationSeconds {
+    var seconds = _defaultStageDurationSeconds;
+    if (_isKeyHuntStage) {
+      seconds += AppRuntimeConfig.keyHuntExtraSeconds;
+    }
+    if (widget.daily == null) {
+      seconds += _mercy.bonusSecondsFor(_stage);
+    }
+    return seconds;
   }
-
-  int get _stageDurationSeconds => _stageDurationFor(_stage);
 
   bool get _isPanic => _remainingSeconds <= 10;
 
@@ -631,8 +1066,8 @@ class _GameScreenState extends State<GameScreen>
     _audioFrameId += 1;
     _stageElapsedSeconds += dt;
 
-    // Reaching the golden goal tile always wins and advances to next stage.
-    if (_playerController.position == _maze.end) {
+    // Reaching the open exit wins and advances to the next stage.
+    if (_keyHunt.canEscape(_playerController.position, _maze.end)) {
       unawaited(_loadNextMaze());
       return;
     }
@@ -880,6 +1315,7 @@ class _GameScreenState extends State<GameScreen>
     _isPaused = false;
     _countdownTimer?.cancel();
     _playerController.stop();
+    _onRunLost();
     try {
       await _audioManager.handle(GameAudioEvent.playerLost);
     } catch (error, stackTrace) {
@@ -900,7 +1336,7 @@ class _GameScreenState extends State<GameScreen>
 
   void _applyStageRule({required bool resetMaze}) {
     if (resetMaze) {
-      _maze = _generator.generate(rows: _difficulty, cols: _difficulty);
+      _maze = _generateMaze();
       _playerController.resetForMaze(_maze);
     }
 
@@ -932,6 +1368,7 @@ class _GameScreenState extends State<GameScreen>
       totalSteps: _mazeShiftTotalSteps,
     );
     _resetSafeZones();
+    _resetKeyHunt();
     _rebuildTrapTilesForCurrentStage();
     _fx.clear();
     _showLossOverlay = false;
@@ -975,10 +1412,15 @@ class _GameScreenState extends State<GameScreen>
       stage: _stage,
       seed: seed,
       config: _trapDifficultyScaler.config,
+      reservedCells: _keyHuntReserved,
     );
 
     final filteredTiles = placedTiles
-        .where((tile) => !_safeZones.containsKey(tile.cell))
+        .where(
+          (tile) =>
+              !_safeZones.containsKey(tile.cell) &&
+              !_keyHuntReserved.contains(tile.cell),
+        )
         .toList(growable: true);
 
     if (forceStageOneTestTrap) {
@@ -1199,6 +1641,7 @@ class _GameScreenState extends State<GameScreen>
     _isPaused = false;
     _countdownTimer?.cancel();
     _playerController.stop();
+    _onRunLost();
 
     final playerCell = _playerController.position;
     final distanceToGoal = _maze.shortestPathDistance(playerCell, _maze.end);
@@ -1409,14 +1852,26 @@ class _GameScreenState extends State<GameScreen>
     _mazeShiftManager.markPhaseTriggered(phase);
     _glitchEffectController.trigger();
 
+    final shutBoxes = _keyHunt.unopened.toList(growable: false);
     final outcome = _mazeShiftManager.triggerMazeShift(
       phase: phase,
       maze: _maze,
       playerPosition: _playerController.position,
       exitPosition: _maze.end,
+      protectedCells: {for (final box in shutBoxes) ...box.sidePath},
+      mustReach: [for (final box in shutBoxes) box.cell],
     );
     if (!outcome.applied) {
       return _glitchEffectController.isActive;
+    }
+    if (_keyHunt.isActive) {
+      // The walls moved: no trap may now sit on a route to a box or the exit.
+      _trapStateController.removeTilesOn(
+        _keyHunt.objectiveCells(_maze, _playerController.position, _maze.end),
+      );
+      _nearestBox = _keyHunt.exitUnsealed
+          ? null
+          : _keyHunt.nearestUnopened(_maze, _playerController.position);
     }
 
     unawaited(_audioManager.handle(GameAudioEvent.mazeShiftStarted));
@@ -1569,9 +2024,12 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _resetSafeZones() {
+    final extra = widget.daily == null ? _mercy.extraSafeZonesFor(_stage) : 0;
     _safeZones
       ..clear()
-      ..addAll(_buildSafeZones(count: _safeZonesPerStage, duration: 1.0));
+      ..addAll(
+        _buildSafeZones(count: _safeZonesPerStage + extra, duration: 1.0),
+      );
   }
 
   Map<Point<int>, double> _buildSafeZones({
@@ -1694,6 +2152,7 @@ class _GameScreenState extends State<GameScreen>
     _isPaused = false;
     _countdownTimer?.cancel();
     _playerController.stop();
+    _onRunLost();
     try {
       await _audioManager.handle(GameAudioEvent.playerLost);
     } catch (error, stackTrace) {
@@ -1712,7 +2171,9 @@ class _GameScreenState extends State<GameScreen>
     _isTimeUpHandling = false;
   }
 
-  bool get _playerReachedGoal => _playerController.position == _maze.end;
+  /// On the exit with enough keys to open it.
+  bool get _playerReachedGoal =>
+      _keyHunt.canEscape(_playerController.position, _maze.end);
 
   // ---------------------------------------------------------------------------
   // Revive-life system
@@ -1890,9 +2351,23 @@ class _GameScreenState extends State<GameScreen>
                     totalSeconds: _stageDurationSeconds,
                     isPaused: _isPaused,
                     onPauseTap: _togglePause,
-                    checkpoint: _checkpoint,
+                    checkpoint: widget.daily == null ? _checkpoint : 0,
                     livesRemaining: _livesRemaining,
                     maxLives: _maxLivesForHud,
+                    keysFound: _keyHunt.keysFound,
+                    keysRequired: _keyHunt.keysRequired,
+                    boxesLeft: _keyHunt.boxesLeft,
+                    stageLabel: widget.daily == null
+                        ? null
+                        : '#${widget.daily!.number}',
+                  ),
+                  Positioned(
+                    top: 46 * uiScale,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: RunBanner(message: _banner, scale: uiScale),
+                    ),
                   ),
                   // A fixed, see-through pad over the maze's bottom-left.
                   if (showTouchControls)
@@ -1936,9 +2411,15 @@ class _GameScreenState extends State<GameScreen>
                 child: _fitted(
                   RunPausedDialog(
                     stage: _stage,
+                    stageLabel: widget.daily == null ? 'STAGE' : 'DAILY',
+                    stageValue: widget.daily == null
+                        ? null
+                        : '#${widget.daily!.number}',
                     checkpoint: _checkpoint,
                     nextCheckpoint: _nextMilestoneStage(),
-                    checkpointText: _checkpointPushText(),
+                    checkpointText: widget.daily == null
+                        ? _checkpointPushText()
+                        : 'Daily Nightmare · free retries',
                     modeLabel: _modeLabel,
                     timeRemainingLabel: _timeLabel.replaceFirst('TIME: ', ''),
                     onResumePressed: _togglePause,
@@ -1948,10 +2429,25 @@ class _GameScreenState extends State<GameScreen>
               ),
             ),
 
-          if (_isStageTransition)
+          if (_isStageTransition && widget.daily == null)
             StageClearOverlay(
               stage: _completedStage,
               controller: _stageClearController,
+            ),
+
+          if (_dailySummary != null)
+            Positioned.fill(
+              child: Container(
+                color: const Color(0xD9000000),
+                child: _fitted(
+                  DailyResultDialog(
+                    summary: _dailySummary!,
+                    onShare: _shareDaily,
+                    onPlayAgain: _restartDaily,
+                    onMenu: () => unawaited(_exitDaily()),
+                  ),
+                ),
+              ),
             ),
 
           if (_showLossOverlay)
@@ -1974,8 +2470,19 @@ class _GameScreenState extends State<GameScreen>
                     adActionInProgress: _adActionInProgress,
                     livesRemaining: _livesRemaining,
                     maxLives: _maxLivesForHud,
-                    onRevivePressed: _onReviveFromLoss,
-                    onRestartPressed: _onRestartFromLoss,
+                    nearMissText: nearMissText(
+                      tilesToExit: _lossDistanceToExit,
+                      keysShort: _lossKeysShort,
+                    ),
+                    nearMissDetail: _nearMissDetail(),
+                    dailyNumber: widget.daily?.number,
+                    dailyDeaths: _dailyDeaths,
+                    onRevivePressed: widget.daily == null
+                        ? _onReviveFromLoss
+                        : () async => _restartDaily(),
+                    onRestartPressed: widget.daily == null
+                        ? _onRestartFromLoss
+                        : _exitDaily,
                   ),
                 ),
               ),
@@ -2054,7 +2561,7 @@ class _GameScreenState extends State<GameScreen>
       _stage = 1;
       _stageRule = StageRules.forStage(_stage);
       _difficulty = _difficultyForStage(_stage);
-      _maze = _generator.generate(rows: _difficulty, cols: _difficulty);
+      _maze = _generateMaze();
       _rebuildPathMetrics();
       _remainingSeconds = _stageDurationSeconds;
       _revivesUsedInCheckpointBand = 0;
@@ -2144,7 +2651,7 @@ class _GameScreenState extends State<GameScreen>
     _stage = checkpointStage.clamp(1, _maxStage);
     _stageRule = StageRules.forStage(_stage);
     _difficulty = _difficultyForStage(_stage);
-    _maze = _generator.generate(rows: _difficulty, cols: _difficulty);
+    _maze = _generateMaze();
     _rebuildPathMetrics();
     _remainingSeconds = _stageDurationSeconds;
     _isStageTransition = false;
@@ -2173,7 +2680,7 @@ class _GameScreenState extends State<GameScreen>
     _stage = stage;
     _stageRule = StageRules.forStage(_stage);
     _difficulty = _difficultyForStage(_stage);
-    _maze = _generator.generate(rows: _difficulty, cols: _difficulty);
+    _maze = _generateMaze();
     _rebuildPathMetrics();
     _remainingSeconds = _stageDurationSeconds;
     _isStageTransition = false;
@@ -2265,6 +2772,12 @@ class _GameScreenState extends State<GameScreen>
                     trapHiddenCueLevel: _trapStageConfig.hiddenCueLevel,
                     hidePlayer: _trapDeathInProgress,
                     effects: List<MazeFx>.unmodifiable(_fx),
+                    keyBoxes: _keyHunt.boxes,
+                    keysFound: _keyHunt.keysFound,
+                    keysRequired: _keyHunt.keysRequired,
+                    boxPointer: _nearestBox?.cell,
+                    keyFlashAt: _keyFlashAt,
+                    sealedBumpAt: _sealedBumpAt,
                   ),
                 ),
                 if (_trapDeathInProgress)

@@ -13,10 +13,16 @@ class RunPausedDialog extends StatefulWidget {
     required this.timeRemainingLabel,
     required this.onResumePressed,
     required this.onExitPressed,
+    this.stageLabel = 'STAGE',
+    this.stageValue,
     super.key,
   });
 
   final int stage;
+
+  /// The first box: "STAGE 12" in a run, "DAILY #23" in the Daily Nightmare.
+  final String stageLabel;
+  final String? stageValue;
   final int checkpoint;
   final int nextCheckpoint;
   final String checkpointText;
@@ -100,8 +106,8 @@ class _RunPausedDialogState extends State<RunPausedDialog>
                     children: [
                       Expanded(
                         child: HorrorStatBox(
-                          label: 'STAGE',
-                          value: '${widget.stage}',
+                          label: widget.stageLabel,
+                          value: widget.stageValue ?? '${widget.stage}',
                           color: NightHud.boneDim,
                           icon: Icons.layers_rounded,
                         ),

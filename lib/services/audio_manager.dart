@@ -27,6 +27,10 @@ enum _AudioCue {
   trapCreak,
   trapFall,
   trapImpact,
+  keyFound,
+  boxEmpty,
+  exitUnsealed,
+  exitSealed,
 }
 
 class _ResolvedAsset {
@@ -276,6 +280,14 @@ class AudioManager {
         _AudioCue.trapCreak: <String>['trap_creak.mp3'],
         _AudioCue.trapFall: <String>['trap_fall.mp3'],
         _AudioCue.trapImpact: <String>['trap_impact.mp3'],
+        // Key hunt; each falls back to an older clip if its file is missing.
+        _AudioCue.keyFound: <String>['key_found.mp3', 'safe_zone_sound.mp3'],
+        _AudioCue.boxEmpty: <String>['box_empty.mp3', 'trap_creak.mp3'],
+        _AudioCue.exitUnsealed: <String>[
+          'exit_unsealed.mp3',
+          'maze_shift_audio.mp3',
+        ],
+        _AudioCue.exitSealed: <String>['exit_sealed.mp3', 'trap_creak.mp3'],
       };
 
   static Future<void> configureGlobalAudio({
@@ -505,6 +517,8 @@ class AudioManager {
         payload.type == GameAudioEvent.trapDeathFall ||
         payload.type == GameAudioEvent.trapDeathImpact ||
         payload.type == GameAudioEvent.trapCrackReveal ||
+        payload.type == GameAudioEvent.keyFound ||
+        payload.type == GameAudioEvent.exitUnsealed ||
         payload.type == GameAudioEvent.matchExit) {
       _queue.addFirst(queued);
     } else {
@@ -761,6 +775,46 @@ class AudioManager {
       case GameAudioEvent.trapDeath:
         // Full trap death mirrors playerLost flow.
         await _onPlayerLost();
+        break;
+      case GameAudioEvent.keyFound:
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.keyFound,
+            bus: AudioBus.action,
+            baseVolume: 0.95,
+            playbackRate: 1,
+          );
+        }
+        break;
+      case GameAudioEvent.keyBoxEmpty:
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.boxEmpty,
+            bus: AudioBus.action,
+            baseVolume: 0.8,
+            playbackRate: 0.96 + (Random().nextDouble() * 0.08),
+          );
+        }
+        break;
+      case GameAudioEvent.exitUnsealed:
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.exitUnsealed,
+            bus: AudioBus.action,
+            baseVolume: 1.0,
+            playbackRate: 1,
+          );
+        }
+        break;
+      case GameAudioEvent.exitSealedBump:
+        if (_canPlayGameplaySfx) {
+          await _playOneShot(
+            _AudioCue.exitSealed,
+            bus: AudioBus.action,
+            baseVolume: 0.85,
+            playbackRate: 1,
+          );
+        }
         break;
     }
 
@@ -2083,7 +2137,12 @@ class AudioManager {
       return cue == _AudioCue.mazeShift;
     }
     if (_isDevilPriorityActive) {
-      return cue == _AudioCue.flip;
+      // Key-hunt cues are feedback the player needs even with the Devil near.
+      return cue == _AudioCue.flip ||
+          cue == _AudioCue.keyFound ||
+          cue == _AudioCue.boxEmpty ||
+          cue == _AudioCue.exitUnsealed ||
+          cue == _AudioCue.exitSealed;
     }
     return true;
   }

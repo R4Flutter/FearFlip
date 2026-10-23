@@ -23,8 +23,14 @@ class RunFailedDialog extends StatefulWidget {
     this.livesRemaining = -1,
     /// Max lives in the band. 0 when unlimited.
     this.maxLives = 0,
+    this.nearMissText,
+    this.nearMissDetail,
+    this.dailyNumber,
+    this.dailyDeaths = 0,
     super.key,
   });
+
+  static const nearMissKey = ValueKey<String>('run_failed_near_miss');
 
   final int stage;
   final int maxStage;
@@ -43,12 +49,25 @@ class RunFailedDialog extends StatefulWidget {
   final Future<void> Function() onRevivePressed;
   final Future<void> Function() onRestartPressed;
 
+  /// How close the run came ("4 TILES FROM THE EXIT · 1 KEY SHORT"), shown
+  /// big under the header, with [nearMissDetail] ("2 STAGES TO CHECKPOINT
+  /// 25") under it.
+  final String? nearMissText;
+  final String? nearMissDetail;
+
+  /// Set in the Daily Nightmare: daily stats, a free TRY AGAIN
+  /// ([onRevivePressed]) and BACK TO MENU ([onRestartPressed]).
+  final int? dailyNumber;
+  final int dailyDeaths;
+
+  bool get _isDaily => dailyNumber != null;
+
   /// True when the band has a life cap AND no lives remain.
   bool get _livesExhausted =>
       livesRemaining >= 0 && maxLives > 0 && livesRemaining <= 0;
 
   /// True when lives are capped (stage > 25).
-  bool get _showLives => livesRemaining >= 0 && maxLives > 0;
+  bool get _showLives => !_isDaily && livesRemaining >= 0 && maxLives > 0;
 
   @override
   State<RunFailedDialog> createState() => _RunFailedDialogState();
@@ -182,35 +201,68 @@ class _RunFailedDialogState extends State<RunFailedDialog>
                     color: criticalColor,
                     emblem: emblem,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
+
+                  // ── How close it came ─────────────────────────────────────
+                  if (widget.nearMissText != null) ...[
+                    _NearMiss(
+                      key: RunFailedDialog.nearMissKey,
+                      text: widget.nearMissText!,
+                      detail: widget.nearMissDetail,
+                      color: criticalColor,
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
                   // ── Stats ─────────────────────────────────────────────────
-                  Row(
-                    children: [
-                      Expanded(
-                        child: HorrorStatBox(
-                          label: 'LAST SECTOR',
-                          value: '${widget.stage}',
-                          color: criticalColor,
+                  if (widget._isDaily)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: HorrorStatBox(
+                            label: 'DAILY',
+                            value: '#${widget.dailyNumber}',
+                            color: criticalColor,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: HorrorStatBox(
-                          label: 'PERSONAL BEST',
-                          value: '${widget.maxStage}',
-                          color: NightHud.boneDim,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: HorrorStatBox(
+                            label: 'DEATHS TODAY',
+                            value: '${widget.dailyDeaths}',
+                            color: NightHud.boneDim,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  HorrorStatBox(
-                    label: 'SURVIVAL PERCENT',
-                    value: '${widget.escapePercent}%',
-                    color: NightHud.amber,
-                    isWide: true,
-                  ),
+                      ],
+                    )
+                  else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: HorrorStatBox(
+                            label: 'LAST SECTOR',
+                            value: '${widget.stage}',
+                            color: criticalColor,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: HorrorStatBox(
+                            label: 'PERSONAL BEST',
+                            value: '${widget.maxStage}',
+                            color: NightHud.boneDim,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    HorrorStatBox(
+                      label: 'SURVIVAL PERCENT',
+                      value: '${widget.escapePercent}%',
+                      color: NightHud.amber,
+                      isWide: true,
+                    ),
+                  ],
                   const SizedBox(height: 20),
 
                   // ── Hearts row (only for limited bands) ───────────────────
@@ -237,7 +289,7 @@ class _RunFailedDialogState extends State<RunFailedDialog>
                         ),
                       ),
                     )
-                  else
+                  else if (widget.nearMissText == null)
                     AnimatedBuilder(
                       animation: _pulse,
                       builder: (context, child) {
@@ -262,34 +314,108 @@ class _RunFailedDialogState extends State<RunFailedDialog>
                     ),
                   const SizedBox(height: 16),
 
-                  // ── Revive button ─────────────────────────────────────────
-                  // When lives are exhausted the button is visually muted;
-                  // tapping it triggers a checkpoint restart via the
-                  // _onReviveFromLoss guard in game_screen.dart.
-                  FearButton(
-                    label: _reviveLabel(),
-                    onPressed: widget._livesExhausted
-                        ? widget.onRestartPressed
-                        : widget.onRevivePressed,
-                    color: _reviveColor(),
-                    isPrimary: !widget._livesExhausted,
-                  ),
-                  const SizedBox(height: 12),
+                  // ── Daily: retry for free or leave ────────────────────────
+                  if (widget._isDaily) ...[
+                    FearButton(
+                      label: 'TRY AGAIN',
+                      onPressed: widget.onRevivePressed,
+                      color: NightHud.amber,
+                      isPrimary: true,
+                    ),
+                    const SizedBox(height: 12),
+                    FearButton(
+                      label: 'BACK TO MENU',
+                      onPressed: widget.onRestartPressed,
+                      color: NightHud.blood,
+                    ),
+                  ] else ...[
+                    // ── Revive button ───────────────────────────────────────
+                    // When lives are exhausted the button is visually muted;
+                    // tapping it triggers a checkpoint restart via the
+                    // _onReviveFromLoss guard in game_screen.dart.
+                    FearButton(
+                      label: _reviveLabel(),
+                      onPressed: widget._livesExhausted
+                          ? widget.onRestartPressed
+                          : widget.onRevivePressed,
+                      color: _reviveColor(),
+                      isPrimary: !widget._livesExhausted,
+                    ),
+                    const SizedBox(height: 12),
 
-                  // ── Checkpoint restart button ─────────────────────────────
-                  FearButton(
-                    label: widget.adActionInProgress
-                        ? 'RESETTING...'
-                        : 'CHECKPOINT RESTART',
-                    onPressed: widget.onRestartPressed,
-                    color: NightHud.blood,
-                  ),
+                    // ── Checkpoint restart button ───────────────────────────
+                    FearButton(
+                      label: widget.adActionInProgress
+                          ? 'RESETTING...'
+                          : 'CHECKPOINT RESTART',
+                      onPressed: widget.onRestartPressed,
+                      color: NightHud.blood,
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The near miss, big: how far from the exit (and how many keys short) the
+/// run ended, and what's left to the next checkpoint.
+class _NearMiss extends StatelessWidget {
+  const _NearMiss({
+    required this.text,
+    required this.detail,
+    required this.color,
+    super.key,
+  });
+
+  final String text;
+  final String? detail;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = NightHud.tame(color);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        border: Border.all(color: accent.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: NightHud.bone,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.5,
+              shadows: [
+                Shadow(color: accent.withValues(alpha: 0.6), blurRadius: 8),
+              ],
+            ),
+          ),
+          if (detail != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              detail!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: NightHud.boneDim,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.6,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

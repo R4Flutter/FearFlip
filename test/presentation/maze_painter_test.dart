@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fearflipgame/domain/entities/direction4.dart';
+import 'package:fearflipgame/game/keys/key_hunt.dart';
 import 'package:fearflipgame/presentation/gameplay/maze_art.dart';
 import 'package:fearflipgame/presentation/gameplay/maze_camera.dart';
 import 'package:fearflipgame/presentation/gameplay/maze_generator.dart';
@@ -202,5 +203,93 @@ void main() {
     expect(near, const Color(0xFF3B4660));
     double lum(Color c) => c.r + c.g + c.b;
     expect(lum(far!), lessThan(lum(near!) * 0.5));
+  });
+
+  MazePainter keyPainter(
+    MazeGrid maze, {
+    MazeArt art = const MazeArt.none(),
+    List<KeyBox> boxes = const [],
+    int found = 0,
+    int required = 2,
+    double time = 0,
+    List<MazeFx> effects = const [],
+    Point<int>? pointer,
+  }) => MazePainter(
+    maze: maze,
+    playerCellPosition: Offset.zero,
+    direction: Direction4.right,
+    currentFrame: 0,
+    isMoving: false,
+    pulse: 0,
+    time: time,
+    art: art,
+    keyBoxes: boxes,
+    keysFound: found,
+    keysRequired: required,
+    boxPointer: pointer,
+    keyFlashAt: time - 0.1,
+    sealedBumpAt: time - 0.1,
+    effects: effects,
+  );
+
+  KeyBox box(int x, int y, {bool key = false}) =>
+      KeyBox(cell: Point(x, y), hasKey: key, depth: 0, sidePath: [Point(x, y)]);
+
+  testWidgets('a sealed exit is chained and padlocked until the keys are in', (
+    tester,
+  ) async {
+    final maze = _maze();
+    final sealed = await tester.runAsync(
+      () => _pixel(keyPainter(maze, found: 0), exitPixel),
+    );
+    final open = await tester.runAsync(
+      () => _pixel(keyPainter(maze, found: 2), exitPixel),
+    );
+    expect(open, const Color(0xFFFFC83D)); // the bare gold stand-in
+    expect(sealed, isNot(open));
+  });
+
+  testWidgets('a shut box covers the floor, even without art', (tester) async {
+    final maze = _maze();
+    final colour = await tester.runAsync(
+      () => _pixel(keyPainter(maze, boxes: [box(1, 0, key: true)]), floorPixel),
+    );
+    expect(colour, isNot(const Color(0xFF3B4660)));
+  });
+
+  testWidgets('open boxes, the box pointer and the key effects all paint', (
+    tester,
+  ) async {
+    final art = (await tester.runAsync(MazeArt.load))!;
+    addTearDown(art.dispose);
+    final maze = _bigMaze(12);
+    final empty = box(1, 0)
+      ..opened = true
+      ..openedAt = 0.1;
+    final keyed = box(2, 0, key: true)
+      ..opened = true
+      ..openedAt = 0.2;
+    final effects = [
+      const MazeFx(MazeFxKind.keyRise, Offset(2, 0), 0.2),
+      const MazeFx(MazeFxKind.emptyPuff, Offset(1, 0), 0.1),
+      const MazeFx(MazeFxKind.unseal, Offset(11, 11), 0.3),
+    ];
+    for (final a in [const MazeArt.none(), art]) {
+      final colour = await tester.runAsync(
+        () => _pixel(
+          keyPainter(
+            maze,
+            art: a,
+            boxes: [empty, keyed, box(9, 9)],
+            found: 1,
+            time: 0.45,
+            effects: effects,
+            pointer: const Point(9, 9),
+          ),
+          floorPixel,
+        ),
+      );
+      expect(colour, isNotNull);
+    }
   });
 }

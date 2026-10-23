@@ -22,6 +22,14 @@ class TrapStateController {
       ..addAll(tiles);
   }
 
+  /// Removes every trap on [cells] that hasn't collapsed yet. Used after the
+  /// maze shifts, so no trap lands on a route the player still has to walk.
+  void removeTilesOn(Set<Point<int>> cells) {
+    _tiles.removeWhere(
+      (t) => t.state != TrapState.collapsed && cells.contains(t.cell),
+    );
+  }
+
   /// Read-only access to all trap tiles for rendering.
   List<TrapTile> get activeTiles => _tiles;
 

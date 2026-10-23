@@ -12,6 +12,8 @@ Canonical runtime filenames:
 - winning_soundeffect.mp3
 - game_lost_soundeffect.mp3
 - glitch_screen_sound_effect.mp3
+- key_found.mp3, box_empty.mp3, exit_unsealed.mp3, exit_sealed.mp3 (key hunt;
+  built by tool/audio/build_sfx.py from the raw takes)
 
 Legacy aliases are kept for backward compatibility:
 - wining_soundeffect.mp3

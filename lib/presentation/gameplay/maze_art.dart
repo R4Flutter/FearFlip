@@ -56,6 +56,9 @@ class MazeArt {
     'objects/torch.png': 8,
     'objects/props_wake.png': 8,
     'objects/props_nightmare.png': 8,
+    // Key-hunt chest: shut, rattle, open-empty, open-key. Not delivered yet;
+    // the painter draws one in code until it is.
+    'objects/chest.png': 4,
     'fx/smoke.png': 5,
     'fx/debris.png': 5,
     'fx/sparkle.png': 4,
@@ -79,6 +82,7 @@ class MazeArt {
   SpriteStrip? get torch => _strips['objects/torch.png'];
   SpriteStrip? get propsWake => _strips['objects/props_wake.png'];
   SpriteStrip? get propsNightmare => _strips['objects/props_nightmare.png'];
+  SpriteStrip? get chest => _strips['objects/chest.png'];
   SpriteStrip? get smoke => _strips['fx/smoke.png'];
   SpriteStrip? get debris => _strips['fx/debris.png'];
   SpriteStrip? get sparkle => _strips['fx/sparkle.png'];

@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../game/keys/key_hunt.dart';
 import '../../game/trap/trap_fx_renderer.dart';
 import '../../game/trap/trap_tile.dart';
 import '../../domain/entities/direction4.dart';
@@ -33,6 +34,9 @@ const _candle = Color(0xFFFFE08A);
 const _gold = Color(0xFFFFC83D);
 const _spirit = Color(0xFF9CC8F0);
 const _danger = Color(0xFFE03A32);
+const _boneDim = Color(0xFFB39572);
+const _keyGold = Color(0xFFFFD55A);
+const _soot = Color(0xCC120A05);
 
 /// A one-shot effect in the maze: [kind] at cell position [at], started at
 /// stage time [start].
@@ -46,6 +50,9 @@ class MazeFx {
   double get duration => switch (kind) {
     MazeFxKind.smoke => 0.6,
     MazeFxKind.flip => 0.7,
+    MazeFxKind.keyRise => 1.0,
+    MazeFxKind.emptyPuff => 0.9,
+    MazeFxKind.unseal => 1.1,
   };
 }
 
@@ -55,6 +62,15 @@ enum MazeFxKind {
 
   /// Red light cracking the floor open: the world flips.
   flip,
+
+  /// A key rises out of an opened box.
+  keyRise,
+
+  /// Dust and a cold "EMPTY" from an empty box.
+  emptyPuff,
+
+  /// The exit's seal bursts when the last key is found.
+  unseal,
 }
 
 class MazePainter extends CustomPainter {
@@ -75,6 +91,12 @@ class MazePainter extends CustomPainter {
     this.trapHiddenCueLevel = 0.0,
     this.hidePlayer = false,
     this.effects = const <MazeFx>[],
+    this.keyBoxes = const <KeyBox>[],
+    this.keysFound = 0,
+    this.keysRequired = 0,
+    this.boxPointer,
+    this.keyFlashAt = -100,
+    this.sealedBumpAt = -100,
   });
 
   final MazeGrid maze;
@@ -98,6 +120,23 @@ class MazePainter extends CustomPainter {
   /// One-shot effects still playing (GameScreen drops finished ones).
   final List<MazeFx> effects;
 
+  /// Key hunt: the stage's boxes (empty on stages without a hunt).
+  final List<KeyBox> keyBoxes;
+  final int keysFound;
+
+  /// Keys the exit needs; 0 when the stage has no hunt.
+  final int keysRequired;
+
+  /// The shut box to point at while keys are missing.
+  final Point<int>? boxPointer;
+
+  /// Stage time of the last key found (a short gold flash) and of the last
+  /// bump into the sealed exit (its chains flash red).
+  final double keyFlashAt;
+  final double sealedBumpAt;
+
+  bool get exitSealed => keysFound < keysRequired;
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = _void);
@@ -113,6 +152,7 @@ class MazePainter extends CustomPainter {
     _paintDrips(canvas, size, camera);
     _paintProps(canvas, size, camera);
     _paintTraps(canvas, camera);
+    _paintKeyBoxes(canvas, size, camera);
 
     final start = art.start;
     if (start != null) {
@@ -151,6 +191,9 @@ class MazePainter extends CustomPainter {
       canvas.drawRect(endTileRect.inflate(cellSize * 0.06), endGlow);
       canvas.drawRect(endTileRect, endCore);
       canvas.drawRect(endTileRect, endBorder);
+    }
+    if (exitSealed) {
+      _paintExitSeal(canvas, camera.cellRect(maze.end));
     }
 
     final safe = art.safe;
@@ -262,12 +305,27 @@ class MazePainter extends CustomPainter {
         eye,
       );
     }
-    _paintSparkles(canvas, camera);
+    if (!exitSealed) {
+      _paintSparkles(canvas, camera);
+    }
     _paintWisps(canvas, size, camera);
+    _paintKeyHuntEffects(canvas, camera);
+    final sinceKey = time - keyFlashAt;
+    if (sinceKey >= 0 && sinceKey < _keyFlashSeconds) {
+      canvas.drawRect(
+        Offset.zero & size,
+        Paint()
+          ..color = _gold.withValues(
+            alpha: 0.16 * (1 - sinceKey / _keyFlashSeconds),
+          ),
+      );
+    }
 
     // The camera hides most of the maze, so point at what matters off screen:
     // the exit always (the bone arrow), the Devil once it's close enough to
     // be a threat.
+    // While the exit is sealed its arrow dims and an amber one points at the
+    // nearest shut box instead.
     _drawPointer(
       canvas,
       size,
@@ -275,7 +333,18 @@ class MazePainter extends CustomPainter {
       _gold,
       cellSize,
       art: art.boneArrow,
+      opacity: exitSealed ? 0.45 : 1,
     );
+    final boxTarget = boxPointer;
+    if (exitSealed && boxTarget != null) {
+      _drawPointer(
+        canvas,
+        size,
+        camera.cellCenter(_offsetOf(boxTarget)),
+        _amber,
+        cellSize,
+      );
+    }
     if (devil != null &&
         (_offsetOf(devil) - playerCellPosition).distance <= _devilWarnCells) {
       _drawPointer(
@@ -290,6 +359,12 @@ class MazePainter extends CustomPainter {
 
   /// How near (in cells) the Devil must be before its off-screen arrow shows.
   static const double _devilWarnCells = 8;
+
+  /// The gold flash when a key is found.
+  static const double _keyFlashSeconds = 0.3;
+
+  /// How near (in cells) the runner must be for a shut box to rattle.
+  static const double _rattleCells = 2.2;
 
   /// Floor and wall tiles in view. Walls are whole tiles, raised like the
   /// reference art: capstoned tops, and a rock face wherever floor lies below,
@@ -452,7 +527,11 @@ class MazePainter extends CustomPainter {
       return;
     }
     final view = Offset.zero & size;
-    final keepClear = {...safeZones.keys, for (final t in trapTiles) t.cell};
+    final keepClear = {
+      ...safeZones.keys,
+      for (final t in trapTiles) t.cell,
+      for (final b in keyBoxes) b.cell,
+    };
     for (var y = 0; y < maze.rows; y++) {
       for (var x = 0; x < maze.cols; x++) {
         final cell = Point<int>(x, y);
@@ -582,7 +661,14 @@ class MazePainter extends CustomPainter {
       camera.cellCenter(_offsetOf(maze.end)),
       t * 0.45,
       t * 1.4,
-    ); // the goal glows
+      exitSealed ? 0.6 : 1,
+    ); // the goal glows (dimly while sealed)
+    for (final box in keyBoxes) {
+      if (!box.opened) {
+        // Shut boxes glint in the dark so they can be found.
+        light(camera.cellCenter(_offsetOf(box.cell)), t * 0.22, t * 0.95, 0.6);
+      }
+    }
     for (final cell in safeZones.keys) {
       light(camera.cellCenter(_offsetOf(cell)), t * 0.3, t * 1.2, 0.8);
     }
@@ -598,6 +684,503 @@ class MazePainter extends CustomPainter {
     BlendMode.modulate,
   );
   static const _glow = BlendMode.plus;
+
+  /// Key boxes. Shut ones rattle when the runner is near; opened ones stay
+  /// open as landmarks (a fading glow where a key was, cobwebs if empty).
+  /// Drawn from `objects/chest.png` once delivered (frames: shut, rattle,
+  /// open-empty, open-key), in code until then.
+  void _paintKeyBoxes(Canvas canvas, Size size, MazeCamera camera) {
+    if (keyBoxes.isEmpty) {
+      return;
+    }
+    final view = Offset.zero & size;
+    final strip = art.chest;
+    for (var i = 0; i < keyBoxes.length; i++) {
+      final box = keyBoxes[i];
+      final rect = camera.cellRect(box.cell);
+      if (!rect.overlaps(view)) {
+        continue;
+      }
+      final near =
+          !box.opened &&
+          (_offsetOf(box.cell) - playerCellPosition).distance <= _rattleCells;
+      final rattle = near ? sin(time * 38 + i * 1.7) : 0.0;
+      final dst = rect
+          .deflate(rect.width * 0.08)
+          .translate(rattle * rect.width * 0.025, 0);
+      if (strip != null) {
+        final frame = box.opened
+            ? (box.hasKey ? 3 : 2)
+            : (near && (time * 6).floor().isEven ? 1 : 0);
+        _drawFrame(
+          canvas,
+          strip,
+          frame,
+          dst,
+          tint: isFlippedMode ? _redFlame : null,
+        );
+        continue;
+      }
+      _drawChest(canvas, dst, box, rattle: rattle);
+    }
+  }
+
+  /// A wooden chest with iron bands and a glinting lock, shut or thrown open.
+  void _drawChest(Canvas canvas, Rect r, KeyBox box, {double rattle = 0}) {
+    final w = r.width;
+    final h = r.height;
+    final line = max(1.0, w * 0.03);
+    final dark = isFlippedMode
+        ? const Color(0xFF2A0A0E)
+        : const Color(0xFF2E1B0F);
+    final wood = isFlippedMode
+        ? const Color(0xFF6A1C1C)
+        : const Color(0xFF7A4B28);
+    final woodLight = isFlippedMode
+        ? const Color(0xFF8E2A26)
+        : const Color(0xFF9A6236);
+    const iron = Color(0xFF4A4E58);
+    const ironLight = Color(0xFF9096A3);
+    final outline = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = line
+      ..color = _soot;
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(r.center.dx, r.bottom - h * 0.05),
+        width: w * 0.95,
+        height: h * 0.22,
+      ),
+      Paint()
+        ..color = const Color(0x66000000)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+    );
+    final body = RRect.fromRectAndRadius(
+      Rect.fromLTRB(
+        r.left + w * 0.06,
+        r.top + h * 0.44,
+        r.right - w * 0.06,
+        r.bottom - h * 0.06,
+      ),
+      Radius.circular(w * 0.06),
+    );
+    canvas.drawRRect(
+      body,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          body.outerRect.topCenter,
+          body.outerRect.bottomCenter,
+          [wood, dark],
+        ),
+    );
+    canvas.drawLine(
+      Offset(body.left + w * 0.04, body.center.dy + h * 0.05),
+      Offset(body.right - w * 0.04, body.center.dy + h * 0.05),
+      Paint()
+        ..color = dark.withValues(alpha: 0.8)
+        ..strokeWidth = max(1.0, w * 0.025),
+    );
+
+    if (!box.opened) {
+      // The domed lid, lifted a hair by the rattle.
+      final lift = rattle.abs() * h * 0.05;
+      final lidRect = Rect.fromLTRB(
+        r.left + w * 0.04,
+        r.top + h * 0.14 - lift,
+        r.right - w * 0.04,
+        r.top + h * 0.47 - lift,
+      );
+      final lid = RRect.fromRectAndCorners(
+        lidRect,
+        topLeft: Radius.elliptical(w * 0.3, h * 0.2),
+        topRight: Radius.elliptical(w * 0.3, h * 0.2),
+        bottomLeft: Radius.circular(w * 0.03),
+        bottomRight: Radius.circular(w * 0.03),
+      );
+      canvas.drawRRect(
+        lid,
+        Paint()
+          ..shader = ui.Gradient.linear(
+            lidRect.topCenter,
+            lidRect.bottomCenter,
+            [woodLight, wood],
+          ),
+      );
+      for (final fx in const [0.26, 0.74]) {
+        final x = r.left + w * fx;
+        final band = Rect.fromLTRB(
+          x - w * 0.045,
+          lidRect.top + h * 0.03,
+          x + w * 0.045,
+          body.bottom,
+        );
+        canvas.drawRect(band, Paint()..color = iron);
+        canvas.drawLine(
+          band.topLeft,
+          band.bottomLeft,
+          Paint()
+            ..color = ironLight.withValues(alpha: 0.6)
+            ..strokeWidth = max(0.8, w * 0.012),
+        );
+      }
+      canvas.drawRect(
+        Rect.fromLTRB(
+          lidRect.left,
+          lidRect.bottom - h * 0.035,
+          lidRect.right,
+          lidRect.bottom + h * 0.02,
+        ),
+        Paint()..color = iron,
+      );
+      // The lock plate, its keyhole glinting amber.
+      final lock = Offset(r.center.dx, lidRect.bottom + h * 0.05);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: lock, width: w * 0.22, height: h * 0.22),
+          Radius.circular(w * 0.03),
+        ),
+        Paint()..color = const Color(0xFFD8C3A0),
+      );
+      final glint = 0.55 + 0.45 * sin(time * 3 + box.cell.x * 1.3 + box.cell.y);
+      canvas.drawCircle(
+        lock,
+        w * 0.08,
+        Paint()
+          ..color = _amber.withValues(alpha: 0.55 * glint)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+      );
+      final hole = Paint()..color = const Color(0xFF1A1008);
+      canvas.drawCircle(lock.translate(0, -h * 0.025), w * 0.03, hole);
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: lock.translate(0, h * 0.025),
+          width: w * 0.026,
+          height: h * 0.07,
+        ),
+        hole,
+      );
+      canvas.drawRRect(lid, outline);
+      canvas.drawRRect(body, outline);
+      return;
+    }
+
+    // Opened: the lid thrown back, the inside dark.
+    final mouth = Rect.fromLTRB(
+      body.left + w * 0.04,
+      body.top - h * 0.04,
+      body.right - w * 0.04,
+      body.top + h * 0.12,
+    );
+    final lidBack = Path()
+      ..moveTo(body.left, body.top)
+      ..lineTo(body.right, body.top)
+      ..lineTo(body.right - w * 0.06, r.top + h * 0.06)
+      ..lineTo(body.left + w * 0.06, r.top + h * 0.06)
+      ..close();
+    canvas.drawPath(
+      lidBack,
+      Paint()
+        ..shader = ui.Gradient.linear(Offset(0, r.top), Offset(0, body.top), [
+          dark,
+          wood,
+        ]),
+    );
+    canvas.drawPath(lidBack, outline);
+    canvas.drawRect(mouth, Paint()..color = const Color(0xFF0B0705));
+    for (final fx in const [0.26, 0.74]) {
+      final x = r.left + w * fx;
+      canvas.drawRect(
+        Rect.fromLTRB(x - w * 0.045, body.top, x + w * 0.045, body.bottom),
+        Paint()..color = iron,
+      );
+    }
+    canvas.drawRRect(body, outline);
+    if (box.hasKey) {
+      final fade = (1 - (time - box.openedAt) / 3).clamp(0.0, 1.0);
+      if (fade > 0) {
+        canvas.drawOval(
+          mouth.inflate(w * 0.05),
+          Paint()
+            ..color = _gold.withValues(alpha: 0.55 * fade)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
+      }
+    } else {
+      final web = Paint()
+        ..color = const Color(0x88B8B0A0)
+        ..strokeWidth = max(0.7, w * 0.012);
+      canvas.drawLine(mouth.topLeft, mouth.bottomRight, web);
+      canvas.drawLine(
+        mouth.bottomLeft.translate(w * 0.1, 0),
+        mouth.topCenter,
+        web,
+      );
+    }
+  }
+
+  /// The sealed exit: the stairs dimmed, a chain across them for every key
+  /// still missing, and a padlock. A bump into it flashes them red.
+  void _paintExitSeal(Canvas canvas, Rect r) {
+    final w = r.width;
+    canvas.drawRect(r, Paint()..color = const Color(0x66000000));
+    final missing = (keysRequired - keysFound).clamp(0, 2);
+    final sinceBump = time - sealedBumpAt;
+    final flash = sinceBump >= 0 && sinceBump < 0.5 ? 1 - sinceBump / 0.5 : 0.0;
+    final metal = Color.lerp(const Color(0xFF9A9CA4), _danger, flash)!;
+    final link = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(1.2, w * 0.05)
+      ..color = metal;
+    final edge = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(2.0, w * 0.09)
+      ..color = const Color(0xCC0A0A0F);
+
+    void chain(Offset a, Offset b) {
+      const links = 7;
+      final d = b - a;
+      final angle = atan2(d.dy, d.dx);
+      final step = d.distance / links;
+      for (var i = 0; i < links; i++) {
+        final c = a + d * ((i + 0.5) / links);
+        canvas.save();
+        canvas.translate(c.dx, c.dy);
+        canvas.rotate(angle);
+        // Links alternate face-on and edge-on, like a real chain.
+        final oval = Rect.fromCenter(
+          center: Offset.zero,
+          width: step * 1.15,
+          height: i.isEven ? w * 0.14 : w * 0.05,
+        );
+        canvas.drawOval(oval, edge);
+        canvas.drawOval(oval, link);
+        canvas.restore();
+      }
+    }
+
+    final inset = r.deflate(w * 0.04);
+    if (missing >= 1) {
+      chain(inset.topLeft, inset.bottomRight);
+    }
+    if (missing >= 2) {
+      chain(inset.topRight, inset.bottomLeft);
+    }
+
+    final c = r.center;
+    final shackle = Rect.fromCenter(
+      center: c.translate(0, -w * 0.05),
+      width: w * 0.2,
+      height: w * 0.24,
+    );
+    canvas.drawArc(shackle, pi, pi, false, edge);
+    canvas.drawArc(shackle, pi, pi, false, link);
+    final lockBody = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: c.translate(0, w * 0.07),
+        width: w * 0.32,
+        height: w * 0.26,
+      ),
+      Radius.circular(w * 0.04),
+    );
+    canvas.drawRRect(lockBody, Paint()..color = const Color(0xFF0A0A0F));
+    canvas.drawRRect(
+      lockBody.deflate(max(1.0, w * 0.02)),
+      Paint()..color = Color.lerp(const Color(0xFFB8A27A), _danger, flash)!,
+    );
+    canvas.drawCircle(
+      c.translate(0, w * 0.06),
+      w * 0.035,
+      Paint()..color = const Color(0xFF1A1008),
+    );
+  }
+
+  /// Key-hunt effects, above the dark: a key rising out of its box, an empty
+  /// box's dust, the exit's seal bursting.
+  void _paintKeyHuntEffects(Canvas canvas, MazeCamera camera) {
+    final t = camera.tileSize;
+    for (final fx in effects) {
+      final age = time - fx.start;
+      if (age < 0 || age >= fx.duration) {
+        continue;
+      }
+      final p = age / fx.duration;
+      final at = camera.cellCenter(fx.at);
+      switch (fx.kind) {
+        case MazeFxKind.keyRise:
+          final rise = Curves.easeOutCubic.transform(min(1.0, p * 1.6));
+          final alpha = p < 0.7 ? 1.0 : 1 - (p - 0.7) / 0.3;
+          final keyAt = at.translate(0, -t * 0.65 * rise);
+          canvas.drawCircle(
+            keyAt,
+            t * (0.35 + 0.25 * rise),
+            Paint()
+              ..color = _gold.withValues(alpha: 0.35 * alpha)
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+          );
+          _drawKey(canvas, keyAt, t * (0.55 + 0.15 * rise), alpha);
+          _drawFloatingText(
+            canvas,
+            'KEY!',
+            at.translate(0, -t * (1.1 + 0.25 * rise)),
+            t * 0.34,
+            _gold,
+            alpha,
+          );
+          final sparkle = art.sparkle;
+          if (sparkle != null) {
+            final side = t * 0.4;
+            for (var i = 0; i < 4; i++) {
+              final angle = i * pi / 2 + p * 2.4;
+              final spot =
+                  keyAt +
+                  Offset(cos(angle), sin(angle)) * t * (0.25 + 0.4 * rise);
+              canvas.drawImageRect(
+                sparkle.image,
+                sparkle.frame(sparkle.loop(age * 1.3 + i * 0.3, 6)),
+                Rect.fromCenter(center: spot, width: side, height: side),
+                Paint()
+                  ..filterQuality = FilterQuality.medium
+                  ..blendMode = _glow
+                  ..color = Color.fromRGBO(0, 0, 0, alpha),
+              );
+            }
+          }
+        case MazeFxKind.emptyPuff:
+          final alpha = 1 - p;
+          final dust = art.dust ?? art.smoke;
+          final frame = dust?.once(age, fx.duration);
+          if (dust != null && frame != null) {
+            _drawFrame(
+              canvas,
+              dust,
+              frame,
+              Rect.fromCenter(
+                center: at.translate(0, -t * 0.1),
+                width: t * 1.1,
+                height: t * 0.9,
+              ),
+              opacity: 0.75 * alpha,
+              tint: _stoneDust,
+            );
+          } else {
+            canvas.drawCircle(
+              at,
+              t * (0.3 + 0.4 * p),
+              Paint()
+                ..color = const Color(0xFFB8B0A0).withValues(alpha: 0.3 * alpha)
+                ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+            );
+          }
+          _drawFloatingText(
+            canvas,
+            'EMPTY',
+            at.translate(0, -t * (0.75 + 0.2 * p)),
+            t * 0.3,
+            _boneDim,
+            alpha,
+          );
+        case MazeFxKind.unseal:
+          final alpha = 1 - p;
+          canvas.drawCircle(
+            at,
+            t * (0.6 + 0.6 * p),
+            Paint()
+              ..color = _gold.withValues(alpha: 0.35 * alpha)
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+          );
+          canvas.drawCircle(
+            at,
+            t * (0.4 + 1.4 * p),
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = t * 0.12 * (1 - p) + 1
+              ..color = _gold.withValues(alpha: 0.8 * alpha),
+          );
+          final debris = art.debris;
+          final frame = debris?.once(age, fx.duration);
+          if (debris != null && frame != null) {
+            _drawFrame(
+              canvas,
+              debris,
+              frame,
+              Rect.fromCenter(center: at, width: t * 1.6, height: t * 1.6),
+              opacity: alpha,
+            );
+          }
+        case MazeFxKind.smoke:
+        case MazeFxKind.flip:
+          break;
+      }
+    }
+  }
+
+  /// A gold key (ring, shaft, two teeth) centred on [c], [s] wide.
+  void _drawKey(Canvas canvas, Offset c, double s, double alpha) {
+    final ring = Offset(c.dx - s * 0.28, c.dy);
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    for (final (color, width) in [
+      (const Color(0xFF3A2400), s * 0.2),
+      (_keyGold, s * 0.12),
+    ]) {
+      paint
+        ..color = color.withValues(alpha: alpha)
+        ..strokeWidth = width;
+      canvas.drawCircle(ring, s * 0.17, paint);
+      canvas.drawLine(
+        ring.translate(s * 0.17, 0),
+        Offset(c.dx + s * 0.42, c.dy),
+        paint,
+      );
+      canvas.drawLine(
+        Offset(c.dx + s * 0.22, c.dy),
+        Offset(c.dx + s * 0.22, c.dy + s * 0.16),
+        paint,
+      );
+      canvas.drawLine(
+        Offset(c.dx + s * 0.36, c.dy),
+        Offset(c.dx + s * 0.36, c.dy + s * 0.12),
+        paint,
+      );
+    }
+  }
+
+  /// Heavy outlined text centred on [c] (the floating KEY! / EMPTY).
+  void _drawFloatingText(
+    Canvas canvas,
+    String text,
+    Offset c,
+    double size,
+    Color color,
+    double alpha,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color.withValues(alpha: alpha),
+          fontSize: size,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 1.5,
+          shadows: [
+            Shadow(
+              color: _void.withValues(alpha: alpha),
+              offset: const Offset(1.5, 1.5),
+            ),
+            Shadow(
+              color: _void.withValues(alpha: alpha),
+              offset: const Offset(-1.5, 1.5),
+            ),
+          ],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(canvas, c - Offset(painter.width / 2, painter.height / 2));
+    painter.dispose();
+  }
 
   /// Gold sparkles circling the exit, so the goal catches the eye.
   void _paintSparkles(Canvas canvas, MazeCamera camera) {
@@ -725,6 +1308,7 @@ class MazePainter extends CustomPainter {
     Color color,
     double tile, {
     SpriteStrip? art,
+    double opacity = 1,
   }) {
     final at = MazeCamera.offscreenPointer(size, target, tile * 0.55);
     if (at == null) {
@@ -744,7 +1328,9 @@ class MazePainter extends CustomPainter {
         art.image,
         art.frame(0),
         Rect.fromCenter(center: Offset.zero, width: w, height: w * 0.6),
-        Paint()..filterQuality = FilterQuality.medium,
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..color = Color.fromRGBO(0, 0, 0, opacity),
       );
       canvas.restore();
       return;
@@ -761,13 +1347,13 @@ class MazePainter extends CustomPainter {
     canvas.drawPath(
       arrow,
       Paint()
-        ..color = _void.withValues(alpha: 0.75)
+        ..color = _void.withValues(alpha: 0.75 * opacity)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3,
     );
     canvas.drawPath(
       arrow,
-      Paint()..color = color.withValues(alpha: 0.65 + 0.3 * pulse),
+      Paint()..color = color.withValues(alpha: (0.65 + 0.3 * pulse) * opacity),
     );
     canvas.restore();
   }
@@ -791,6 +1377,10 @@ class MazePainter extends CustomPainter {
         oldDelegate.trapHiddenCueLevel != trapHiddenCueLevel ||
         oldDelegate.hidePlayer != hidePlayer ||
         oldDelegate.effects != effects ||
+        oldDelegate.keyBoxes != keyBoxes ||
+        oldDelegate.keysFound != keysFound ||
+        oldDelegate.keysRequired != keysRequired ||
+        oldDelegate.boxPointer != boxPointer ||
         oldDelegate.time != time ||
         oldDelegate.pulse != pulse;
   }

@@ -26,6 +26,18 @@ enum GameAudioEvent {
   trapDeathFall,
   trapDeathImpact,
   trapDeath,
+
+  /// Key hunt: a box held a key.
+  keyFound,
+
+  /// Key hunt: a box was empty.
+  keyBoxEmpty,
+
+  /// Key hunt: the last key needed; the exit opens.
+  exitUnsealed,
+
+  /// Key hunt: the runner reached the exit without enough keys.
+  exitSealedBump,
 }
 
 @immutable

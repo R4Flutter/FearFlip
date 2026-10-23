@@ -129,11 +129,16 @@ class MazeShiftManager {
     }
   }
 
+  /// Shifts part of [maze] around the player. Regions never contain the
+  /// player, the exit or [protectedCells]; a candidate is rejected unless the
+  /// exit and every cell in [mustReach] stay reachable from the player.
   MazeShiftOutcome triggerMazeShift({
     required MazeShiftPhase phase,
     required MazeGrid maze,
     required Point<int> playerPosition,
     required Point<int> exitPosition,
+    Set<Point<int>> protectedCells = const <Point<int>>{},
+    Iterable<Point<int>> mustReach = const <Point<int>>[],
   }) {
     if (!_eligibleStage || phase == MazeShiftPhase.none) {
       return MazeShiftOutcome.none;
@@ -144,6 +149,7 @@ class MazeShiftManager {
       maze: original,
       playerPosition: playerPosition,
       exitPosition: exitPosition,
+      protectedCells: protectedCells,
       count: _candidateCount,
     );
     final oldPathLength = _shortestPathLength(
@@ -217,6 +223,24 @@ class MazeShiftManager {
         continue;
       }
 
+      final cutsOffTarget = mustReach.any(
+        (cell) =>
+            _shortestPathLength(
+              maze: working,
+              start: playerPosition,
+              end: cell,
+            ) ==
+            null,
+      );
+      if (cutsOffTarget) {
+        _logPathValidation(
+          oldPathLength: oldPathLength,
+          newPathLength: newPathLength,
+          verdict: 'rejected_cuts_off_target',
+        );
+        continue;
+      }
+
       final complexity = _countEdgeDifferences(
         before: original,
         after: working,
@@ -266,6 +290,7 @@ class MazeShiftManager {
     required MazeGrid maze,
     required Point<int> playerPosition,
     required Point<int> exitPosition,
+    required Set<Point<int>> protectedCells,
     required int count,
   }) {
     final candidates = <_ShiftCandidate>[];
@@ -274,6 +299,7 @@ class MazeShiftManager {
         maze: maze,
         playerPosition: playerPosition,
         exitPosition: exitPosition,
+        protectedCells: protectedCells,
       );
       if (region == null) {
         continue;
@@ -290,6 +316,7 @@ class MazeShiftManager {
     required MazeGrid maze,
     required Point<int> playerPosition,
     required Point<int> exitPosition,
+    required Set<Point<int>> protectedCells,
   }) {
     final maxSize = min(5, min(maze.rows, maze.cols));
     final minSize = min(3, maxSize);
@@ -323,6 +350,10 @@ class MazeShiftManager {
       }
 
       if (region.contains(exitPosition)) {
+        continue;
+      }
+
+      if (protectedCells.any(region.contains)) {
         continue;
       }
 

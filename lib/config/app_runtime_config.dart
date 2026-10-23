@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 
 class AppRuntimeConfig {
@@ -160,6 +162,101 @@ class AppRuntimeConfig {
     'REVIVE_LIMIT_BAND_75_100',
     defaultValue: 2,
   );
+  // ---------------------------------------------------------------------------
+  // Key hunt (docs/retention_features.md): boxes in the maze, some hold keys,
+  // and the exit stays sealed until enough keys are found.
+  // ---------------------------------------------------------------------------
+
+  static const bool keyHuntEnabled = bool.fromEnvironment(
+    'KEY_HUNT_ENABLED',
+    defaultValue: true,
+  );
+
+  /// First stage with boxes; earlier stages stay a movement/flip tutorial.
+  static const int keyHuntStartStage = int.fromEnvironment(
+    'KEY_HUNT_START_STAGE',
+    defaultValue: 3,
+  );
+
+  static const int _keyHuntBoxCount = int.fromEnvironment(
+    'KEY_HUNT_BOX_COUNT',
+    defaultValue: 5,
+  );
+  static const int _keyHuntKeyCount = int.fromEnvironment(
+    'KEY_HUNT_KEY_COUNT',
+    defaultValue: 2,
+  );
+  static const int _keyHuntKeysToUnseal = int.fromEnvironment(
+    'KEY_HUNT_KEYS_TO_UNSEAL',
+    defaultValue: 2,
+  );
+
+  /// Boxes per hunt stage (at least 1).
+  static int get keyHuntBoxCount => max(1, _keyHuntBoxCount);
+
+  /// Boxes holding a key (1..[keyHuntBoxCount]); the rest are empty.
+  static int get keyHuntKeyCount =>
+      _keyHuntKeyCount.clamp(1, keyHuntBoxCount).toInt();
+
+  /// Keys needed to unseal the exit (1..[keyHuntKeyCount]).
+  static int get keyHuntKeysToUnseal =>
+      _keyHuntKeysToUnseal.clamp(1, keyHuntKeyCount).toInt();
+
+  /// Extra clock on hunt stages for the detours to the boxes.
+  static const int keyHuntExtraSeconds = int.fromEnvironment(
+    'KEY_HUNT_EXTRA_SECONDS',
+    defaultValue: 10,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Quiet mercy: a player stuck on one stage gets a little help, unannounced.
+  // ---------------------------------------------------------------------------
+
+  static const bool mercyEnabled = bool.fromEnvironment(
+    'MERCY_ENABLED',
+    defaultValue: true,
+  );
+
+  /// Failures on the same stage before help starts (the next try gets it).
+  static const int mercyFailThreshold = int.fromEnvironment(
+    'MERCY_FAIL_THRESHOLD',
+    defaultValue: 3,
+  );
+
+  /// Extra seconds per mercy level.
+  static const int mercyBonusSecondsPerLevel = int.fromEnvironment(
+    'MERCY_BONUS_SECONDS',
+    defaultValue: 10,
+  );
+
+  /// Highest mercy level. Level 2 and up also adds one safe zone.
+  static const int mercyMaxLevel = int.fromEnvironment(
+    'MERCY_MAX_LEVEL',
+    defaultValue: 2,
+  );
+
+  // ---------------------------------------------------------------------------
+  // First session and the daily maze
+  // ---------------------------------------------------------------------------
+
+  /// Skip the sign-in screen: new players play as a guest right after the
+  /// consent screen and are offered Google sign-in after their first clear.
+  static const bool guestFirstStartEnabled = bool.fromEnvironment(
+    'GUEST_FIRST_START',
+    defaultValue: true,
+  );
+
+  static const bool dailyNightmareEnabled = bool.fromEnvironment(
+    'DAILY_NIGHTMARE_ENABLED',
+    defaultValue: true,
+  );
+
+  /// Optional link appended to the Daily Nightmare share text.
+  static const String dailyShareUrl = String.fromEnvironment(
+    'DAILY_SHARE_URL',
+    defaultValue: '',
+  );
+
   static const bool glitchEffectsEnabled = bool.fromEnvironment(
     'GLITCH_EFFECTS_ENABLED',
     defaultValue: true,

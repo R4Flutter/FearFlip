@@ -12,6 +12,7 @@ class PlayerController extends ChangeNotifier {
     required this.maze,
     required TickerProvider vsync,
     this.onWin,
+    this.onStep,
     this.animationFrameCount = 8,
     this.animationFrameStepMs = 100,
     this.baseMoveDurationMs = 120,
@@ -22,6 +23,9 @@ class PlayerController extends ChangeNotifier {
 
   MazeGrid maze;
   final VoidCallback? onWin;
+
+  /// Called with every cell the runner arrives on (before [onWin]).
+  final void Function(Point<int> cell)? onStep;
   final int animationFrameCount;
   final int animationFrameStepMs;
   final int baseMoveDurationMs;
@@ -141,6 +145,7 @@ class PlayerController extends ChangeNotifier {
         _segmentTo = null;
         _segmentProgress = 0;
         _commitPath(arrived);
+        onStep?.call(arrived);
 
         if (hasWon) {
           onWin?.call();

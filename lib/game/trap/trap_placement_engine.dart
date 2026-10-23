@@ -15,11 +15,13 @@ class TrapPlacementEngine {
   /// The placement goal is not "random damage". It is memory pressure:
   /// traps prefer decision forks, return paths, branch entrances, and late
   /// panic routes while preserving a clean first-pass route to the goal.
+  /// No trap is placed on [reservedCells].
   List<TrapTile> placeTiles({
     required MazeGrid maze,
     required int stage,
     required int seed,
     TrapBalanceConfig config = const TrapBalanceConfig(),
+    Set<Point<int>> reservedCells = const <Point<int>>{},
   }) {
     final walkable = _allWalkableCells(maze);
     final scaler = TrapDifficultyScaler(config: config);
@@ -38,11 +40,13 @@ class TrapPlacementEngine {
       config: config,
     );
     final random = Random(seed ^ 0x7A4D ^ (stage * 9973));
+    // The player may have to walk [reservedCells] twice (into a key box's side
+    // path and back out), and a second step on a cracked trap kills.
     final protectedCells = _buildProtectedSet(
       analysis: analysis,
       config: config,
       stageConfig: stageConfig,
-    );
+    )..addAll(reservedCells);
 
     final candidates = <_WeightedCell>[];
     for (final cell in analysis.walkable) {

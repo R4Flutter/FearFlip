@@ -19,6 +19,10 @@ Future<void> _pump(
   bool paused = false,
   int lives = -1,
   int maxLives = 0,
+  int keysFound = 0,
+  int keysRequired = 0,
+  int boxesLeft = 0,
+  String? stageLabel,
   VoidCallback? onPause,
 }) => tester.pumpWidget(
   MaterialApp(
@@ -35,6 +39,10 @@ Future<void> _pump(
           onPauseTap: onPause ?? () {},
           livesRemaining: lives,
           maxLives: maxLives,
+          keysFound: keysFound,
+          keysRequired: keysRequired,
+          boxesLeft: boxesLeft,
+          stageLabel: stageLabel,
         ),
       ),
     ),
@@ -103,5 +111,30 @@ void main() {
     expect(find.byTooltip('Pause run'), findsOneWidget);
     await _pump(tester, paused: true);
     expect(find.byTooltip('Resume run'), findsOneWidget);
+  });
+
+  testWidgets('a key-hunt stage shows a slot per key and the boxes left', (
+    tester,
+  ) async {
+    await _pump(tester, keysFound: 1, keysRequired: 2, boxesLeft: 3);
+    expect(find.byKey(GameHud.keysKey), findsOneWidget);
+    // Falls back to the Material key icons until ui/icon_key*.png exist.
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.vpn_key_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.vpn_key_outlined), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+  });
+
+  testWidgets('no key slots on a stage without a hunt', (tester) async {
+    await _pump(tester);
+    expect(find.byKey(GameHud.keysKey), findsNothing);
+  });
+
+  testWidgets('the Daily Nightmare shows its number instead of a stage', (
+    tester,
+  ) async {
+    await _pump(tester, stage: 14, checkpoint: 0, stageLabel: '#23');
+    expect(find.text('#23'), findsOneWidget);
+    expect(find.text('14'), findsNothing);
   });
 }
