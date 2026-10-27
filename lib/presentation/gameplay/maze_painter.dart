@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../arcade/model/shop_catalog.dart';
+import '../../arcade/ui/ff_icons.dart';
 import '../../game/keys/key_hunt.dart';
 import '../../game/trap/trap_fx_renderer.dart';
 import '../../game/trap/trap_tile.dart';
@@ -11,6 +13,36 @@ import 'maze_art.dart';
 import 'maze_camera.dart';
 import 'maze_generator.dart';
 import 'maze_tiles.dart';
+import 'pixel_sprites.dart';
+
+/// A runner footprint for the trail cosmetics: where (in cells) and when.
+class TrailDot {
+  const TrailDot(this.at, this.time);
+
+  final Offset at;
+  final double time;
+}
+
+/// A short "+1" or "CLOSE CALL!" that rises and fades over the maze.
+class FloatingLabel {
+  FloatingLabel(
+    this.text,
+    this.at,
+    this.start, {
+    this.color = const Color(0xFFF0E6D2),
+    this.size = 1,
+  });
+
+  final String text;
+
+  /// Cell position it rises from.
+  final Offset at;
+  final double start;
+  final Color color;
+  final double size;
+
+  static const double life = 0.9;
+}
 
 /// Stand-in colours for any art that hasn't loaded (2D-gameplay-assets.md,
 /// Night 32): cold stone in WAKE, blood and bone in NIGHTMARE, no green or pink.
@@ -30,9 +62,9 @@ const _nightmare = _World(
 );
 const _void = Color(0xFF0A0A0F);
 const _amber = Color(0xFFF2B544);
-const _candle = Color(0xFFFFE08A);
 const _gold = Color(0xFFFFC83D);
 const _spirit = Color(0xFF9CC8F0);
+const _spiritHi = Color(0xFFE4F2FF);
 const _danger = Color(0xFFE03A32);
 const _boneDim = Color(0xFFB39572);
 const _keyGold = Color(0xFFFFD55A);
@@ -53,6 +85,7 @@ class MazeFx {
     MazeFxKind.keyRise => 1.0,
     MazeFxKind.emptyPuff => 0.9,
     MazeFxKind.unseal => 1.1,
+    MazeFxKind.wispPop => 0.55,
   };
 }
 
@@ -71,6 +104,9 @@ enum MazeFxKind {
 
   /// The exit's seal bursts when the last key is found.
   unseal,
+
+  /// A soul wisp or power-up is picked up: a ring of spirit light.
+  wispPop,
 }
 
 class MazePainter extends CustomPainter {
@@ -97,6 +133,16 @@ class MazePainter extends CustomPainter {
     this.boxPointer,
     this.keyFlashAt = -100,
     this.sealedBumpAt = -100,
+    this.look,
+    this.trail = const <TrailDot>[],
+    this.wisps = const <Point<int>>{},
+    this.pickups = const <Point<int>, String>{},
+    this.devilFrozen = false,
+    this.devilRaging = false,
+    this.seerPath = const <Point<int>>[],
+    this.shielded = false,
+    this.lightScale = 1,
+    this.labels = const <FloatingLabel>[],
   });
 
   final MazeGrid maze;
@@ -135,6 +181,28 @@ class MazePainter extends CustomPainter {
   final double keyFlashAt;
   final double sealedBumpAt;
 
+  /// The runner's skin, lantern and trail (the default look when null).
+  final RunnerLook? look;
+  final List<TrailDot> trail;
+
+  /// Soul wisps still in the maze, and power-ups by cell (BoostType name).
+  final Set<Point<int>> wisps;
+  final Map<Point<int>, String> pickups;
+  final bool devilFrozen;
+  final bool devilRaging;
+
+  /// The seer's eye: the way to the next key or the exit.
+  final List<Point<int>> seerPath;
+
+  /// A holy ward is held.
+  final bool shielded;
+
+  /// The lantern's reach (world 4 burns it low).
+  final double lightScale;
+  final List<FloatingLabel> labels;
+
+  RunnerLook get _look => look ?? RunnerLook.standard;
+
   bool get exitSealed => keysFound < keysRequired;
 
   @override
@@ -153,6 +221,8 @@ class MazePainter extends CustomPainter {
     _paintProps(canvas, size, camera);
     _paintTraps(canvas, camera);
     _paintKeyBoxes(canvas, size, camera);
+    _paintSeerPath(canvas, camera);
+    _paintPickups(canvas, size, camera);
 
     final start = art.start;
     if (start != null) {
@@ -250,20 +320,24 @@ class MazePainter extends CustomPainter {
     }
 
     if (!hidePlayer) {
-      // Stand-in until the runner sheets land: the runner's own lantern glow.
-      final playerGlow = Paint()
-        ..color = _amber.withValues(alpha: 0.55)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-      final playerCore = Paint()..color = _candle;
-      canvas.drawCircle(playerCenter, playerSide * 0.35, playerGlow);
-      canvas.drawCircle(playerCenter, playerSide * 0.28, playerCore);
-
-      if (playerSafe) {
+      _paintTrail(canvas, camera, cellSize);
+      // The runner: pixel art in code until the sheets land (pixel_sprites.dart).
+      paintRunner(
+        canvas,
+        feet: playerCenter.translate(0, cellSize * 0.42),
+        height: cellSize * 1.12,
+        look: _look,
+        direction: direction,
+        walkFrame: isMoving ? const [1, 0, 2, 0][(time * 9).floor() % 4] : 0,
+        time: time,
+        moving: isMoving,
+      );
+      if (playerSafe || shielded) {
         final ring = Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.4
-          ..color = _spirit;
-        canvas.drawCircle(playerCenter, playerSide * 0.42, ring);
+          ..strokeWidth = max(2.0, cellSize * 0.06)
+          ..color = _spirit.withValues(alpha: 0.6 + 0.3 * sin(time * 6));
+        canvas.drawCircle(playerCenter, playerSide * 0.55, ring);
       }
     }
 
@@ -274,16 +348,14 @@ class MazePainter extends CustomPainter {
               .cellCenter(_offsetOf(devil))
               .translate(0, sin(time * 3.4) * cellSize * 0.07);
     if (devilCenter != null) {
-      // Stand-in until the devil sheets land: a shadow (its eyes burn above
-      // the dark, below).
-      canvas.drawCircle(
-        devilCenter,
-        cellSize * 0.42,
-        Paint()
-          ..color = _danger.withValues(alpha: 0.35)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      paintDevil(
+        canvas,
+        feet: devilCenter.translate(0, cellSize * 0.45),
+        height: cellSize * 1.45,
+        time: time,
+        frozen: devilFrozen,
+        raging: devilRaging,
       );
-      canvas.drawCircle(devilCenter, cellSize * 0.32, Paint()..color = _void);
     }
 
     _paintEffects(canvas, camera, MazeFxKind.smoke);
@@ -292,24 +364,29 @@ class MazePainter extends CustomPainter {
     // Above the dark: the Devil's eyes (seen before its body), the exit's
     // sparkles and the ghost wisps glow on their own.
     if (devilCenter != null) {
-      final eyes = devilCenter.translate(0, -cellSize * 0.05);
-      final eye = Paint()..color = _danger;
-      canvas.drawCircle(
-        eyes.translate(-cellSize * 0.1, 0),
-        cellSize * 0.05,
-        eye,
-      );
-      canvas.drawCircle(
-        eyes.translate(cellSize * 0.1, 0),
-        cellSize * 0.05,
-        eye,
-      );
+      // The sprite's eyes (rows 7–8 of 22, columns 4–5 and 10–11 of 16).
+      final h = cellSize * 1.45;
+      final px = h / 22;
+      final top = devilCenter.dy + cellSize * 0.45 - h;
+      final eyeY = top + px * 8;
+      final eyeColor = devilFrozen ? _spirit : _danger;
+      final glow = Paint()
+        ..color = eyeColor.withValues(alpha: 0.55)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, px * 1.6);
+      final eye = Paint()..color = eyeColor;
+      for (final dx in [-px * 3, px * 3]) {
+        final at = Offset(devilCenter.dx + dx, eyeY);
+        canvas.drawCircle(at, px * 1.8, glow);
+        canvas.drawRect(Rect.fromCenter(center: at, width: px * 2, height: px * 1.6), eye);
+      }
     }
     if (!exitSealed) {
       _paintSparkles(canvas, camera);
     }
     _paintWisps(canvas, size, camera);
+    _paintSoulWisps(canvas, size, camera);
     _paintKeyHuntEffects(canvas, camera);
+    _paintArcadeEffects(canvas, camera);
     final sinceKey = time - keyFlashAt;
     if (sinceKey >= 0 && sinceKey < _keyFlashSeconds) {
       canvas.drawRect(
@@ -635,7 +712,7 @@ class MazePainter extends CustomPainter {
       );
     }
 
-    light(runner, t * _lightInner, t * _lightOuter);
+    light(runner, t * _lightInner * lightScale, t * _lightOuter * lightScale);
     if (art.torch != null) {
       final (firstCol, firstRow, lastCol, lastRow) = _visibleTiles(
         size,
@@ -672,7 +749,23 @@ class MazePainter extends CustomPainter {
     for (final cell in safeZones.keys) {
       light(camera.cellCenter(_offsetOf(cell)), t * 0.3, t * 1.2, 0.8);
     }
+    for (final cell in pickups.keys) {
+      light(camera.cellCenter(_offsetOf(cell)), t * 0.2, t * 0.8, 0.55);
+    }
     canvas.restore();
+    // The lantern's own colour, laid softly over its pool of light (only
+    // when a lantern is chosen in the shop).
+    if (look != null) canvas.drawCircle(
+      runner,
+      t * _lightOuter * lightScale * 0.8,
+      Paint()
+        ..blendMode = BlendMode.plus
+        ..shader = ui.Gradient.radial(
+          runner,
+          t * _lightOuter * lightScale * 0.8,
+          [_look.light.withValues(alpha: 0.10), _look.light.withValues(alpha: 0)],
+        ),
+    );
   }
 
   static const _stoneDust = ColorFilter.mode(
@@ -1110,6 +1203,7 @@ class MazePainter extends CustomPainter {
           }
         case MazeFxKind.smoke:
         case MazeFxKind.flip:
+        case MazeFxKind.wispPop:
           break;
       }
     }
@@ -1160,9 +1254,10 @@ class MazePainter extends CustomPainter {
       text: TextSpan(
         text: text,
         style: TextStyle(
+          fontFamily: 'FFBody',
           color: color.withValues(alpha: alpha),
-          fontSize: size,
-          fontWeight: FontWeight.w900,
+          fontSize: size * 1.22,
+          fontWeight: FontWeight.w700,
           letterSpacing: 1.5,
           shadows: [
             Shadow(
@@ -1360,6 +1455,150 @@ class MazePainter extends CustomPainter {
 
   Offset _offsetOf(Point<int> cell) =>
       Offset(cell.x.toDouble(), cell.y.toDouble());
+
+  /// Footprints of the trail cosmetic, fading behind the runner.
+  void _paintTrail(Canvas canvas, MazeCamera camera, double t) {
+    final style = _look.trail;
+    if (style == TrailStyle.none || style == TrailStyle.dust || trail.isEmpty) {
+      return;
+    }
+    final color = switch (style) {
+      TrailStyle.embers => const Color(0xFFFF9A3C),
+      TrailStyle.wisps => _spirit,
+      TrailStyle.sparkles => _gold,
+      TrailStyle.bones => const Color(0xFFF0E6D2),
+      _ => _amber,
+    };
+    for (var i = 0; i < trail.length; i++) {
+      final dot = trail[i];
+      final age = (time - dot.time).clamp(0.0, 0.8);
+      final life = 1 - age / 0.8;
+      final wobble = Offset(sin(dot.time * 37) * t * 0.12, cos(dot.time * 29) * t * 0.08);
+      final at = camera.cellCenter(dot.at).translate(0, t * 0.3 - (1 - life) * t * 0.35) + wobble;
+      final r = t * 0.06 * (0.6 + life);
+      if (style != TrailStyle.bones) {
+        canvas.drawCircle(
+          at,
+          r * 2.8,
+          Paint()
+            ..color = color.withValues(alpha: 0.25 * life)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 1.5),
+        );
+        canvas.drawCircle(at, r, Paint()..color = color.withValues(alpha: 0.9 * life));
+      } else {
+        canvas.drawRect(
+          Rect.fromCenter(center: at, width: r * 2.4, height: r * 1.3),
+          Paint()..color = color.withValues(alpha: 0.85 * life),
+        );
+      }
+    }
+  }
+
+  /// The seer's eye: a dotted golden way through the dark.
+  void _paintSeerPath(Canvas canvas, MazeCamera camera) {
+    if (seerPath.length < 2) return;
+    final t = camera.tileSize;
+    final dot = Paint()..color = _gold.withValues(alpha: 0.85);
+    final glow = Paint()
+      ..color = _gold.withValues(alpha: 0.3)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, t * 0.12);
+    for (var i = 0; i < seerPath.length - 1; i++) {
+      final a = camera.cellCenter(_offsetOf(seerPath[i]));
+      final b = camera.cellCenter(_offsetOf(seerPath[i + 1]));
+      for (var k = 0; k < 4; k++) {
+        final phase = ((k / 4) + time * 1.5) % 1.0;
+        final p = Offset.lerp(a, b, phase)!;
+        canvas.drawCircle(p, t * 0.14, glow);
+        canvas.drawCircle(p, t * 0.06, dot);
+      }
+    }
+  }
+
+  /// Power-ups waiting at dead ends: a gold glow and the item's icon.
+  void _paintPickups(Canvas canvas, Size size, MazeCamera camera) {
+    if (pickups.isEmpty) return;
+    final t = camera.tileSize;
+    final view = (Offset.zero & size).inflate(t);
+    for (final entry in pickups.entries) {
+      final c = camera.cellCenter(_offsetOf(entry.key));
+      if (!view.contains(c)) continue;
+      final bob = sin(time * 3 + entry.key.x) * t * 0.06;
+      canvas.drawOval(
+        Rect.fromCenter(center: c.translate(0, t * 0.3), width: t * 0.6, height: t * 0.18),
+        Paint()..color = const Color(0x66000000),
+      );
+      canvas.drawCircle(
+        c.translate(0, bob),
+        t * 0.42,
+        Paint()
+          ..color = _gold.withValues(alpha: 0.32 + 0.12 * sin(time * 4))
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, t * 0.18),
+      );
+      paintFFGlyph(canvas, boostGlyphFor(entry.value), c.translate(0, bob - t * 0.05), t * 0.62);
+    }
+  }
+
+  /// Soul wisps float above the dark (they glow on their own).
+  void _paintSoulWisps(Canvas canvas, Size size, MazeCamera camera) {
+    if (wisps.isEmpty) return;
+    final t = camera.tileSize;
+    final view = (Offset.zero & size).inflate(t);
+    for (final cell in wisps) {
+      final c = camera.cellCenter(_offsetOf(cell));
+      if (!view.contains(c)) continue;
+      final phase = (cell.x * 1.7 + cell.y * 2.3);
+      final bob = sin(time * 2.6 + phase) * t * 0.08;
+      final at = c.translate(0, bob - t * 0.05);
+      canvas.drawCircle(
+        at,
+        t * 0.3,
+        Paint()
+          ..color = _spirit.withValues(alpha: 0.28 + 0.1 * sin(time * 5 + phase))
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, t * 0.14),
+      );
+      paintFFGlyph(canvas, FFGlyph.soul, at, t * 0.42);
+    }
+  }
+
+  /// Pickup bursts and floating words (+1, CLOSE CALL!).
+  void _paintArcadeEffects(Canvas canvas, MazeCamera camera) {
+    final t = camera.tileSize;
+    for (final fx in effects) {
+      if (fx.kind != MazeFxKind.wispPop) continue;
+      final age = time - fx.start;
+      if (age < 0 || age >= fx.duration) continue;
+      final p = age / fx.duration;
+      final at = camera.cellCenter(fx.at);
+      canvas.drawCircle(
+        at,
+        t * (0.2 + 0.6 * p),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = t * 0.08 * (1 - p) + 0.5
+          ..color = _spirit.withValues(alpha: 1 - p),
+      );
+      for (var i = 0; i < 6; i++) {
+        final a = i * pi / 3 + p;
+        final spot = at + Offset(cos(a), sin(a)) * t * (0.15 + 0.5 * p);
+        canvas.drawCircle(spot, t * 0.05 * (1 - p), Paint()..color = _spiritHi.withValues(alpha: 1 - p));
+      }
+    }
+    for (final label in labels) {
+      final age = time - label.start;
+      if (age < 0 || age >= FloatingLabel.life) continue;
+      final p = age / FloatingLabel.life;
+      final rise = Curves.easeOutCubic.transform(p);
+      final alpha = p < 0.6 ? 1.0 : 1 - (p - 0.6) / 0.4;
+      _drawFloatingText(
+        canvas,
+        label.text,
+        camera.cellCenter(label.at).translate(0, -t * (0.7 + 0.6 * rise)),
+        t * 0.34 * label.size,
+        label.color,
+        alpha,
+      );
+    }
+  }
 
   @override
   bool shouldRepaint(covariant MazePainter oldDelegate) {

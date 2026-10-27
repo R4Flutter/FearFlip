@@ -2,9 +2,19 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../arcade/arcade_run.dart';
+import '../../arcade/model/boosts.dart';
+import '../../arcade/model/rewards.dart';
+import '../../arcade/model/run_tally.dart';
+import '../../arcade/model/worlds.dart';
+import '../../arcade/progress_controller.dart';
+import '../../arcade/ui/input_mode.dart';
+import '../../arcade/ui/run_overlays.dart';
+import '../../arcade/ui/sfx.dart';
 import '../../config/app_runtime_config.dart';
 import '../../game/daily/daily_nightmare.dart';
 import '../../game/keys/key_box_planner.dart';
@@ -41,6 +51,8 @@ import 'widgets/run_paused_dialog.dart';
 import 'widgets/stage_100_win_dialog.dart';
 import 'widgets/stage_clear_overlay.dart';
 
+part 'game_screen_arcade.dart';
+
 class GameScreen extends StatefulWidget {
   const GameScreen({
     this.joystickSize = 110,
@@ -58,6 +70,7 @@ class GameScreen extends StatefulWidget {
     this.onDailyEscaped,
     this.onDailyFailed,
     this.onDailyShare,
+    this.arcadeRun,
     super.key,
   });
 
@@ -92,6 +105,10 @@ class GameScreen extends StatefulWidget {
   final Future<void> Function()? onDailyFailed;
   final Future<bool> Function(String text)? onDailyShare;
 
+  /// Set when the new menus (lib/arcade) run this maze: a campaign stage,
+  /// Endless Night or the Daily Nightmare, with souls, power-ups and stars.
+  final ArcadeRun? arcadeRun;
+
   static void _noop() {}
   static Future<void> _noopStageCleared(int _) async {}
 
@@ -108,8 +125,13 @@ class _GameScreenState extends State<GameScreen>
   final MazeShiftManager _mazeShiftManager = MazeShiftManager();
   final TrapPlacementEngine _trapPlacementEngine = const TrapPlacementEngine();
   final TrapStateController _trapStateController = TrapStateController();
-  final TrapDifficultyScaler _trapDifficultyScaler =
-      const TrapDifficultyScaler();
+  /// World 2 (the Bone Crypt) packs in more cracked floors.
+  TrapDifficultyScaler get _trapDifficultyScaler =>
+      _twist == WorldTwist.crumbling
+      ? const TrapDifficultyScaler(
+          config: TrapBalanceConfig(trapDensityMultiplier: 1.5, maxTrapCount: 12),
+        )
+      : const TrapDifficultyScaler();
   final TrapAnalytics _trapAnalytics = TrapAnalytics();
   final GlitchEffectController _glitchEffectController =
       GlitchEffectController();
@@ -129,6 +151,19 @@ class _GameScreenState extends State<GameScreen>
 
   /// One-shot effects playing in the maze (smoke, the flip's crack burst).
   final List<MazeFx> _fx = <MazeFx>[];
+
+  /// Arcade session state (game_screen_arcade.dart).
+  final _ArcadeState _a = _ArcadeState();
+
+  void _set(VoidCallback fn) => setState(fn);
+
+  /// Game flow never waits on a sound for long: a stalled browser audio
+  /// pipeline (autoplay blocked, a slow decode) must not freeze a run.
+  Future<void> _audioCue(Future<void> cue) =>
+      cue.timeout(const Duration(milliseconds: 600), onTimeout: () {});
+
+  /// The Daily Nightmare being played, from either shell.
+  DailyChallenge? get _daily => widget.daily ?? widget.arcadeRun?.session.daily;
 
   /// The key hunt: boxes, keys and the sealed exit
   /// (docs/retention_features.md).
@@ -239,9 +274,20 @@ class _GameScreenState extends State<GameScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _stage =
-        widget.daily?.profileStage ??
-        widget.initialStage.clamp(1, _maxStage).toInt();
+    final arcadeRun = widget.arcadeRun;
+    if (arcadeRun != null) {
+      _a.tally = RunTally(
+        mode: arcadeRun.session.mode,
+        stage: arcadeRun.session.stage,
+      );
+      _a.boosts = arcadeRun.session.boosts;
+    }
+    _stage = arcadeRun != null && arcadeRun.session.mode == PlayMode.endless
+        ? _ArcadeRunLogic.endlessStageFor(0)
+        : (_daily?.profileStage ??
+              (arcadeRun?.session.stage ?? widget.initialStage)
+                  .clamp(1, _maxStage)
+                  .toInt());
     _stageRule = StageRules.forStage(_stage);
     _difficulty = _difficultyForStage(_stage);
     _maze = _generateMaze();
@@ -307,7 +353,9 @@ class _GameScreenState extends State<GameScreen>
     }
     unawaited(
       SystemChrome.setPreferredOrientations(
-        playing ? _playOrientations : _menuOrientations,
+        playing
+            ? _playOrientations
+            : (_arcade ? DeviceOrientation.values : _menuOrientations),
       ),
     );
   }
@@ -348,6 +396,10 @@ class _GameScreenState extends State<GameScreen>
   void dispose() {
     if (widget.isActive) {
       _lockOrientation(playing: false);
+    }
+    _a.introTimer?.cancel();
+    if (_arcade) {
+      _run.arcade.portal.gameplayStop();
     }
     _art.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -456,6 +508,35 @@ class _GameScreenState extends State<GameScreen>
       return KeyEventResult.ignored;
     }
 
+    if (_arcade &&
+        event is KeyDownEvent &&
+        (event.logicalKey == LogicalKeyboardKey.escape ||
+            event.logicalKey == LogicalKeyboardKey.keyP)) {
+      _togglePause();
+      return KeyEventResult.handled;
+    }
+    // Test builds only (--dart-define=FF_DEV_KEYS=true): F8 escapes the
+    // stage, F9 is caught by the Devil. Compiled out of release builds.
+    if (const bool.fromEnvironment('FF_DEV_KEYS') &&
+        _arcade &&
+        event is KeyDownEvent &&
+        !_inputBlocked) {
+      if (event.logicalKey == LogicalKeyboardKey.f8) {
+        _roundResolved = true;
+        _countdownTimer?.cancel();
+        _playerController.stop();
+        if (_daily != null) {
+          unawaited(_finishDailyRun());
+        } else {
+          unawaited(_onArcadeCleared());
+        }
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.f9) {
+        unawaited(_onDevilCaught());
+        return KeyEventResult.handled;
+      }
+    }
     final direction = _directionForKey(event.logicalKey);
     if (direction == null) {
       return KeyEventResult.ignored;
@@ -497,6 +578,18 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Direction4? _directionForKey(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.keyW) {
+      return Direction4.up;
+    }
+    if (key == LogicalKeyboardKey.keyS) {
+      return Direction4.down;
+    }
+    if (key == LogicalKeyboardKey.keyA) {
+      return Direction4.left;
+    }
+    if (key == LogicalKeyboardKey.keyD) {
+      return Direction4.right;
+    }
     if (key == LogicalKeyboardKey.arrowUp) {
       return Direction4.up;
     }
@@ -527,7 +620,7 @@ class _GameScreenState extends State<GameScreen>
     _countdownTimer?.cancel();
 
     try {
-      await _audioManager.stopAlarmImmediately();
+      await _audioCue(_audioManager.stopAlarmImmediately());
     } catch (error, stackTrace) {
       ErrorReporter.report(
         reason: 'game_stop_alarm_failed',
@@ -536,8 +629,13 @@ class _GameScreenState extends State<GameScreen>
       );
     }
 
-    if (widget.daily != null) {
+    if (_daily != null) {
       await _finishDailyRun();
+      return;
+    }
+
+    if (_arcade) {
+      await _onArcadeCleared();
       return;
     }
 
@@ -548,7 +646,7 @@ class _GameScreenState extends State<GameScreen>
     });
 
     try {
-      await _audioManager.handle(GameAudioEvent.playerWon);
+      await _audioCue(_audioManager.handle(GameAudioEvent.playerWon));
     } catch (error, stackTrace) {
       ErrorReporter.report(
         reason: 'game_audio_player_won_failed',
@@ -658,7 +756,7 @@ class _GameScreenState extends State<GameScreen>
     final need = plan.keysRequired == keys
         ? '$keys KEYS'
         : '${plan.keysRequired} OF $keys KEYS';
-    final daily = widget.daily;
+    final daily = _daily;
     final firstHunt =
         daily == null && _stage == AppRuntimeConfig.keyHuntStartStage;
     _showBanner(
@@ -672,6 +770,7 @@ class _GameScreenState extends State<GameScreen>
 
   /// Every cell the runner arrives on: opens a shut box there.
   void _onPlayerStep(Point<int> cell) {
+    _onArcadeStep(cell);
     if (!_keyHunt.isActive || _roundResolved || _isStageTransition) {
       return;
     }
@@ -804,14 +903,23 @@ class _GameScreenState extends State<GameScreen>
   void _onRunLost() {
     _bannerTimer?.cancel();
     _banner.value = null;
+    if (_arcade) {
+      _a.introTimer?.cancel();
+      _shake(9, 0.45);
+      unawaited(HapticFeedback.heavyImpact());
+    }
     _lossDistanceToExit =
         _maze.shortestPathDistance(_playerController.position, _maze.end) ?? 0;
     _lossKeysShort = _keyHunt.keysLeft;
-    if (widget.daily != null) {
+    if (_daily != null) {
       _dailyDeaths += 1;
       final onFailed = widget.onDailyFailed;
       if (onFailed != null) {
         unawaited(onFailed());
+      }
+      final daily = _daily;
+      if (_arcade && daily != null) {
+        unawaited(_run.arcade.recordDailyDeath(daily));
       }
       return;
     }
@@ -820,7 +928,7 @@ class _GameScreenState extends State<GameScreen>
 
   /// "2 STAGES TO CHECKPOINT 25" under the near miss.
   String _nearMissDetail() {
-    final daily = widget.daily;
+    final daily = _daily;
     if (daily != null) {
       return 'DAILY NIGHTMARE #${daily.number} · FREE RETRIES';
     }
@@ -840,16 +948,16 @@ class _GameScreenState extends State<GameScreen>
   MazeGrid _generateMaze() => _generator.generate(
     rows: _difficulty,
     cols: _difficulty,
-    seed: widget.daily?.seed,
+    seed: _daily?.seed,
   );
 
   Future<void> _finishDailyRun() async {
-    final daily = widget.daily!;
+    final daily = _daily!;
     final seconds = max(0, _stageDurationSeconds - _remainingSeconds);
     final keys = _keyHunt.keysFound;
     setState(() => _isStageTransition = true);
     try {
-      await _audioManager.handle(GameAudioEvent.playerWon);
+      await _audioCue(_audioManager.handle(GameAudioEvent.playerWon));
     } catch (error, stackTrace) {
       ErrorReporter.report(
         reason: 'game_audio_player_won_failed',
@@ -858,6 +966,24 @@ class _GameScreenState extends State<GameScreen>
       );
     }
     final result = DailyRunResult(seconds: seconds, keys: keys);
+    if (_arcade) {
+      _a.tally
+        ..escaped = true
+        ..seconds = seconds;
+      final summary = await _run.arcade.recordDailyEscape(daily, result);
+      final reward = _progress.claimDailyNightmareEscape();
+      _flushTally();
+      _run.arcade.portal.happyTime();
+      if (!mounted) {
+        return;
+      }
+      unawaited(HapticFeedback.heavyImpact());
+      setState(() {
+        _dailySummary = summary;
+        _a.dailyReward = reward;
+      });
+      return;
+    }
     var summary = DailySummary(
       number: daily.number,
       seconds: seconds,
@@ -921,7 +1047,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Future<void> _exitDaily() async {
-    await _audioManager.handle(GameAudioEvent.matchExit);
+    await _audioCue(_audioManager.handle(GameAudioEvent.matchExit));
     widget.onExitToDashboard();
   }
 
@@ -937,6 +1063,19 @@ class _GameScreenState extends State<GameScreen>
     await Clipboard.setData(ClipboardData(text: summary.shareText));
     return false;
   }
+
+  /// How far the clock is to the next flip (0 just flipped, 1 flipping now).
+  double? get _flipProgress {
+    if (!_arcade) return null;
+    final span = _nextFlipAtSeconds - _a.lastFlipAt;
+    if (span <= 0) return 0;
+    return ((_stageElapsedSeconds - _a.lastFlipAt) / span).clamp(0.0, 1.0);
+  }
+
+  /// The flip is about to happen (inside its warning time).
+  bool get _flipSoon =>
+      _arcade &&
+      _nextFlipAtSeconds - _stageElapsedSeconds <= _stageRule.warningTime + 0.4;
 
   String get _modeLabel {
     return _controlsInverted ? 'FLIPPED' : 'NORMAL';
@@ -972,9 +1111,10 @@ class _GameScreenState extends State<GameScreen>
     if (_isKeyHuntStage) {
       seconds += AppRuntimeConfig.keyHuntExtraSeconds;
     }
-    if (widget.daily == null) {
+    if (_daily == null) {
       seconds += _mercy.bonusSecondsFor(_stage);
     }
+    seconds += _arcadeClockBonus;
     return seconds;
   }
 
@@ -1079,10 +1219,9 @@ class _GameScreenState extends State<GameScreen>
       unawaited(_audioManager.handle(GameAudioEvent.mazeShiftEnded));
     }
 
-    final timeToFlip = _nextFlipAtSeconds - _stageElapsedSeconds;
-    if (timeToFlip <= _stageRule.warningTime && timeToFlip > 0) {}
-
+    var flipped = false;
     if (_stageElapsedSeconds >= _nextFlipAtSeconds) {
+      flipped = true;
       _controlsInverted = !_controlsInverted;
       _fx.add(
         MazeFx(
@@ -1177,11 +1316,12 @@ class _GameScreenState extends State<GameScreen>
       _devilSpawned = true;
       _devilCell = _spawnDevilCell();
       _addSmoke(_devilCell!);
+      _onArcadeDevilSpawned();
     }
 
     if (_devilSpawned && _devilCell != null) {
       final previousDevilCell = _devilCell;
-      if (!hazardGraceActive) {
+      if (!hazardGraceActive && !_devilFrozen) {
         _devilMoveAccumulator += dt;
         final playerSpeed = _stageRule.playerSpeedMultiplier <= 0
             ? 1.0
@@ -1212,7 +1352,10 @@ class _GameScreenState extends State<GameScreen>
           final double t = (euclideanDist - nearDist) / (farDist - nearDist);
           distanceFactor = minFactor + (maxFactor - minFactor) * t;
         }
-        final devilStepsPerSecond = (baseDevilSpeed * distanceFactor).clamp(
+        // World 5: short sprints while far behind (never when close).
+        final rage = _raging && euclideanDist > 4 ? 1.45 : 1.0;
+        final devilStepsPerSecond = (baseDevilSpeed * distanceFactor * rage)
+            .clamp(
           0.2,
           4.0,
         );
@@ -1240,6 +1383,7 @@ class _GameScreenState extends State<GameScreen>
           distanceTiles: distanceCells,
           devilEnabled: devilAudioEnabled,
         );
+        _trackNearMiss(distanceCells);
       }
 
       final playerCell = _playerController.position;
@@ -1250,7 +1394,9 @@ class _GameScreenState extends State<GameScreen>
 
       if ((_devilCell == playerCell || crossedThroughEachOther) &&
           !_playerSafe &&
-          !hazardGraceActive) {
+          !hazardGraceActive &&
+          !_devilFrozen &&
+          !_inGrace) {
         unawaited(_onDevilCaught());
       }
     } else {
@@ -1262,6 +1408,7 @@ class _GameScreenState extends State<GameScreen>
       unawaited(_onTrapCollapsed(pendingTrapCollapse));
     }
 
+    _arcadeTick(flipped: flipped, dt: dt);
     _fx.removeWhere((fx) => _stageElapsedSeconds - fx.start >= fx.duration);
 
     // Idle animations (exit gate, devil bob, breathing) are time-driven, so
@@ -1310,6 +1457,9 @@ class _GameScreenState extends State<GameScreen>
         _trapDeathInProgress) {
       return;
     }
+    if (_absorbWithShield()) {
+      return;
+    }
     _roundResolved = true;
     _isTimeUpHandling = true;
     _isPaused = false;
@@ -1317,7 +1467,7 @@ class _GameScreenState extends State<GameScreen>
     _playerController.stop();
     _onRunLost();
     try {
-      await _audioManager.handle(GameAudioEvent.playerLost);
+      await _audioCue(_audioManager.handle(GameAudioEvent.playerLost));
     } catch (error, stackTrace) {
       ErrorReporter.report(
         reason: 'game_audio_player_lost_failed',
@@ -1366,6 +1516,7 @@ class _GameScreenState extends State<GameScreen>
     _mazeShiftManager.startStage(
       stage: _stage,
       totalSteps: _mazeShiftTotalSteps,
+      forceEligible: _twist == WorldTwist.shifting,
     );
     _resetSafeZones();
     _resetKeyHunt();
@@ -1378,6 +1529,7 @@ class _GameScreenState extends State<GameScreen>
     _isPaused = false;
     _roundResolved = false;
     _glitchEffectController.clear();
+    _prepareArcadeStage();
   }
 
   void _rebuildTrapTilesForCurrentStage() {
@@ -1635,6 +1787,9 @@ class _GameScreenState extends State<GameScreen>
         _trapDeathInProgress) {
       return;
     }
+    if (_absorbWithShield(trap: tile)) {
+      return;
+    }
 
     _roundResolved = true;
     _isTimeUpHandling = true;
@@ -1784,6 +1939,7 @@ class _GameScreenState extends State<GameScreen>
 
   void _onSafeZoneEntered() {
     unawaited(_audioManager.handle(GameAudioEvent.safeZoneEntered));
+    _onArcadeSafeEntered();
 
     if (!_stageRule.devilEnabled) {
       return;
@@ -2024,7 +2180,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _resetSafeZones() {
-    final extra = widget.daily == null ? _mercy.extraSafeZonesFor(_stage) : 0;
+    final extra = _daily == null ? _mercy.extraSafeZonesFor(_stage) : 0;
     _safeZones
       ..clear()
       ..addAll(
@@ -2154,7 +2310,7 @@ class _GameScreenState extends State<GameScreen>
     _playerController.stop();
     _onRunLost();
     try {
-      await _audioManager.handle(GameAudioEvent.playerLost);
+      await _audioCue(_audioManager.handle(GameAudioEvent.playerLost));
     } catch (error, stackTrace) {
       ErrorReporter.report(
         reason: 'game_audio_player_lost_failed',
@@ -2273,7 +2429,7 @@ class _GameScreenState extends State<GameScreen>
 
     if (shouldExit == true && mounted) {
       _resetToCheckpointOnReactivation = true;
-      await _audioManager.handle(GameAudioEvent.matchExit);
+      await _audioCue(_audioManager.handle(GameAudioEvent.matchExit));
       widget.onExitToDashboard();
     }
   }
@@ -2328,7 +2484,10 @@ class _GameScreenState extends State<GameScreen>
     final uiScale = (shortestSide / 390).clamp(0.84, 1.2);
     final horizontalPadding = (14 * uiScale).clamp(10.0, 20.0);
     final verticalPadding = (10 * uiScale).clamp(8.0, 16.0);
-    final showTouchControls = !kIsWeb;
+    final showTouchControls = _arcade ? _showTouchControls : !kIsWeb;
+    // Narrow (portrait) screens: the flip dial drops below the clock.
+    final narrowHud = _arcade && screenSize.width < 640;
+    _reportGameplay();
 
     final gameContent = Material(
       color: NightHud.ink,
@@ -2351,18 +2510,41 @@ class _GameScreenState extends State<GameScreen>
                     totalSeconds: _stageDurationSeconds,
                     isPaused: _isPaused,
                     onPauseTap: _togglePause,
-                    checkpoint: widget.daily == null ? _checkpoint : 0,
-                    livesRemaining: _livesRemaining,
-                    maxLives: _maxLivesForHud,
+                    checkpoint: _daily == null && !_arcade ? _checkpoint : 0,
+                    livesRemaining: _arcade ? -1 : _livesRemaining,
+                    maxLives: _arcade ? 0 : _maxLivesForHud,
                     keysFound: _keyHunt.keysFound,
                     keysRequired: _keyHunt.keysRequired,
                     boxesLeft: _keyHunt.boxesLeft,
-                    stageLabel: widget.daily == null
-                        ? null
-                        : '#${widget.daily!.number}',
+                    stageLabel: _mode == PlayMode.endless && _arcade
+                        ? 'D${_a.endlessDepth + 1}'
+                        : (_daily == null ? null : '#${_daily!.number}'),
+                    souls: _arcade ? _a.tally.wisps : null,
+                    shield: _arcade ? _a.shield : 0,
+                    starsNow: _arcade && _mode == PlayMode.campaign
+                        ? _starsNow
+                        : null,
                   ),
+                  if (_arcade)
+                    Positioned(
+                      top: narrowHud ? 50 * uiScale : 0,
+                      left: narrowHud ? null : 0,
+                      right: 0,
+                      child: Center(
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: _gameSurfaceRevision,
+                          builder: (context, _, _) => FlipDial(
+                            progress: _flipProgress ?? 0,
+                            soon: _flipSoon,
+                            flipped: _controlsInverted,
+                            scale: uiScale,
+                            compact: narrowHud,
+                          ),
+                        ),
+                      ),
+                    ),
                   Positioned(
-                    top: 46 * uiScale,
+                    top: (narrowHud ? 104 : 58) * uiScale,
                     left: 0,
                     right: 0,
                     child: Center(
@@ -2404,20 +2586,20 @@ class _GameScreenState extends State<GameScreen>
             ),
           ),
 
-          if (_isPaused)
+          if (_isPaused && !_arcade)
             Positioned.fill(
               child: Container(
                 color: const Color(0xC0000000),
                 child: _fitted(
                   RunPausedDialog(
                     stage: _stage,
-                    stageLabel: widget.daily == null ? 'STAGE' : 'DAILY',
-                    stageValue: widget.daily == null
+                    stageLabel: _daily == null ? 'STAGE' : 'DAILY',
+                    stageValue: _daily == null
                         ? null
-                        : '#${widget.daily!.number}',
+                        : '#${_daily!.number}',
                     checkpoint: _checkpoint,
                     nextCheckpoint: _nextMilestoneStage(),
-                    checkpointText: widget.daily == null
+                    checkpointText: _daily == null
                         ? _checkpointPushText()
                         : 'Daily Nightmare · free retries',
                     modeLabel: _modeLabel,
@@ -2429,13 +2611,13 @@ class _GameScreenState extends State<GameScreen>
               ),
             ),
 
-          if (_isStageTransition && widget.daily == null)
+          if (_isStageTransition && _daily == null && !_arcade)
             StageClearOverlay(
               stage: _completedStage,
               controller: _stageClearController,
             ),
 
-          if (_dailySummary != null)
+          if (_dailySummary != null && !_arcade)
             Positioned.fill(
               child: Container(
                 color: const Color(0xD9000000),
@@ -2450,7 +2632,7 @@ class _GameScreenState extends State<GameScreen>
               ),
             ),
 
-          if (_showLossOverlay)
+          if (_showLossOverlay && !_arcade)
             Positioned.fill(
               child: Container(
                 color: const Color(0xD9000000),
@@ -2475,18 +2657,20 @@ class _GameScreenState extends State<GameScreen>
                       keysShort: _lossKeysShort,
                     ),
                     nearMissDetail: _nearMissDetail(),
-                    dailyNumber: widget.daily?.number,
+                    dailyNumber: _daily?.number,
                     dailyDeaths: _dailyDeaths,
-                    onRevivePressed: widget.daily == null
+                    onRevivePressed: _daily == null
                         ? _onReviveFromLoss
                         : () async => _restartDaily(),
-                    onRestartPressed: widget.daily == null
+                    onRestartPressed: _daily == null
                         ? _onRestartFromLoss
                         : _exitDaily,
                   ),
                 ),
               ),
             ),
+
+          ..._arcadeOverlays(),
 
           // ── Stage 100 crown victory overlay ───────────────────────────
           if (_gameComplete)
@@ -2517,7 +2701,12 @@ class _GameScreenState extends State<GameScreen>
       onKeyEvent: _handleKeyboardEvent,
       child: Listener(
         behavior: HitTestBehavior.translucent,
-        onPointerDown: (_) => _requestKeyboardFocusIfNeeded(),
+        onPointerDown: (event) {
+          if (event.kind == PointerDeviceKind.touch && !_a.touchSeen) {
+            setState(() => _a.touchSeen = true);
+          }
+          _requestKeyboardFocusIfNeeded();
+        },
         child: gameContent,
       ),
     );
@@ -2748,7 +2937,9 @@ class _GameScreenState extends State<GameScreen>
           final trapTiles = List<TrapTile>.unmodifiable(
             _trapStateController.activeTiles,
           );
-          return GlitchEffectOverlay(
+          return Transform.translate(
+            offset: _arcade ? _shakeOffset : Offset.zero,
+            child: GlitchEffectOverlay(
             controller: _glitchEffectController,
             child: Stack(
               fit: StackFit.expand,
@@ -2778,6 +2969,24 @@ class _GameScreenState extends State<GameScreen>
                     boxPointer: _nearestBox?.cell,
                     keyFlashAt: _keyFlashAt,
                     sealedBumpAt: _sealedBumpAt,
+                    look: _arcade ? _run.session.look : null,
+                    trail: _arcade ? List<TrailDot>.of(_a.trail) : const [],
+                    wisps: _arcade ? Set<Point<int>>.of(_a.wisps) : const {},
+                    pickups: _arcade
+                        ? Map<Point<int>, String>.fromEntries(
+                            _a.pickups.entries.map(
+                              (e) => MapEntry(e.key, e.value.name),
+                            ),
+                          )
+                        : const {},
+                    devilFrozen: _arcade && _devilFrozen,
+                    devilRaging: _arcade && _raging,
+                    seerPath: _arcade && _seerActive ? _a.seerPath : const [],
+                    shielded: _arcade && _a.shield > 0,
+                    lightScale: _twist == WorldTwist.blackout ? 0.62 : 1,
+                    labels: _arcade
+                        ? List<FloatingLabel>.of(_a.labels)
+                        : const [],
                   ),
                 ),
                 if (_trapDeathInProgress)
@@ -2788,6 +2997,7 @@ class _GameScreenState extends State<GameScreen>
                   ),
               ],
             ),
+          ),
           );
         },
       ),

@@ -89,11 +89,31 @@ flutter:
 
   assets:
     - assets/audio/
+    - assets/audio/ui/
     # 2D art, cut by tool/process_2d_assets.py from the delivered sheets
     - assets/images/2d/tiles/
     - assets/images/2d/objects/
     - assets/images/2d/fx/
     - assets/images/2d/ui/
+
+  # Bundled pixel fonts (SIL Open Font License, see assets/fonts/OFL-*.txt).
+  fonts:
+    - family: FFTitle
+      fonts:
+        - asset: assets/fonts/Jacquard12-Regular.ttf
+    # Jersey 15 is drawn at one weight; it is registered for the bold weights
+    # too so the engine never fakes a bold (fake bold closes up the letters).
+    - family: FFBody
+      fonts:
+        - asset: assets/fonts/Jersey15-Regular.ttf
+        - asset: assets/fonts/Jersey15-Regular.ttf
+          weight: 600
+        - asset: assets/fonts/Jersey15-Regular.ttf
+          weight: 700
+        - asset: assets/fonts/Jersey15-Regular.ttf
+          weight: 800
+        - asset: assets/fonts/Jersey15-Regular.ttf
+          weight: 900
 
   # To add assets to your application, add an assets section, like this:
   # assets:

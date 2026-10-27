@@ -262,8 +262,8 @@ class AudioManager {
         _AudioCue.calmLoop: <String>['background_audio.mp3', 'calm_loop.mp3'],
         _AudioCue.menuTheme: <String>['menu_theme.mp3'],
         _AudioCue.flip: <String>[
-          'fahhhh_flippingtime.mp3',
           'fahhhhh_flippingtime.mp3',
+          'fahhhh_flippingtime.mp3',
         ],
         _AudioCue.devilApproach: <String>['devil_approach.wav'],
         _AudioCue.mazeShift: <String>['maze_shift_audio.mp3'],
@@ -271,8 +271,8 @@ class AudioManager {
         _AudioCue.lowTimeAlarm: <String>['low_time_alarm.wav'],
         _AudioCue.winning: <String>['winning_soundeffect.mp3'],
         _AudioCue.playerLost: <String>[
-          'playerlost_soundeffect.mp3',
           'gamelost_soundeffect.mp3',
+          'playerlost_soundeffect.mp3',
           'game_lost_soundeffect.mp3',
         ],
         _AudioCue.trapBreak: <String>['glass_break.mp3', 'glass_break.wav'],

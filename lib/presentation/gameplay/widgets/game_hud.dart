@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../../../arcade/ui/ff_icons.dart';
 import '../../theme/night_hud.dart';
 
 export '../../theme/night_hud.dart';
@@ -24,6 +25,9 @@ class GameHud extends StatelessWidget {
     this.keysRequired = 0,
     this.boxesLeft = 0,
     this.stageLabel,
+    this.souls,
+    this.shield = 0,
+    this.starsNow,
     super.key,
   });
 
@@ -54,6 +58,15 @@ class GameHud extends StatelessWidget {
 
   /// Shown instead of the stage number (the Daily Nightmare shows "#12").
   final String? stageLabel;
+
+  /// Soul wisps found this run (arcade menus); null hides the counter.
+  final int? souls;
+
+  /// Holy wards held (each blocks one death).
+  final int shield;
+
+  /// Stars an escape would earn right now (campaign); null hides them.
+  final int? starsNow;
 
   bool get _showHearts => livesRemaining >= 0 && maxLives > 0;
 
@@ -94,6 +107,21 @@ class GameHud extends StatelessWidget {
                   fontSize: 15 * uiScale,
                 ),
               ],
+              if (souls != null) ...[
+                SizedBox(height: 6 * uiScale),
+                _SoulPill(souls: souls!, scale: uiScale),
+              ],
+              if (shield > 0) ...[
+                SizedBox(height: 6 * uiScale),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FFIcon(FFGlyph.shield, size: 26 * uiScale),
+                    if (shield > 1)
+                      Text(' ×$shield', style: NightHud.number(15 * uiScale)),
+                  ],
+                ),
+              ],
               if (keysRequired > 0) ...[
                 SizedBox(height: 6 * uiScale),
                 _KeySlots(
@@ -122,7 +150,10 @@ class GameHud extends StatelessWidget {
         Positioned(
           right: 0,
           top: 0,
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+          Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               IgnorePointer(
@@ -156,6 +187,13 @@ class GameHud extends StatelessWidget {
                   ),
                 ),
               ),
+            ],
+          ),
+          if (starsNow != null)
+            Padding(
+              padding: EdgeInsets.only(top: 4 * uiScale, right: 48 * uiScale),
+              child: _StarsNow(stars: starsNow!, scale: uiScale),
+            ),
             ],
           ),
         ),
@@ -470,4 +508,157 @@ class _KeySlotsState extends State<_KeySlots>
       ),
     );
   }
+}
+
+
+/// The wisps found this run.
+class _SoulPill extends StatelessWidget {
+  const _SoulPill({required this.souls, required this.scale});
+
+  final int souls;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(souls),
+      tween: Tween(begin: 1.35, end: 1),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
+      builder: (context, v, child) => Transform.scale(scale: souls == 0 ? 1 : v, alignment: Alignment.centerLeft, child: child),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FFIcon(FFGlyph.soul, size: 26 * scale),
+          const SizedBox(width: 4),
+          Text('$souls', style: NightHud.number(17 * scale, color: NightHud.spirit)),
+        ],
+      ),
+    );
+  }
+}
+
+/// The stars an escape would earn right now; they drop as the clock runs.
+class _StarsNow extends StatelessWidget {
+  const _StarsNow({required this.stars, required this.scale});
+
+  final int stars;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < 3; i++)
+            AnimatedScale(
+              scale: i < stars ? 1 : 0.8,
+              duration: const Duration(milliseconds: 300),
+              child: FFIcon(i < stars ? FFGlyph.star : FFGlyph.starEmpty, size: 20 * scale),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The flip timer: a ring that fills toward the next flip and burns red just
+/// before it, so a flip is never a surprise. Shows which world is up.
+class FlipDial extends StatelessWidget {
+  const FlipDial({
+    required this.progress,
+    required this.soon,
+    required this.flipped,
+    this.scale = 1,
+    this.compact = false,
+    super.key,
+  });
+
+  final double progress;
+  final bool soon;
+  final bool flipped;
+  final double scale;
+
+  /// Just the dial, no word beside it (narrow screens).
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = 46 * scale;
+    return IgnorePointer(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: size,
+            height: size,
+            child: CustomPaint(
+              painter: _DialPainter(progress: progress, soon: soon, flipped: flipped),
+            ),
+          ),
+          if (!compact) SizedBox(width: 6 * scale),
+          if (!compact)
+          Text(
+            soon ? 'FLIP!' : (flipped ? 'FLIPPED' : 'NORMAL'),
+            style: NightHud.number(
+              15 * scale,
+              color: soon ? NightHud.blood : (flipped ? NightHud.blood : NightHud.boneDim),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DialPainter extends CustomPainter {
+  _DialPainter({required this.progress, required this.soon, required this.flipped});
+
+  final double progress;
+  final bool soon;
+  final bool flipped;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.width / 2 - 3;
+    canvas.drawCircle(c, r + 2, Paint()..color = NightHud.ink.withValues(alpha: 0.8));
+    canvas.drawCircle(
+      c,
+      r - 3,
+      Paint()..color = flipped ? const Color(0xFF4D0E15) : const Color(0xFF3B4660),
+    );
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..color = soon ? NightHud.blood : NightHud.amber;
+    canvas.drawArc(Rect.fromCircle(center: c, radius: r), -pi / 2, 2 * pi * progress, false, ring);
+    // Two curved arrows: the flip symbol.
+    final arrow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round
+      ..color = NightHud.bone;
+    final a = r * 0.48;
+    canvas.drawArc(Rect.fromCircle(center: c, radius: a), -pi * 0.9, pi * 0.75, false, arrow);
+    canvas.drawArc(Rect.fromCircle(center: c, radius: a), pi * 0.1, pi * 0.75, false, arrow);
+    void head(double angle) {
+      final p = c + Offset(cos(angle), sin(angle)) * a;
+      final dir = Offset(-sin(angle), cos(angle));
+      final path = Path()
+        ..moveTo(p.dx + dir.dx * 4, p.dy + dir.dy * 4)
+        ..lineTo(p.dx - dir.dx * 1 + cos(angle) * 4, p.dy - dir.dy * 1 + sin(angle) * 4)
+        ..lineTo(p.dx - dir.dx * 1 - cos(angle) * 4, p.dy - dir.dy * 1 - sin(angle) * 4)
+        ..close();
+      canvas.drawPath(path, Paint()..color = NightHud.bone);
+    }
+    head(-pi * 0.15);
+    head(pi * 0.85);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DialPainter old) =>
+      old.progress != progress || old.soon != soon || old.flipped != flipped;
 }

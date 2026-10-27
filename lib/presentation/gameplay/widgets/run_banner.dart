@@ -88,8 +88,9 @@ class _BannerBox extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: accent,
-                    fontSize: 16 * scale,
-                    fontWeight: FontWeight.w900,
+                    fontFamily: 'FFBody',
+                    fontSize: 19.5 * scale,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: 2,
                     shadows: const [
                       Shadow(color: NightHud.ink, offset: Offset(1.5, 1.5)),
@@ -103,8 +104,9 @@ class _BannerBox extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: NightHud.bone,
-                      fontSize: 10.5 * scale,
-                      fontWeight: FontWeight.w800,
+                      fontFamily: 'FFBody',
+                      fontSize: 13 * scale,
+                      fontWeight: FontWeight.w600,
                       letterSpacing: 1.6,
                     ),
                   ),

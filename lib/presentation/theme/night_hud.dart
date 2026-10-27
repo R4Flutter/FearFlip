@@ -17,9 +17,10 @@ abstract final class NightHud {
   /// Heavy bone-white numbers with a dark outline, readable over any tile.
   /// The one place to swap in a pixel font once it is bundled.
   static TextStyle number(double size, {Color color = bone}) => TextStyle(
+    fontFamily: 'FFBody',
     color: color,
     fontSize: size,
-    fontWeight: FontWeight.w900,
+    fontWeight: FontWeight.w700,
     height: 1,
     letterSpacing: 1,
     shadows: const [

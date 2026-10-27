@@ -1,12 +1,12 @@
 {
-    "name": "fearflipgame",
-    "short_name": "fearflipgame",
+    "name": "FearFlip",
+    "short_name": "FearFlip",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#0A0A0F",
+    "theme_color": "#0A0A0F",
+    "description": "Escape a haunted pixel maze while the world flips your controls and the Devil hunts you.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

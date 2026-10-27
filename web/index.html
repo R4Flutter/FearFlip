@@ -1,38 +1,227 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
+  <!-- Relative base: the build runs from any folder (CrazyGames serves it from a CDN path). -->
   <base href="./">
 
   <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
-
-  <!-- iOS meta tags & icons -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="description" content="FearFlip: escape a haunted pixel maze while the world flips your controls and the Devil hunts you.">
+  <meta name="theme-color" content="#0A0A0F">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="fearflipgame">
+  <meta name="apple-mobile-web-app-title" content="FearFlip">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
-
-  <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
-
-  <title>fearflipgame</title>
   <link rel="manifest" href="manifest.json">
+  <title>FearFlip</title>
+
+  <style>
+    @font-face {
+      font-family: 'FFTitle';
+      src: url('assets/assets/fonts/Jacquard12-Regular.ttf') format('truetype');
+      font-display: block;
+    }
+    @font-face {
+      font-family: 'FFBody';
+      src: url('assets/assets/fonts/Jersey15-Regular.ttf') format('truetype');
+      font-display: swap;
+    }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #0A0A0F;
+      overscroll-behavior: none; touch-action: none;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #ff-loader {
+      position: fixed; inset: 0; z-index: 10;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background:
+        radial-gradient(ellipse at 50% 42%, rgba(242,181,68,0.16) 0%, rgba(10,10,15,0) 46%),
+        radial-gradient(ellipse at 50% 50%, #23222F 0%, #0A0A0F 72%);
+      color: #F0E6D2; font-family: 'FFBody', 'Trebuchet MS', sans-serif;
+      transition: opacity 420ms ease;
+    }
+    #ff-loader.ff-done { opacity: 0; pointer-events: none; }
+    .ff-candle { position: relative; width: 22px; height: 70px; margin-bottom: 18px; }
+    .ff-candle .wax {
+      position: absolute; bottom: 0; left: 3px; width: 16px; height: 38px;
+      background: linear-gradient(90deg, #D8C3A0, #F0E6D2 45%, #B39572);
+      border: 2px solid #16151F; border-radius: 3px 3px 2px 2px;
+    }
+    .ff-candle .flame {
+      position: absolute; bottom: 40px; left: 5px; width: 12px; height: 22px;
+      background: radial-gradient(ellipse at 50% 70%, #FFFFFF 0%, #FFE08A 35%, #F2B544 65%, rgba(201,138,46,0) 100%);
+      border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+      animation: ff-flicker 0.18s infinite alternate ease-in-out;
+      filter: drop-shadow(0 0 10px #F2B544) drop-shadow(0 0 22px rgba(242,181,68,0.6));
+      transform-origin: 50% 100%;
+    }
+    @keyframes ff-flicker {
+      from { transform: scale(1, 1) rotate(-2deg); }
+      to { transform: scale(0.92, 1.08) rotate(2deg); }
+    }
+    .ff-title {
+      font-family: 'FFTitle', Georgia, serif; font-size: clamp(54px, 11vw, 112px);
+      line-height: 0.9; letter-spacing: 2px; color: #F0E6D2;
+      text-shadow: 4px 4px 0 #16151F, 0 0 26px rgba(224,58,50,0.55);
+    }
+    .ff-sub { margin-top: 6px; font-size: 14px; letter-spacing: 4px; color: #B39572; }
+    .ff-bar {
+      margin-top: 28px; width: min(320px, 70vw); height: 14px;
+      background: #16151F; border: 3px solid #F0E6D2; border-radius: 4px;
+      box-shadow: 0 0 0 3px #16151F, inset 0 0 0 2px #34344A;
+      overflow: hidden;
+    }
+    .ff-fill {
+      height: 100%; width: 4%;
+      background: linear-gradient(180deg, #FFE08A, #F2B544 55%, #C98A2E);
+      transition: width 300ms ease-out;
+    }
+    .ff-tip { margin-top: 18px; max-width: 80vw; text-align: center; font-size: 13px; color: #7884A0; min-height: 18px; }
+  </style>
+
+  <!-- CrazyGames HTML5 SDK v3. If it can't load (ad-blockers, other portals,
+       local testing) the game still runs: see the ffcg bridge below. -->
+  <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js" onerror="window.__ffcgSdkFailed = true"></script>
 </head>
 <body>
+  <div id="ff-loader">
+    <div class="ff-candle"><div class="flame"></div><div class="wax"></div></div>
+    <div class="ff-title">FearFlip</div>
+    <div class="ff-sub">ESCAPE THE NIGHTMARE</div>
+    <div class="ff-bar"><div class="ff-fill" id="ff-fill"></div></div>
+    <div class="ff-tip" id="ff-tip">When the world flips, your controls flip too.</div>
+  </div>
+
+  <script>
+    // Arrow keys and space must never scroll the page around the game frame.
+    window.addEventListener('keydown', function (e) {
+      if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown'].indexOf(e.key) >= 0) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+    window.addEventListener('wheel', function (e) { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+    window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+    // Loading bar: eases toward 90 % while the engine downloads, then fills
+    // when the first frame is drawn.
+    (function () {
+      var fill = document.getElementById('ff-fill');
+      var tip = document.getElementById('ff-tip');
+      var tips = [
+        'When the world flips, your controls flip too.',
+        'Blue spirit candles banish the Devil.',
+        'Find the keys: the exit stays sealed until you do.',
+        'Cracked floor? Never step on it twice.',
+        'Come back every day: a new Daily Nightmare waits.'
+      ];
+      var p = 4, t = 0;
+      var timer = setInterval(function () {
+        p = Math.min(90, p + (90 - p) * 0.06);
+        if (fill) fill.style.width = p.toFixed(1) + '%';
+        if (++t % 22 === 0 && tip) tip.textContent = tips[(t / 22) % tips.length | 0];
+      }, 120);
+      window.__ffLoaderDone = function () {
+        clearInterval(timer);
+        if (fill) fill.style.width = '100%';
+        var el = document.getElementById('ff-loader');
+        if (el) {
+          setTimeout(function () { el.classList.add('ff-done'); }, 150);
+          setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 700);
+        }
+      };
+    })();
+
+    // ffcg: the one bridge between the game and the CrazyGames SDK. Every call
+    // is safe without the SDK; the Dart side reads results as plain strings.
+    window.ffcg = (function () {
+      var st = { sdk: null, env: 'none', ready: false, initPromise: null, muted: false, gameplay: false, listeners: [] };
+      function sdk() { return (window.CrazyGames && window.CrazyGames.SDK) || null; }
+      function call(fn) { try { if (st.ready && st.sdk) fn(st.sdk); } catch (e) { console.warn('[ffcg]', e); } }
+      function store() { try { return window.localStorage; } catch (e) { return null; } }
+
+      function init() {
+        if (st.initPromise) return st.initPromise;
+        st.initPromise = new Promise(function (resolve) {
+          var s = sdk();
+          if (!s || window.__ffcgSdkFailed) { st.env = 'none'; resolve(st.env); return; }
+          var settled = false;
+          var finish = function (env) { if (!settled) { settled = true; resolve(env); } };
+          setTimeout(function () { finish(st.env); }, 6000);
+          Promise.resolve().then(function () { return s.init(); }).then(function () {
+            st.sdk = s;
+            st.env = s.environment || 'crazygames';
+            st.ready = st.env !== 'disabled';
+            try {
+              st.muted = !!(s.game && s.game.settings && s.game.settings.muteAudio);
+              if (s.game && s.game.addSettingsChangeListener) {
+                s.game.addSettingsChangeListener(function (ns) {
+                  st.muted = !!(ns && ns.muteAudio);
+                  st.listeners.forEach(function (f) { try { f(st.muted); } catch (e) {} });
+                });
+              }
+            } catch (e) {}
+            finish(st.env);
+          }).catch(function (e) { console.warn('[ffcg] init failed', e); st.env = 'none'; finish(st.env); });
+        });
+        return st.initPromise;
+      }
+
+      return {
+        init: init,
+        env: function () { return st.env; },
+        loadingStart: function () { call(function (s) { s.game.loadingStart(); }); },
+        loadingStop: function () { call(function (s) { s.game.loadingStop(); }); },
+        gameplayStart: function () {
+          if (st.gameplay) return; st.gameplay = true;
+          call(function (s) { s.game.gameplayStart(); });
+        },
+        gameplayStop: function () {
+          if (!st.gameplay) return; st.gameplay = false;
+          call(function (s) { s.game.gameplayStop(); });
+        },
+        happytime: function () { call(function (s) { s.game.happytime(); }); },
+        // Resolves 'finished', 'error' or 'unavailable'. 'started' is sent to
+        // onAdStarted so the game can mute and freeze before the ad shows.
+        requestAd: function (type, onAdStarted) {
+          return new Promise(function (resolve) {
+            if (!st.ready || !st.sdk || !st.sdk.ad) { resolve('unavailable'); return; }
+            var done = false;
+            var fin = function (r) { if (!done) { done = true; resolve(r); } };
+            try {
+              st.sdk.ad.requestAd(type, {
+                adStarted: function () { try { if (onAdStarted) onAdStarted(); } catch (e) {} },
+                adFinished: function () { fin('finished'); },
+                adError: function (err) { console.warn('[ffcg] ad error', err); fin('error'); }
+              });
+            } catch (e) { fin('error'); }
+            setTimeout(function () { fin('error'); }, 150000);
+          });
+        },
+        getItem: function (k) {
+          try {
+            if (st.ready && st.sdk && st.sdk.data) {
+              var v = st.sdk.data.getItem(k);
+              if (v !== null && v !== undefined) return String(v);
+            }
+          } catch (e) {}
+          var ls = store();
+          try { return ls ? ls.getItem(k) : null; } catch (e) { return null; }
+        },
+        setItem: function (k, v) {
+          try { if (st.ready && st.sdk && st.sdk.data) st.sdk.data.setItem(k, v); } catch (e) {}
+          var ls = store();
+          try { if (ls) ls.setItem(k, v); } catch (e) {}
+        },
+        isMuted: function () { return st.muted; },
+        onMuteChange: function (cb) { st.listeners.push(cb); },
+        loaderDone: function () { if (window.__ffLoaderDone) window.__ffLoaderDone(); }
+      };
+    })();
+    window.ffcg.init().then(function () { window.ffcg.loadingStart(); });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

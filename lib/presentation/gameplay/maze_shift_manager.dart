@@ -70,12 +70,18 @@ class MazeShiftManager {
     return (_stepsTaken / _totalSteps).clamp(0.0, 1.0);
   }
 
-  void startStage({required int stage, required int totalSteps}) {
+  /// [forceEligible] makes every stage shift (world 3, the Shifting
+  /// Catacombs); otherwise only every sixth stage does.
+  void startStage({
+    required int stage,
+    required int totalSteps,
+    bool forceEligible = false,
+  }) {
     _stage = max(1, stage);
     _stepsTaken = 0;
     _totalSteps = max(1, totalSteps);
     _hasMoved = false;
-    _eligibleStage = _stage % _eligibleStageModulo == 0;
+    _eligibleStage = forceEligible || _stage % _eligibleStageModulo == 0;
     _midTriggerProgress = _randomInRange(_midMinProgress, _midMaxProgress);
     _lateTriggerProgress = _randomInRange(_lateMinProgress, _lateMaxProgress);
     hasMidShiftTriggered = false;
