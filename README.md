@@ -27,7 +27,19 @@ flutter pub get
 flutter run -d chrome          # web
 flutter test                   # tests
 bash tool/build_crazygames.sh  # the CrazyGames upload zip
+bash tool/build_pages.sh       # the GitHub Pages site (build/pages)
 ```
+
+## Play it in the browser
+
+Every push to `main` is published to GitHub Pages at
+https://r4flutter.github.io/FearFlip/ by `.github/workflows/pages.yml`: it runs
+`tool/build_pages.sh` and pushes the site to the `gh-pages` branch. The Pages
+build leaves out the CrazyGames SDK, so saves stay in the browser and there are
+no ads.
+
+One-time setup, if the site doesn't show up: **Settings → Pages → Build and
+deployment → Source: Deploy from a branch → `gh-pages` / `(root)`**.
 
 Test builds can add `--dart-define=FF_DEV_KEYS=true`: in the maze, F8 escapes
 and F9 is caught by the Devil (compiled out of normal builds).
