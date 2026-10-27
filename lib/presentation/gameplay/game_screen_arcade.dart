@@ -120,7 +120,9 @@ extension _ArcadeRunLogic on _GameScreenState {
 
   /// Extra seconds on this stage's clock from a carried hourglass.
   int get _arcadeClockBonus =>
-      _arcade && _a.boosts.contains(BoostType.hourglass) ? Boosts.hourglassSeconds : 0;
+      _arcade && _a.boosts.contains(BoostType.hourglass)
+      ? Boosts.hourglassSeconds
+      : 0;
 
   void _placeWispsAndPickups() {
     _a.wisps.clear();
@@ -140,7 +142,9 @@ extension _ArcadeRunLogic on _GameScreenState {
         final cell = Point<int>(x, y);
         if (blocked.contains(cell)) continue;
         if ((_distanceFromStart[cell] ?? 0) < 2) continue;
-        final exits = Direction4.values.where((d) => _maze.canMove(cell, d)).length;
+        final exits = Direction4.values
+            .where((d) => _maze.canMove(cell, d))
+            .length;
         (exits == 1 ? deadEnds : open).add(cell);
       }
     }
@@ -154,7 +158,10 @@ extension _ArcadeRunLogic on _GameScreenState {
       PlayMode.daily => 0,
     };
     final byDistance = List<Point<int>>.of(deadEnds)
-      ..sort((a, b) => (_distanceFromStart[b] ?? 0).compareTo(_distanceFromStart[a] ?? 0));
+      ..sort(
+        (a, b) =>
+            (_distanceFromStart[b] ?? 0).compareTo(_distanceFromStart[a] ?? 0),
+      );
     const kinds = [
       BoostType.hourglass,
       BoostType.hourglass,
@@ -168,9 +175,8 @@ extension _ArcadeRunLogic on _GameScreenState {
     }
 
     final want = ((_maze.rows * _maze.cols) / 11).round().clamp(5, 18);
-    bool spaced(Point<int> cell) => _a.wisps.every(
-      (w) => (w.x - cell.x).abs() + (w.y - cell.y).abs() >= 2,
-    );
+    bool spaced(Point<int> cell) =>
+        _a.wisps.every((w) => (w.x - cell.x).abs() + (w.y - cell.y).abs() >= 2);
     for (final cell in [...deadEnds, ...open]) {
       if (_a.wisps.length >= want) break;
       if (_a.pickups.containsKey(cell) || !spaced(cell)) continue;
@@ -185,7 +191,9 @@ extension _ArcadeRunLogic on _GameScreenState {
     String? subtitle;
     var color = NightHud.gold;
     if (session.tutorial && _stage == 1 && _mode == PlayMode.campaign) {
-      title = _showTouchControls ? 'USE THE PAD TO MOVE' : 'ARROWS OR WASD TO MOVE';
+      title = _showTouchControls
+          ? 'USE THE PAD TO MOVE'
+          : 'ARROWS OR WASD TO MOVE';
       subtitle = 'REACH THE GLOWING STAIRS';
     } else if (_mode == PlayMode.campaign && Worlds.opensWorld(_stage)) {
       final world = Worlds.forStage(_stage);
@@ -199,16 +207,25 @@ extension _ArcadeRunLogic on _GameScreenState {
     } else if (_mode == PlayMode.endless) {
       title = 'DEPTH ${_a.endlessDepth + 1}';
       final twist = _twist;
-      subtitle = twist == WorldTwist.none ? 'KEEP DESCENDING' : Worlds.all[min(4, _a.endlessDepth ~/ 5)].twistText.toUpperCase();
+      subtitle = twist == WorldTwist.none
+          ? 'KEEP DESCENDING'
+          : Worlds.all[min(4, _a.endlessDepth ~/ 5)].twistText.toUpperCase();
       color = NightHud.spirit;
     }
     if (title == null) return;
-    final delay = _keyHunt.isActive ? const Duration(milliseconds: 2500) : const Duration(milliseconds: 250);
+    final delay = _keyHunt.isActive
+        ? const Duration(milliseconds: 2500)
+        : const Duration(milliseconds: 250);
     final t = title;
     final s = subtitle;
     _a.introTimer = Timer(delay, () {
       if (!mounted || _roundResolved) return;
-      _showBanner(t, subtitle: s, color: color, duration: const Duration(milliseconds: 2600));
+      _showBanner(
+        t,
+        subtitle: s,
+        color: color,
+        duration: const Duration(milliseconds: 2600),
+      );
     });
   }
 
@@ -226,7 +243,11 @@ extension _ArcadeRunLogic on _GameScreenState {
       _fx.add(MazeFx(MazeFxKind.wispPop, at, _stageElapsedSeconds));
       _float('+1', at, color: NightHud.spirit);
       if (_a.wisps.isEmpty) {
-        _showBanner('EVERY SOUL FOUND', subtitle: 'THE MAZE IS EMPTY', color: NightHud.spirit);
+        _showBanner(
+          'EVERY SOUL FOUND',
+          subtitle: 'THE MAZE IS EMPTY',
+          color: NightHud.spirit,
+        );
       }
     }
     final pickup = _a.pickups.remove(cell);
@@ -242,11 +263,19 @@ extension _ArcadeRunLogic on _GameScreenState {
     switch (type) {
       case BoostType.shield:
         _a.shield += 1;
-        _showBanner(info.name.toUpperCase(), subtitle: 'BLOCKS ONE DEATH', color: NightHud.spirit);
+        _showBanner(
+          info.name.toUpperCase(),
+          subtitle: 'BLOCKS ONE DEATH',
+          color: NightHud.spirit,
+        );
       case BoostType.hourglass:
         _set(() => _remainingSeconds += Boosts.hourglassSeconds);
         _float('+${Boosts.hourglassSeconds}s', at, color: NightHud.gold);
-        _showBanner(info.name.toUpperCase(), subtitle: '+${Boosts.hourglassSeconds} SECONDS', color: NightHud.gold);
+        _showBanner(
+          info.name.toUpperCase(),
+          subtitle: '+${Boosts.hourglassSeconds} SECONDS',
+          color: NightHud.gold,
+        );
       case BoostType.frost:
         if (_devilCell != null) {
           _a.frozenUntil = _stageElapsedSeconds + Boosts.frostSeconds;
@@ -254,16 +283,31 @@ extension _ArcadeRunLogic on _GameScreenState {
         } else {
           _a.frostOnSpawn = true;
         }
-        _showBanner(info.name.toUpperCase(), subtitle: 'THE DEVIL FREEZES', color: NightHud.spirit);
+        _showBanner(
+          info.name.toUpperCase(),
+          subtitle: 'THE DEVIL FREEZES',
+          color: NightHud.spirit,
+        );
       case BoostType.seer:
         _a.seerUntil = _stageElapsedSeconds + Boosts.seerSeconds;
         _a.seerFrom = null;
-        _showBanner(info.name.toUpperCase(), subtitle: 'FOLLOW THE LIGHT', color: NightHud.gold);
+        _showBanner(
+          info.name.toUpperCase(),
+          subtitle: 'FOLLOW THE LIGHT',
+          color: NightHud.gold,
+        );
     }
   }
 
-  void _float(String text, Offset at, {Color color = NightHud.bone, double size = 1}) {
-    _a.labels.add(FloatingLabel(text, at, _stageElapsedSeconds, color: color, size: size));
+  void _float(
+    String text,
+    Offset at, {
+    Color color = NightHud.bone,
+    double size = 1,
+  }) {
+    _a.labels.add(
+      FloatingLabel(text, at, _stageElapsedSeconds, color: color, size: size),
+    );
   }
 
   void _shake(double amp, [double seconds = 0.35]) {
@@ -281,7 +325,12 @@ extension _ArcadeRunLogic on _GameScreenState {
       _shake(3, 0.25);
       if (_run.session.tutorial && !_a.sawFirstFlip) {
         _a.sawFirstFlip = true;
-        _showBanner('THE WORLD FLIPPED!', subtitle: 'YOUR CONTROLS ARE REVERSED', color: NightHud.blood, duration: const Duration(milliseconds: 2800));
+        _showBanner(
+          'THE WORLD FLIPPED!',
+          subtitle: 'YOUR CONTROLS ARE REVERSED',
+          color: NightHud.blood,
+          duration: const Duration(milliseconds: 2800),
+        );
       }
     }
     // Footprints for the trail cosmetic.
@@ -298,7 +347,11 @@ extension _ArcadeRunLogic on _GameScreenState {
       _a.nextRageAt = t + 11 + _random.nextDouble() * 4;
       if (!_a.rageAnnounced) {
         _a.rageAnnounced = true;
-        _showBanner('THE DEVIL RAGES!', subtitle: 'IT SPRINTS WHEN FAR BEHIND', color: NightHud.blood);
+        _showBanner(
+          'THE DEVIL RAGES!',
+          subtitle: 'IT SPRINTS WHEN FAR BEHIND',
+          color: NightHud.blood,
+        );
       }
     }
 
@@ -337,7 +390,12 @@ extension _ArcadeRunLogic on _GameScreenState {
     }
     if (_run.session.tutorial && !_a.sawFirstDevil) {
       _a.sawFirstDevil = true;
-      _showBanner('THE DEVIL WAKES!', subtitle: 'RUN! BLUE CANDLES KEEP YOU SAFE', color: NightHud.blood, duration: const Duration(milliseconds: 3000));
+      _showBanner(
+        'THE DEVIL WAKES!',
+        subtitle: 'RUN! BLUE CANDLES KEEP YOU SAFE',
+        color: NightHud.blood,
+        duration: const Duration(milliseconds: 3000),
+      );
     }
   }
 
@@ -349,7 +407,12 @@ extension _ArcadeRunLogic on _GameScreenState {
     } else if (_a.devilWasClose && (distanceCells >= 4 || _playerSafe)) {
       _a.devilWasClose = false;
       _a.tally.nearMisses += 1;
-      _float('CLOSE CALL!', _playerController.renderPosition, color: NightHud.blood, size: 1.25);
+      _float(
+        'CLOSE CALL!',
+        _playerController.renderPosition,
+        color: NightHud.blood,
+        size: 1.25,
+      );
       Sfx.instance.play(Sound.swoosh, volume: 0.5);
     }
   }
@@ -374,7 +437,11 @@ extension _ArcadeRunLogic on _GameScreenState {
     } else {
       _banishDevil();
     }
-    _showBanner('WARD BROKEN', subtitle: 'IT SAVED YOU ONCE', color: NightHud.spirit);
+    _showBanner(
+      'WARD BROKEN',
+      subtitle: 'IT SAVED YOU ONCE',
+      color: NightHud.spirit,
+    );
     _markGameSurfaceDirty();
     return true;
   }
@@ -434,7 +501,11 @@ extension _ArcadeRunLogic on _GameScreenState {
       ..stars = stars
       ..seconds = seconds;
     final tally = _a.tally;
-    final result = _progress.recordStageClear(stage: _stage, stars: stars, seconds: seconds);
+    final result = _progress.recordStageClear(
+      stage: _stage,
+      stars: stars,
+      seconds: seconds,
+    );
     _flushTally();
     if (stars >= 3 || result.worldCleared) _run.arcade.portal.happyTime();
     _set(() {
@@ -467,7 +538,9 @@ extension _ArcadeRunLogic on _GameScreenState {
     final wisps = _a.tally.wisps;
     final result = _progress.recordEndless(depth: depth, score: score);
     _flushTally(died: true);
-    if (result.newBestDepth || result.newBestScore) _run.arcade.portal.happyTime();
+    if (result.newBestDepth || result.newBestScore) {
+      _run.arcade.portal.happyTime();
+    }
     _set(() {
       _showLossOverlay = false;
       _a.endlessResult = result;
@@ -545,9 +618,18 @@ extension _ArcadeRunLogic on _GameScreenState {
     });
     unawaited(_audioManager.handle(GameAudioEvent.matchExit));
     unawaited(_audioManager.handle(GameAudioEvent.matchRestart));
-    unawaited(_audioManager.handle(GameAudioEvent.timeChanged, secondsLeft: _remainingSeconds));
+    unawaited(
+      _audioManager.handle(
+        GameAudioEvent.timeChanged,
+        secondsLeft: _remainingSeconds,
+      ),
+    );
     _startCountdown();
-    _showBanner('SECOND CHANCE!', subtitle: 'THE DEVIL IS GONE, FOR NOW', color: NightHud.gold);
+    _showBanner(
+      'SECOND CHANCE!',
+      subtitle: 'THE DEVIL IS GONE, FOR NOW',
+      color: NightHud.gold,
+    );
     _requestKeyboardFocusIfNeeded();
   }
 
@@ -625,12 +707,22 @@ extension _ArcadeRunLogic on _GameScreenState {
   /// How close the run came: tiles and keys when near, else how far along.
   String _arcadeNearMiss() {
     if (_lossDistanceToExit <= 12 || _startToGoalDistance <= 0) {
-      return nearMissText(tilesToExit: _lossDistanceToExit, keysShort: _lossKeysShort);
+      return nearMissText(
+        tilesToExit: _lossDistanceToExit,
+        keysShort: _lossKeysShort,
+      );
     }
-    final share = (1 - _lossDistanceToExit / _startToGoalDistance).clamp(0.0, 0.99);
+    final share = (1 - _lossDistanceToExit / _startToGoalDistance).clamp(
+      0.0,
+      0.99,
+    );
     final percent = (share * 100).round();
-    final keys = _lossKeysShort > 0 ? ' · $_lossKeysShort KEY${_lossKeysShort == 1 ? '' : 'S'} SHORT' : '';
-    return percent <= 5 ? 'THE MAZE WAITS FOR YOU$keys' : '$percent% OF THE WAY OUT$keys';
+    final keys = _lossKeysShort > 0
+        ? ' · $_lossKeysShort KEY${_lossKeysShort == 1 ? '' : 'S'} SHORT'
+        : '';
+    return percent <= 5
+        ? 'THE MAZE WAITS FOR YOU$keys'
+        : '$percent% OF THE WAY OUT$keys';
   }
 
   /// The current stars if the runner escaped this instant.
@@ -661,7 +753,8 @@ extension _ArcadeRunLogic on _GameScreenState {
       overlays.add(
         PauseOverlay(
           heading: switch (_mode) {
-            PlayMode.campaign => 'STAGE $_stage · ${Worlds.forStage(_stage).name.toUpperCase()}',
+            PlayMode.campaign =>
+              'STAGE $_stage · ${Worlds.forStage(_stage).name.toUpperCase()}',
             PlayMode.endless => 'ENDLESS NIGHT · DEPTH ${_a.endlessDepth + 1}',
             PlayMode.daily => 'DAILY NIGHTMARE #${_daily?.number ?? 0}',
           },
@@ -678,7 +771,9 @@ extension _ArcadeRunLogic on _GameScreenState {
                 _restartDaily();
             }
           },
-          quitLabel: _mode == PlayMode.campaign ? 'QUIT TO MAP' : 'QUIT TO MENU',
+          quitLabel: _mode == PlayMode.campaign
+              ? 'QUIT TO MAP'
+              : 'QUIT TO MENU',
           onQuit: () {
             _flushTally();
             _arcadeQuit(toMap: true);
@@ -694,7 +789,9 @@ extension _ArcadeRunLogic on _GameScreenState {
           tally: _a.victoryTally ?? _a.tally,
           doubled: _a.victoryDoubled,
           onDouble: victory.souls > 0 ? _arcadeDouble : null,
-          onNext: victory.stage < Worlds.maxStage ? () => unawaited(_arcadeNext()) : null,
+          onNext: victory.stage < Worlds.maxStage
+              ? () => unawaited(_arcadeNext())
+              : null,
           onReplay: () => _loadArcadeStage(_stage),
           onMap: () => _arcadeQuit(toMap: true),
         ),
@@ -724,10 +821,14 @@ extension _ArcadeRunLogic on _GameScreenState {
       );
     }
     if (_showLossOverlay) {
-      final title = _lostByTrap ? 'Fallen' : (_lostByTime ? "Time's Up" : 'Caught!');
+      final title = _lostByTrap
+          ? 'Fallen'
+          : (_lostByTime ? "Time's Up" : 'Caught!');
       final reason = _lostByTrap
           ? (_trapDeathQuote ?? 'The floor gave way beneath you.')
-          : (_lostByTime ? 'The last candle burned out.' : 'The Devil caught you.');
+          : (_lostByTime
+                ? 'The last candle burned out.'
+                : 'The Devil caught you.');
       final near = _arcadeNearMiss();
       switch (_mode) {
         case PlayMode.campaign:

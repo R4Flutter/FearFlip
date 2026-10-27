@@ -34,52 +34,67 @@ class DialogFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final maxW = min(width, size.width - 24);
-    // Short (landscape phone) screens: shrink the whole dialog to fit.
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxW, maxHeight: size.height - 24),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: SizedBox(
-          width: maxW,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 26),
-                child: StonePanel(
-                  blood: nightmare,
-                  glow: glow,
-                  padding: const EdgeInsets.fromLTRB(18, 34, 18, 18),
-                  child: child,
-                ),
-              ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: BoneBox(
-                    padding: const EdgeInsets.fromLTRB(22, 4, 22, 2),
-                    child: Text(title, style: FF.title(36, color: FF.slate).copyWith(shadows: const [
-                      Shadow(color: FF.bone2, offset: Offset(2, 2)),
-                    ])),
+    final up = designUpscaleOf(context);
+    final maxW = min(width, size.width / up - 24);
+    // Short (landscape phone) screens: shrink the whole dialog to fit; big
+    // screens: grow it with the menus.
+    return Transform.scale(
+      scale: up,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: maxW,
+          maxHeight: size.height / up - 24,
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            width: maxW,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 26),
+                  child: StonePanel(
+                    blood: nightmare,
+                    glow: glow,
+                    padding: const EdgeInsets.fromLTRB(18, 34, 18, 18),
+                    child: child,
                   ),
                 ),
-              ),
-              if (onClose != null)
                 Positioned(
-                  top: 18,
-                  right: -6,
-                  child: RoundButton(
-                    icon: const FFIcon(FFGlyph.close, size: 20),
-                    size: 40,
-                    tone: ButtonTone.blood,
-                    tooltip: 'Close',
-                    onPressed: onClose,
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: BoneBox(
+                      padding: const EdgeInsets.fromLTRB(22, 4, 22, 2),
+                      child: Text(
+                        title,
+                        style: FF
+                            .title(36, color: FF.slate)
+                            .copyWith(
+                              shadows: const [
+                                Shadow(color: FF.bone2, offset: Offset(2, 2)),
+                              ],
+                            ),
+                      ),
+                    ),
                   ),
                 ),
-            ],
+                if (onClose != null)
+                  Positioned(
+                    top: 18,
+                    right: -6,
+                    child: RoundButton(
+                      icon: const FFIcon(FFGlyph.close, size: 20),
+                      size: 40,
+                      tone: ButtonTone.blood,
+                      tooltip: 'Close',
+                      onPressed: onClose,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -96,7 +111,9 @@ class RewardContents extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final item = reward.itemId == null ? null : ShopCatalog.byId(reward.itemId!);
+    final item = reward.itemId == null
+        ? null
+        : ShopCatalog.byId(reward.itemId!);
     return Wrap(
       alignment: WrapAlignment.center,
       crossAxisAlignment: WrapCrossAlignment.center,
@@ -162,7 +179,10 @@ class _RewardChip extends StatelessWidget {
         children: [
           icon,
           SizedBox(width: 8 * size),
-          Text(text, style: FF.text(22 * size, color: color, weight: FontWeight.w700)),
+          Text(
+            text,
+            style: FF.text(22 * size, color: color, weight: FontWeight.w700),
+          ),
         ],
       ),
     );
@@ -188,7 +208,11 @@ Future<void> showRewardDialog(
         children: [
           const _Burst(size: 120),
           if (message != null) ...[
-            Text(message, textAlign: TextAlign.center, style: FF.text(18, color: FF.bone2)),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: FF.text(18, color: FF.bone2),
+            ),
             const SizedBox(height: 12),
           ],
           RewardContents(reward: reward),
@@ -239,13 +263,17 @@ class _BurstState extends State<_Burst> with SingleTickerProviderStateMixin {
         children: [
           RotationTransition(
             turns: _c,
-            child: CustomPaint(size: Size.square(widget.size), painter: _RaysPainter()),
+            child: CustomPaint(
+              size: Size.square(widget.size),
+              painter: _RaysPainter(),
+            ),
           ),
           TweenAnimationBuilder<double>(
             tween: Tween(begin: 0.3, end: 1),
             duration: const Duration(milliseconds: 600),
             curve: Curves.elasticOut,
-            builder: (context, v, child) => Transform.scale(scale: v, child: child),
+            builder: (context, v, child) =>
+                Transform.scale(scale: v, child: child),
             child: FFIcon(widget.glyph, size: widget.size * 0.55),
           ),
         ],
@@ -376,7 +404,10 @@ class _ChestOpeningState extends State<_ChestOpening>
 // -----------------------------------------------------------------------------
 
 Future<void> showLoginCalendar(BuildContext context) {
-  return showFFDialog<void>(context, builder: (context) => const _LoginCalendar());
+  return showFFDialog<void>(
+    context,
+    builder: (context) => const _LoginCalendar(),
+  );
 }
 
 class _LoginCalendar extends StatelessWidget {
@@ -471,7 +502,11 @@ class _LoginCalendar extends StatelessWidget {
     final reward = arcade.progress.claimLogin(doubled: doubled);
     if (!context.mounted) return;
     Navigator.of(context).pop();
-    await showRewardDialog(context, reward: reward, title: 'Day ${arcade.progress.loginClaimedDays}');
+    await showRewardDialog(
+      context,
+      reward: reward,
+      title: 'Day ${arcade.progress.loginClaimedDays}',
+    );
     arcade.announceAchievements();
   }
 }
@@ -509,13 +544,22 @@ class _DayTile extends StatelessWidget {
       duration: const Duration(milliseconds: 200),
       height: 150,
       decoration: BoxDecoration(
-        color: claimed ? FF.ink.withValues(alpha: 0.9) : (today ? FF.bloodDeep : FF.slate),
+        color: claimed
+            ? FF.ink.withValues(alpha: 0.9)
+            : (today ? FF.bloodDeep : FF.slate),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: today ? FF.gold : (claimed ? FF.slate2 : FF.stone2),
           width: today ? 3 : 2,
         ),
-        boxShadow: today ? [BoxShadow(color: FF.amber.withValues(alpha: 0.45), blurRadius: 16)] : null,
+        boxShadow: today
+            ? [
+                BoxShadow(
+                  color: FF.amber.withValues(alpha: 0.45),
+                  blurRadius: 16,
+                ),
+              ]
+            : null,
       ),
       padding: const EdgeInsets.all(6),
       child: Stack(
@@ -526,7 +570,14 @@ class _DayTile extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  Text('DAY $day', style: FF.text(15, color: today ? FF.gold : FF.boneDim, weight: FontWeight.w700)),
+                  Text(
+                    'DAY $day',
+                    style: FF.text(
+                      15,
+                      color: today ? FF.gold : FF.boneDim,
+                      weight: FontWeight.w700,
+                    ),
+                  ),
                   FFIcon(glyph, size: big ? 56 : 42),
                   Text(
                     big ? '${reward.souls} + RUNNER' : '${reward.souls}',
@@ -589,13 +640,26 @@ class _StageIntroState extends State<_StageIntro> {
           children: [
             Text(
               'WORLD ${world.number} · ${world.name.toUpperCase()}',
-              style: FF.text(18, color: Color(world.accent), weight: FontWeight.w700, letterSpacing: 2),
+              style: FF.text(
+                18,
+                color: Color(world.accent),
+                weight: FontWeight.w700,
+                letterSpacing: 2,
+              ),
             ),
             const SizedBox(height: 6),
-            Text(world.twistText, textAlign: TextAlign.center, style: FF.text(17, color: FF.bone2)),
+            Text(
+              world.twistText,
+              textAlign: TextAlign.center,
+              style: FF.text(17, color: FF.bone2),
+            ),
             if (gate) ...[
               const SizedBox(height: 6),
-              Text('A gate stage: harder, and its first clear pays a chest.', textAlign: TextAlign.center, style: FF.text(15, color: FF.gold)),
+              Text(
+                'A gate stage: harder, and its first clear pays a chest.',
+                textAlign: TextAlign.center,
+                style: FF.text(15, color: FF.gold),
+              ),
             ],
             const SizedBox(height: 12),
             Row(
@@ -604,7 +668,11 @@ class _StageIntroState extends State<_StageIntro> {
                 StarRow(earned: stars, size: 34, gap: 6),
                 if (best != null) ...[
                   const SizedBox(width: 18),
-                  StatChip(icon: const FFIcon(FFGlyph.hourglass, size: 22), text: 'BEST ${best ~/ 60}:${(best % 60).toString().padLeft(2, '0')}'),
+                  StatChip(
+                    icon: const FFIcon(FFGlyph.hourglass, size: 22),
+                    text:
+                        'BEST ${best ~/ 60}:${(best % 60).toString().padLeft(2, '0')}',
+                  ),
                 ],
               ],
             ),
@@ -614,7 +682,15 @@ class _StageIntroState extends State<_StageIntro> {
               style: FF.text(14, color: FF.stoneLight),
             ),
             const SizedBox(height: 16),
-            Text('TAKE UP TO ${Boosts.maxPerStage} POWER-UPS', style: FF.text(16, color: FF.boneDim, weight: FontWeight.w700, letterSpacing: 2)),
+            Text(
+              'TAKE UP TO ${Boosts.maxPerStage} POWER-UPS',
+              style: FF.text(
+                16,
+                color: FF.boneDim,
+                weight: FontWeight.w700,
+                letterSpacing: 2,
+              ),
+            ),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -638,7 +714,8 @@ class _StageIntroState extends State<_StageIntro> {
               width: 340,
               height: 66,
               pulse: true,
-              onPressed: () => Navigator.of(context).pop(Set<BoostType>.of(_picked)),
+              onPressed: () =>
+                  Navigator.of(context).pop(Set<BoostType>.of(_picked)),
             ),
           ],
         ),
@@ -692,19 +769,39 @@ class _BoostTile extends StatelessWidget {
             duration: const Duration(milliseconds: 150),
             height: 132,
             decoration: BoxDecoration(
-              color: picked ? const Color(0xFF2A3A2A) : FF.ink.withValues(alpha: 0.8),
+              color: picked
+                  ? const Color(0xFF2A3A2A)
+                  : FF.ink.withValues(alpha: 0.8),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: picked ? FF.gold : FF.slate2, width: picked ? 3 : 2),
-              boxShadow: picked ? [BoxShadow(color: FF.gold.withValues(alpha: 0.4), blurRadius: 14)] : null,
+              border: Border.all(
+                color: picked ? FF.gold : FF.slate2,
+                width: picked ? 3 : 2,
+              ),
+              boxShadow: picked
+                  ? [
+                      BoxShadow(
+                        color: FF.gold.withValues(alpha: 0.4),
+                        blurRadius: 14,
+                      ),
+                    ]
+                  : null,
             ),
             padding: const EdgeInsets.all(6),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 FFIcon(boostGlyphFor(type.name), size: 44),
-                Text(info.name, textAlign: TextAlign.center, maxLines: 1, style: FF.text(14, weight: FontWeight.w700)),
+                Text(
+                  info.name,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  style: FF.text(14, weight: FontWeight.w700),
+                ),
                 if (picked)
-                  Text('READY', style: FF.text(14, color: FF.gold, weight: FontWeight.w700))
+                  Text(
+                    'READY',
+                    style: FF.text(14, color: FF.gold, weight: FontWeight.w700),
+                  )
                 else if (count > 0)
                   Text('OWNED ×$count', style: FF.text(13, color: FF.spirit))
                 else
@@ -713,7 +810,10 @@ class _BoostTile extends StatelessWidget {
                     children: [
                       const FFIcon(FFGlyph.soul, size: 18),
                       const SizedBox(width: 3),
-                      Text('${info.price}', style: FF.text(14, color: FF.bone2)),
+                      Text(
+                        '${info.price}',
+                        style: FF.text(14, color: FF.bone2),
+                      ),
                     ],
                   ),
               ],
@@ -748,9 +848,15 @@ Future<bool?> showEndlessIntro(BuildContext context) {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              StatChip(icon: const FFIcon(FFGlyph.flame, size: 22), text: 'BEST DEPTH ${progress.endlessBestDepth}'),
+              StatChip(
+                icon: const FFIcon(FFGlyph.flame, size: 22),
+                text: 'BEST DEPTH ${progress.endlessBestDepth}',
+              ),
               const SizedBox(width: 10),
-              StatChip(icon: const FFIcon(FFGlyph.crown, size: 22), text: 'BEST ${formatNumber(progress.endlessBestScore)}'),
+              StatChip(
+                icon: const FFIcon(FFGlyph.crown, size: 22),
+                text: 'BEST ${formatNumber(progress.endlessBestScore)}',
+              ),
             ],
           ),
           const SizedBox(height: 18),
@@ -772,7 +878,15 @@ Future<bool?> showEndlessIntro(BuildContext context) {
 Future<bool?> showDailyIntro(BuildContext context) {
   final arcade = ArcadeScope.of(context);
   final daily = arcade.todaysDaily;
-  const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
   final day = weekdays[daily.date.weekday - 1];
   final best = arcade.dailyBestToday;
   return showFFDialog<bool>(
@@ -800,12 +914,24 @@ Future<bool?> showDailyIntro(BuildContext context) {
             spacing: 10,
             runSpacing: 8,
             children: [
-              StatChip(icon: const FFIcon(FFGlyph.flame, size: 22), text: arcade.dailyStreakDays > 0 ? '${arcade.dailyStreakDays}-DAY STREAK' : 'START A STREAK', color: FF.gold),
+              StatChip(
+                icon: const FFIcon(FFGlyph.flame, size: 22),
+                text: arcade.dailyStreakDays > 0
+                    ? '${arcade.dailyStreakDays}-DAY STREAK'
+                    : 'START A STREAK',
+                color: FF.gold,
+              ),
               if (best != null)
-                StatChip(icon: const FFIcon(FFGlyph.hourglass, size: 22), text: 'TODAY ${best ~/ 60}:${(best % 60).toString().padLeft(2, '0')}'),
+                StatChip(
+                  icon: const FFIcon(FFGlyph.hourglass, size: 22),
+                  text:
+                      'TODAY ${best ~/ 60}:${(best % 60).toString().padLeft(2, '0')}',
+                ),
               StatChip(
                 icon: const FFIcon(FFGlyph.soul, size: 22),
-                text: arcade.progress.dailyNightmareRewardReady ? 'FIRST ESCAPE: +120 & CHEST' : 'REWARD CLAIMED',
+                text: arcade.progress.dailyNightmareRewardReady
+                    ? 'FIRST ESCAPE: +120 & CHEST'
+                    : 'REWARD CLAIMED',
               ),
             ],
           ),
@@ -903,7 +1029,10 @@ class _Settings extends StatelessWidget {
     );
   }
 
-  Future<void> _confirmReset(BuildContext context, ProgressController progress) async {
+  Future<void> _confirmReset(
+    BuildContext context,
+    ProgressController progress,
+  ) async {
     final sure = await showFFDialog<bool>(
       context,
       builder: (context) => DialogFrame(
@@ -923,9 +1052,21 @@ class _Settings extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SlabButton(label: 'KEEP', tone: ButtonTone.stone, width: 150, height: 52, onPressed: () => Navigator.of(context).pop(false)),
+                SlabButton(
+                  label: 'KEEP',
+                  tone: ButtonTone.stone,
+                  width: 150,
+                  height: 52,
+                  onPressed: () => Navigator.of(context).pop(false),
+                ),
                 const SizedBox(width: 12),
-                SlabButton(label: 'ERASE', tone: ButtonTone.blood, width: 150, height: 52, onPressed: () => Navigator.of(context).pop(true)),
+                SlabButton(
+                  label: 'ERASE',
+                  tone: ButtonTone.blood,
+                  width: 150,
+                  height: 52,
+                  onPressed: () => Navigator.of(context).pop(true),
+                ),
               ],
             ),
           ],
@@ -963,7 +1104,9 @@ class _Toggle extends StatelessWidget {
             children: [
               FFIcon(glyph, size: 32),
               const SizedBox(width: 12),
-              Expanded(child: Text(label, style: FF.text(18, weight: FontWeight.w700))),
+              Expanded(
+                child: Text(label, style: FF.text(18, weight: FontWeight.w700)),
+              ),
               AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
                 width: 64,

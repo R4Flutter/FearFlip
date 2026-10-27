@@ -424,7 +424,10 @@ class ProgressController extends ChangeNotifier {
   Reward openFreeChest() {
     if (!freeChestReady) return const Reward();
     _p.freeChestDay = _today();
-    final granted = _grant(const Reward(chests: 1), chestTier: ChestTier.common);
+    final granted = _grant(
+      const Reward(chests: 1),
+      chestTier: ChestTier.common,
+    );
     _changed(now: true);
     return granted;
   }
@@ -432,7 +435,10 @@ class ProgressController extends ChangeNotifier {
   Reward openAdChest() {
     if (adChestsLeft <= 0) return const Reward();
     _p.adChestsOpened += 1;
-    final granted = _grant(const Reward(chests: 1), chestTier: ChestTier.common);
+    final granted = _grant(
+      const Reward(chests: 1),
+      chestTier: ChestTier.common,
+    );
     _changed(now: true);
     return granted;
   }

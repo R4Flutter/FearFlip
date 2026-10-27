@@ -219,7 +219,9 @@ class ArcadeController {
 
   DailyDayRecord _recordFor(int day) {
     final record = _record;
-    return record != null && record.day == day ? record : DailyDayRecord(day: day);
+    return record != null && record.day == day
+        ? record
+        : DailyDayRecord(day: day);
   }
 
   Future<void> recordDailyDeath(DailyChallenge daily) async {

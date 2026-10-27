@@ -43,12 +43,15 @@ class _ShopScreenState extends State<ShopScreen> {
       listenable: progress,
       builder: (context, _) {
         final category = _category;
-        final items = category == null ? const <ShopItem>[] : ShopCatalog.of(category);
+        final items = category == null
+            ? const <ShopItem>[]
+            : ShopCatalog.of(category);
         ShopItem? selected;
         for (final item in items) {
           if (item.id == _selected) selected = item;
         }
-        selected ??= items.where(progress.isEquipped).firstOrNull ?? items.firstOrNull;
+        selected ??=
+            items.where(progress.isEquipped).firstOrNull ?? items.firstOrNull;
         final preview = _previewLook(progress, selected);
 
         Widget tabs() => Row(
@@ -106,13 +109,21 @@ class _ShopScreenState extends State<ShopScreen> {
               if (selected != null) ...[
                 Text(selected.name, style: FF.title(34)),
                 const SizedBox(height: 4),
-                Text(selected.text, textAlign: TextAlign.center, style: FF.text(15, color: FF.bone2)),
+                Text(
+                  selected.text,
+                  textAlign: TextAlign.center,
+                  style: FF.text(15, color: FF.bone2),
+                ),
                 const SizedBox(height: 12),
                 _ActionButton(item: selected, progress: progress),
               ] else ...[
                 Text('POWER-UPS', style: FF.title(34)),
                 const SizedBox(height: 4),
-                Text('Take them into a stage from the stage card.', textAlign: TextAlign.center, style: FF.text(15, color: FF.bone2)),
+                Text(
+                  'Take them into a stage from the stage card.',
+                  textAlign: TextAlign.center,
+                  style: FF.text(15, color: FF.bone2),
+                ),
               ],
               const SizedBox(height: 12),
               _FreeSoulsButton(progress: progress),
@@ -182,8 +193,12 @@ class _ItemCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final look = RunnerLook.of(
-      runnerId: item.category == ShopCategory.runner ? item.id : ShopCatalog.defaultRunner,
-      lanternId: item.category == ShopCategory.lantern ? item.id : ShopCatalog.defaultLantern,
+      runnerId: item.category == ShopCategory.runner
+          ? item.id
+          : ShopCatalog.defaultRunner,
+      lanternId: item.category == ShopCategory.lantern
+          ? item.id
+          : ShopCatalog.defaultLantern,
       trailId: item.category == ShopCategory.trail ? item.id : 'trail_none',
     );
     final status = equipped
@@ -212,7 +227,14 @@ class _ItemCard extends StatelessWidget {
               color: selected ? FF.gold : (equipped ? FF.amberDark : FF.slate2),
               width: selected ? 3 : 2,
             ),
-            boxShadow: selected ? [BoxShadow(color: FF.gold.withValues(alpha: 0.35), blurRadius: 14)] : null,
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: FF.gold.withValues(alpha: 0.35),
+                      blurRadius: 14,
+                    ),
+                  ]
+                : null,
           ),
           padding: const EdgeInsets.all(8),
           child: Column(
@@ -228,7 +250,12 @@ class _ItemCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: FF.text(16, weight: FontWeight.w700)),
+              Text(
+                item.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: FF.text(16, weight: FontWeight.w700),
+              ),
               const SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -246,7 +273,13 @@ class _ItemCard extends StatelessWidget {
                       status,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: FF.text(15, color: equipped ? FF.gold : (owned ? FF.spirit : FF.bone2), weight: FontWeight.w700),
+                      style: FF.text(
+                        15,
+                        color: equipped
+                            ? FF.gold
+                            : (owned ? FF.spirit : FF.bone2),
+                        weight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ],
@@ -268,7 +301,13 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (progress.isEquipped(item)) {
-      return const SlabButton(label: 'EQUIPPED', tone: ButtonTone.stone, height: 56, width: 260, onPressed: null);
+      return const SlabButton(
+        label: 'EQUIPPED',
+        tone: ButtonTone.stone,
+        height: 56,
+        width: 260,
+        onPressed: null,
+      );
     }
     if (progress.owns(item.id)) {
       return SlabButton(
@@ -281,7 +320,9 @@ class _ActionButton extends StatelessWidget {
     }
     if (!item.buyable) {
       return SlabButton(
-        label: item.route == UnlockRoute.loginDay7 ? 'DAILY DAY 7 GIFT' : 'EARN IN TROPHIES',
+        label: item.route == UnlockRoute.loginDay7
+            ? 'DAILY DAY 7 GIFT'
+            : 'EARN IN TROPHIES',
         tone: ButtonTone.stone,
         height: 56,
         width: 260,
@@ -339,7 +380,9 @@ class _FreeSoulsButton extends StatelessWidget {
               final souls = progress.claimFreeSoulVideo();
               if (souls > 0 && context.mounted) {
                 Sfx.instance.play(Sound.coins);
-                arcade.showToast(ToastMessage('+$souls souls', kind: ToastKind.reward));
+                arcade.showToast(
+                  ToastMessage('+$souls souls', kind: ToastKind.reward),
+                );
               }
             },
     );
@@ -373,12 +416,26 @@ class _PowerUpGrid extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(Boosts.info[type]!.name, style: FF.text(19, weight: FontWeight.w700)),
-                      Text(Boosts.info[type]!.text, maxLines: 2, style: FF.text(14, color: FF.bone2)),
+                      Text(
+                        Boosts.info[type]!.name,
+                        style: FF.text(19, weight: FontWeight.w700),
+                      ),
+                      Text(
+                        Boosts.info[type]!.text,
+                        maxLines: 2,
+                        style: FF.text(14, color: FF.bone2),
+                      ),
                       const SizedBox(height: 6),
                       Row(
                         children: [
-                          Text('OWNED ×${progress.boostCount(type)}', style: FF.text(15, color: FF.spirit, weight: FontWeight.w700)),
+                          Text(
+                            'OWNED ×${progress.boostCount(type)}',
+                            style: FF.text(
+                              15,
+                              color: FF.spirit,
+                              weight: FontWeight.w700,
+                            ),
+                          ),
                           const Spacer(),
                           SlabButton(
                             label: '${Boosts.info[type]!.price}',
@@ -386,7 +443,9 @@ class _PowerUpGrid extends StatelessWidget {
                             height: 42,
                             fontSize: 17,
                             sound: null,
-                            tone: progress.canAfford(Boosts.info[type]!.price) ? ButtonTone.gold : ButtonTone.stone,
+                            tone: progress.canAfford(Boosts.info[type]!.price)
+                                ? ButtonTone.gold
+                                : ButtonTone.stone,
                             onPressed: () {
                               if (progress.buyBoost(type)) {
                                 Sfx.instance.play(Sound.purchase, volume: 0.7);

@@ -79,9 +79,9 @@ Future<void> _startMobileServices() async {
   // Ads start in the background; nothing shows until consent is settled.
   unawaited(() async {
     try {
-      await ConsentService.instance
-          .gatherConsentAndInitializeAds()
-          .timeout(const Duration(seconds: 20));
+      await ConsentService.instance.gatherConsentAndInitializeAds().timeout(
+        const Duration(seconds: 20),
+      );
       await AdsFacade.instance.start();
     } catch (error) {
       debugPrint('[Startup][WARN] Consent/ads init failed: $error');

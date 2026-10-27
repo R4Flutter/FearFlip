@@ -94,10 +94,7 @@ abstract final class RunnerPixels {
     };
     final side = direction == Direction4.left || direction == Direction4.right;
     final legs = (side ? _sideLegs : _legs)[frame.clamp(0, 2)];
-    final all = [
-      ...head,
-      ...legs,
-    ];
+    final all = [...head, ...legs];
     if (direction == Direction4.right) {
       return [for (final r in all) r.split('').reversed.join()];
     }
@@ -195,7 +192,11 @@ class PixelSpriteCache {
 
   final Map<String, ui.Image> _images = <String, ui.Image>{};
 
-  ui.Image _render(String key, List<String> rows, Color? Function(String) color) {
+  ui.Image _render(
+    String key,
+    List<String> rows,
+    Color? Function(String) color,
+  ) {
     final cached = _images[key];
     if (cached != null) return cached;
     final w = rows.fold<int>(0, (m, r) => max(m, r.length));
@@ -250,15 +251,28 @@ void paintRunner(
   bool moving = false,
   double opacity = 1,
 }) {
-  final image = PixelSpriteCache.instance.runner(look.palette, direction, walkFrame);
+  final image = PixelSpriteCache.instance.runner(
+    look.palette,
+    direction,
+    walkFrame,
+  );
   final scale = height / RunnerPixels.height;
   final width = RunnerPixels.width * scale;
   final bob = moving && walkFrame != 0 ? -scale : 0.0;
-  final dst = Rect.fromLTWH(feet.dx - width / 2, feet.dy - height + bob, width, height);
+  final dst = Rect.fromLTWH(
+    feet.dx - width / 2,
+    feet.dy - height + bob,
+    width,
+    height,
+  );
 
   // A soft shadow under the feet.
   canvas.drawOval(
-    Rect.fromCenter(center: feet.translate(0, -scale * 0.5), width: width * 0.62, height: scale * 2.4),
+    Rect.fromCenter(
+      center: feet.translate(0, -scale * 0.5),
+      width: width * 0.62,
+      height: scale * 2.4,
+    ),
     Paint()..color = const Color(0x66000000),
   );
 
@@ -287,7 +301,13 @@ void paintRunner(
   if (!behind) _paintLantern(canvas, lanternAt, scale, look.light, time);
 }
 
-void _paintLantern(Canvas canvas, Offset at, double px, Color light, double time) {
+void _paintLantern(
+  Canvas canvas,
+  Offset at,
+  double px,
+  Color light,
+  double time,
+) {
   final flicker = 0.85 + 0.15 * sin(time * 13) * sin(time * 5.3);
   canvas.drawCircle(
     at,
@@ -297,10 +317,20 @@ void _paintLantern(Canvas canvas, Offset at, double px, Color light, double time
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, px * 3),
   );
   final body = Rect.fromCenter(center: at, width: px * 3.2, height: px * 4);
-  canvas.drawRect(body.inflate(px * 0.7), Paint()..color = const Color(0xFF16151F));
-  canvas.drawRect(body, Paint()..color = Color.lerp(light, Colors.white, 0.35)!);
   canvas.drawRect(
-    Rect.fromCenter(center: at.translate(0, -px * 2.6), width: px * 2, height: px * 0.9),
+    body.inflate(px * 0.7),
+    Paint()..color = const Color(0xFF16151F),
+  );
+  canvas.drawRect(
+    body,
+    Paint()..color = Color.lerp(light, Colors.white, 0.35)!,
+  );
+  canvas.drawRect(
+    Rect.fromCenter(
+      center: at.translate(0, -px * 2.6),
+      width: px * 2,
+      height: px * 0.9,
+    ),
     Paint()..color = const Color(0xFF3E2A20),
   );
 }
@@ -319,11 +349,17 @@ void paintDevil(
   final scale = height / DevilPixels.height;
   final width = DevilPixels.width * scale;
   final jitter = raging ? sin(time * 70) * scale * 0.6 : 0.0;
-  final dst = Rect.fromLTWH(feet.dx - width / 2 + jitter, feet.dy - height, width, height);
+  final dst = Rect.fromLTWH(
+    feet.dx - width / 2 + jitter,
+    feet.dy - height,
+    width,
+    height,
+  );
   canvas.drawOval(
     Rect.fromCenter(center: feet, width: width * 0.7, height: scale * 3),
     Paint()
-      ..color = (frozen ? const Color(0xFF9CC8F0) : const Color(0xFFE03A32)).withValues(alpha: 0.35)
+      ..color = (frozen ? const Color(0xFF9CC8F0) : const Color(0xFFE03A32))
+          .withValues(alpha: 0.35)
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, scale * 2),
   );
   canvas.drawImageRect(

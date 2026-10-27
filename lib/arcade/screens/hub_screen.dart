@@ -89,7 +89,10 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _StreakChip(days: progress.loginClaimedDays, ready: progress.loginClaimable),
+        _StreakChip(
+          days: progress.loginClaimedDays,
+          ready: progress.loginClaimable,
+        ),
         const SizedBox(width: 10),
         StatChip(
           icon: const FFIcon(FFGlyph.star, size: 22),
@@ -128,7 +131,8 @@ class _StreakChip extends StatelessWidget {
               text: days == 0 ? 'Day 1' : '$days-day streak',
               color: FF.gold,
             ),
-            if (ready) const Positioned(right: -6, top: -6, child: BadgeDot(size: 18)),
+            if (ready)
+              const Positioned(right: -6, top: -6, child: BadgeDot(size: 18)),
           ],
         ),
       ),
@@ -137,7 +141,11 @@ class _StreakChip extends StatelessWidget {
 }
 
 class _PlayButton extends StatelessWidget {
-  const _PlayButton({required this.progress, this.width = 420, this.height = 92});
+  const _PlayButton({
+    required this.progress,
+    this.width = 420,
+    this.height = 92,
+  });
 
   final ProgressController progress;
   final double width;
@@ -150,7 +158,9 @@ class _PlayButton extends StatelessWidget {
     final fresh = progress.highestCleared == 0;
     return SlabButton(
       label: fresh ? 'PLAY' : 'PLAY  ·  STAGE $stage',
-      sublabel: fresh ? 'ESCAPE YOUR FIRST NIGHTMARE' : world.name.toUpperCase(),
+      sublabel: fresh
+          ? 'ESCAPE YOUR FIRST NIGHTMARE'
+          : world.name.toUpperCase(),
       icon: FFIcon(FFGlyph.play, size: height * 0.42),
       width: width,
       height: height,
@@ -209,7 +219,13 @@ class _ModeCard extends StatelessWidget {
                           FittedBox(
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.centerLeft,
-                            child: Text(title, style: FF.title(height * 0.27, glow: accent.withValues(alpha: 0.35))),
+                            child: Text(
+                              title,
+                              style: FF.title(
+                                height * 0.27,
+                                glow: accent.withValues(alpha: 0.35),
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Flexible(
@@ -276,7 +292,10 @@ class _RewardRow extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         status,
-                        style: FF.text(14, color: ready ? FF.gold : FF.stoneLight),
+                        style: FF.text(
+                          14,
+                          color: ready ? FF.gold : FF.stoneLight,
+                        ),
                       ),
                     ],
                   ),
@@ -284,7 +303,8 @@ class _RewardRow extends StatelessWidget {
               ],
             ),
           ),
-          if (badge > 0) Positioned(right: -6, top: -6, child: BadgeDot(count: badge)),
+          if (badge > 0)
+            Positioned(right: -6, top: -6, child: BadgeDot(count: badge)),
         ],
       ),
     );
@@ -336,13 +356,16 @@ class _HoverableState extends State<_Hoverable> {
 List<Widget> _rewardRows(BuildContext context, ProgressController progress) {
   final until = _countdown(progress.untilTomorrow);
   final loginReady = progress.loginClaimable;
-  final missionsReady = progress.claimableMissions + (progress.missionsBonusReady ? 1 : 0);
+  final missionsReady =
+      progress.claimableMissions + (progress.missionsBonusReady ? 1 : 0);
   final chestReady = progress.freeChestReady;
   return [
     _RewardRow(
       glyph: FFGlyph.calendar,
       title: 'Daily Reward',
-      status: loginReady ? 'Day ${progress.loginNextDay} is ready!' : 'Next in $until',
+      status: loginReady
+          ? 'Day ${progress.loginNextDay} is ready!'
+          : 'Next in $until',
       ready: loginReady,
       badge: loginReady ? 1 : 0,
       onTap: () => showLoginCalendar(context),
@@ -382,9 +405,10 @@ List<Widget> _modeCards(
   required bool row,
 }) {
   final daily = arcade.todaysDaily;
+  final streak = arcade.dailyStreakDays;
   final dailyLine = arcade.dailyEscapedToday
-      ? 'Escaped today! Best ${_mmss(arcade.dailyBestToday ?? 0)} · new in ${_countdown(progress.untilTomorrow)}'
-      : '#${daily.number} · same maze for everyone · ${arcade.dailyStreakDays > 0 ? '${arcade.dailyStreakDays}-day streak' : 'start a streak'}';
+      ? 'Escaped! Best ${_mmss(arcade.dailyBestToday ?? 0)} · next in ${_countdown(progress.untilTomorrow)}'
+      : '#${daily.number} · one maze for all · ${streak > 0 ? '$streak-day streak' : 'new every day'}';
   final cards = <Widget>[
     _ModeCard(
       glyph: FFGlyph.map,
@@ -430,7 +454,8 @@ List<Widget> _modeCards(
   ];
 }
 
-String _mmss(int seconds) => '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+String _mmss(int seconds) =>
+    '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
 
 class _SideButtons extends StatelessWidget {
   const _SideButtons({required this.progress, this.vertical = true});
@@ -512,7 +537,13 @@ class _IconTile extends StatelessWidget {
                     repeat: ImageRepeat.repeat,
                     scale: 2.4,
                   ),
-                  boxShadow: const [BoxShadow(color: Color(0xAA000000), blurRadius: 10, offset: Offset(0, 5))],
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0xAA000000),
+                      blurRadius: 10,
+                      offset: Offset(0, 5),
+                    ),
+                  ],
                 ),
                 padding: const EdgeInsets.all(6),
                 child: Container(
@@ -521,10 +552,13 @@ class _IconTile extends StatelessWidget {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   alignment: Alignment.center,
-                  child: art != null ? FF.art(art!, size: 52) : FFIcon(glyph!, size: 50),
+                  child: art != null
+                      ? FF.art(art!, size: 52)
+                      : FFIcon(glyph!, size: 50),
                 ),
               ),
-              if (badge > 0) Positioned(right: -6, top: -6, child: BadgeDot(count: badge)),
+              if (badge > 0)
+                Positioned(right: -6, top: -6, child: BadgeDot(count: badge)),
             ],
           ),
           const SizedBox(height: 6),
@@ -566,7 +600,15 @@ class _WideHub extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text("TONIGHT'S REWARDS", style: FF.text(17, color: FF.boneDim, weight: FontWeight.w700, letterSpacing: 2)),
+                        Text(
+                          "TONIGHT'S REWARDS",
+                          style: FF.text(
+                            17,
+                            color: FF.boneDim,
+                            weight: FontWeight.w700,
+                            letterSpacing: 2,
+                          ),
+                        ),
                         const SizedBox(height: 10),
                         ..._rewardRows(context, progress),
                       ],
@@ -577,9 +619,15 @@ class _WideHub extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const FittedBox(fit: BoxFit.scaleDown, child: FearFlipLogo(size: 120)),
+                      const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: FearFlipLogo(size: 120),
+                      ),
                       const SizedBox(height: 2),
-                      Text('ESCAPE THE NIGHTMARE', style: FF.text(18, color: FF.boneDim, letterSpacing: 6)),
+                      Text(
+                        'ESCAPE THE NIGHTMARE',
+                        style: FF.text(18, color: FF.boneDim, letterSpacing: 6),
+                      ),
                       RunnerPreview(look: progress.look, size: 170),
                       _PlayButton(progress: progress),
                       const SizedBox(height: 12),
@@ -588,7 +636,12 @@ class _WideHub extends StatelessWidget {
                         children: [
                           Text(
                             'WORLD ${world.number} · ${world.name.toUpperCase()}',
-                            style: FF.text(16, color: Color(world.accent), weight: FontWeight.w700, letterSpacing: 1.5),
+                            style: FF.text(
+                              16,
+                              color: Color(world.accent),
+                              weight: FontWeight.w700,
+                              letterSpacing: 1.5,
+                            ),
                           ),
                           const SizedBox(width: 10),
                           const FFIcon(FFGlyph.star, size: 18),
@@ -607,7 +660,15 @@ class _WideHub extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Row(children: _modeCards(context, arcade, progress, height: 112, row: true)),
+          Row(
+            children: _modeCards(
+              context,
+              arcade,
+              progress,
+              height: 112,
+              row: true,
+            ),
+          ),
         ],
       ),
     );
@@ -629,7 +690,10 @@ class _TallHub extends StatelessWidget {
           _TopBar(arcade: arcade, progress: progress),
           const SizedBox(height: 10),
           const FittedBox(fit: BoxFit.scaleDown, child: FearFlipLogo(size: 84)),
-          Text('ESCAPE THE NIGHTMARE', style: FF.text(14, color: FF.boneDim, letterSpacing: 5)),
+          Text(
+            'ESCAPE THE NIGHTMARE',
+            style: FF.text(14, color: FF.boneDim, letterSpacing: 5),
+          ),
           RunnerPreview(look: progress.look, size: 130),
           _PlayButton(progress: progress, width: 440, height: 86),
           const SizedBox(height: 14),

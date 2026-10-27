@@ -31,9 +31,12 @@ class _OverlayFrame extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Center(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: SizedBox(width: width, child: child),
+              child: Transform.scale(
+                scale: designUpscaleOf(context),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: SizedBox(width: width, child: child),
+                ),
               ),
             ),
           ),
@@ -57,9 +60,11 @@ class _Plate extends StatelessWidget {
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: FF.title(54, color: color).copyWith(
-          shadows: const [Shadow(color: FF.bone2, offset: Offset(2, 2))],
-        ),
+        style: FF
+            .title(54, color: color)
+            .copyWith(
+              shadows: const [Shadow(color: FF.bone2, offset: Offset(2, 2))],
+            ),
       ),
     );
   }
@@ -142,8 +147,15 @@ class _VictoryOverlayState extends State<VictoryOverlay> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    last ? 'THE NIGHTMARE IS OVER' : 'STAGE ${r.stage} · ${world.name.toUpperCase()}',
-                    style: FF.text(18, color: Color(world.accent), weight: FontWeight.w700, letterSpacing: 2),
+                    last
+                        ? 'THE NIGHTMARE IS OVER'
+                        : 'STAGE ${r.stage} · ${world.name.toUpperCase()}',
+                    style: FF.text(
+                      18,
+                      color: Color(world.accent),
+                      weight: FontWeight.w700,
+                      letterSpacing: 2,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -151,12 +163,19 @@ class _VictoryOverlayState extends State<VictoryOverlay> {
                     children: [
                       for (var i = 0; i < 3; i++)
                         Padding(
-                          padding: EdgeInsets.only(left: 8, right: 8, top: i == 1 ? 0 : 22),
+                          padding: EdgeInsets.only(
+                            left: 8,
+                            right: 8,
+                            top: i == 1 ? 0 : 22,
+                          ),
                           child: AnimatedScale(
                             scale: i < _shown ? 1 : 0.6,
                             duration: const Duration(milliseconds: 380),
                             curve: Curves.elasticOut,
-                            child: FFIcon(i < _shown ? FFGlyph.star : FFGlyph.starEmpty, size: i == 1 ? 96 : 76),
+                            child: FFIcon(
+                              i < _shown ? FFGlyph.star : FFGlyph.starEmpty,
+                              size: i == 1 ? 96 : 76,
+                            ),
                           ),
                         ),
                     ],
@@ -167,10 +186,26 @@ class _VictoryOverlayState extends State<VictoryOverlay> {
                     spacing: 10,
                     runSpacing: 8,
                     children: [
-                      StatChip(icon: const FFIcon(FFGlyph.hourglass, size: 22), text: _mmss(widget.tally.seconds)),
-                      if (r.newBestTime) StatChip(icon: const FFIcon(FFGlyph.crown, size: 22), text: 'NEW BEST', color: FF.gold),
-                      StatChip(icon: const FFIcon(FFGlyph.key, size: 22), text: '${widget.tally.keys}'),
-                      if (r.newStars > 0) StatChip(icon: const FFIcon(FFGlyph.star, size: 22), text: '+${r.newStars} NEW', color: FF.gold),
+                      StatChip(
+                        icon: const FFIcon(FFGlyph.hourglass, size: 22),
+                        text: _mmss(widget.tally.seconds),
+                      ),
+                      if (r.newBestTime)
+                        StatChip(
+                          icon: const FFIcon(FFGlyph.crown, size: 22),
+                          text: 'NEW BEST',
+                          color: FF.gold,
+                        ),
+                      StatChip(
+                        icon: const FFIcon(FFGlyph.key, size: 22),
+                        text: '${widget.tally.keys}',
+                      ),
+                      if (r.newStars > 0)
+                        StatChip(
+                          icon: const FFIcon(FFGlyph.star, size: 22),
+                          text: '+${r.newStars} NEW',
+                          color: FF.gold,
+                        ),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -182,20 +217,33 @@ class _VictoryOverlayState extends State<VictoryOverlay> {
                         const FFIcon(FFGlyph.soul, size: 44),
                         const SizedBox(width: 10),
                         RollingNumber(
-                          value: widget.doubled ? totalSouls + r.souls : totalSouls,
+                          value: widget.doubled
+                              ? totalSouls + r.souls
+                              : totalSouls,
                           style: FF.text(36, weight: FontWeight.w700),
                         ),
                         const SizedBox(width: 12),
                         Text(
                           widget.doubled ? 'SOULS (DOUBLED!)' : 'SOULS',
-                          style: FF.text(18, color: widget.doubled ? FF.gold : FF.bone2, weight: FontWeight.w700),
+                          style: FF.text(
+                            18,
+                            color: widget.doubled ? FF.gold : FF.bone2,
+                            weight: FontWeight.w700,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   if (r.gateChest != null) ...[
                     const SizedBox(height: 10),
-                    Text('GATE CHEST:', style: FF.text(16, color: FF.gold, weight: FontWeight.w700)),
+                    Text(
+                      'GATE CHEST:',
+                      style: FF.text(
+                        16,
+                        color: FF.gold,
+                        weight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     _RewardLine(reward: r.gateChest!),
                   ],
@@ -203,7 +251,11 @@ class _VictoryOverlayState extends State<VictoryOverlay> {
                     const SizedBox(height: 10),
                     Text(
                       'WORLD ${world.number + 1} OPENED: ${Worlds.all[world.index + 1].name.toUpperCase()}',
-                      style: FF.text(17, color: FF.gold, weight: FontWeight.w700),
+                      style: FF.text(
+                        17,
+                        color: FF.gold,
+                        weight: FontWeight.w700,
+                      ),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -260,7 +312,9 @@ class _VictoryOverlayState extends State<VictoryOverlay> {
             top: 0,
             left: 0,
             right: 0,
-            child: Center(child: _Plate(last ? 'Freedom!' : 'Escaped!', color: FF.slate)),
+            child: Center(
+              child: _Plate(last ? 'Freedom!' : 'Escaped!', color: FF.slate),
+            ),
           ),
         ],
       ),
@@ -280,9 +334,15 @@ class _RewardLine extends StatelessWidget {
       alignment: WrapAlignment.center,
       children: [
         if (reward.souls > 0)
-          StatChip(icon: const FFIcon(FFGlyph.soul, size: 22), text: '+${reward.souls}'),
+          StatChip(
+            icon: const FFIcon(FFGlyph.soul, size: 22),
+            text: '+${reward.souls}',
+          ),
         for (final e in reward.boosts.entries)
-          StatChip(icon: FFIcon(boostGlyphFor(e.key.name), size: 22), text: '×${e.value}'),
+          StatChip(
+            icon: FFIcon(boostGlyphFor(e.key.name), size: 22),
+            text: '×${e.value}',
+          ),
       ],
     );
   }
@@ -338,11 +398,22 @@ class DefeatOverlay extends StatelessWidget {
                 children: [
                   FF.art('icon_skull', size: 72),
                   const SizedBox(height: 6),
-                  Text(reason, textAlign: TextAlign.center, style: FF.text(22, weight: FontWeight.w700)),
+                  Text(
+                    reason,
+                    textAlign: TextAlign.center,
+                    style: FF.text(22, weight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 8),
                   BoneBox(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Text(nearMiss, textAlign: TextAlign.center, style: FF.boxText(19)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Text(
+                      nearMiss,
+                      textAlign: TextAlign.center,
+                      style: FF.boxText(19),
+                    ),
                   ),
                   if (wisps > 0) ...[
                     const SizedBox(height: 10),
@@ -351,7 +422,10 @@ class DefeatOverlay extends StatelessWidget {
                       children: [
                         const FFIcon(FFGlyph.soul, size: 26),
                         const SizedBox(width: 6),
-                        Text('You keep the $wisps souls you found.', style: FF.text(16, color: FF.bone2)),
+                        Text(
+                          'You keep the $wisps souls you found.',
+                          style: FF.text(16, color: FF.bone2),
+                        ),
                       ],
                     ),
                   ],
@@ -384,7 +458,9 @@ class DefeatOverlay extends StatelessWidget {
                       SlabButton(
                         label: retryLabel,
                         icon: FF.art('icon_retry', size: 28),
-                        tone: onRevive == null ? ButtonTone.amber : ButtonTone.blood,
+                        tone: onRevive == null
+                            ? ButtonTone.amber
+                            : ButtonTone.blood,
                         width: 190,
                         height: 58,
                         pulse: onRevive == null,
@@ -447,24 +523,52 @@ class PauseOverlay extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(heading, textAlign: TextAlign.center, style: FF.text(18, color: FF.boneDim, weight: FontWeight.w700, letterSpacing: 2)),
+                    Text(
+                      heading,
+                      textAlign: TextAlign.center,
+                      style: FF.text(
+                        18,
+                        color: FF.boneDim,
+                        weight: FontWeight.w700,
+                        letterSpacing: 2,
+                      ),
+                    ),
                     const SizedBox(height: 14),
-                    SlabButton(label: 'RESUME', icon: const FFIcon(FFGlyph.play, size: 28), height: 62, pulse: true, onPressed: onResume),
+                    SlabButton(
+                      label: 'RESUME',
+                      icon: const FFIcon(FFGlyph.play, size: 28),
+                      height: 62,
+                      pulse: true,
+                      onPressed: onResume,
+                    ),
                     const SizedBox(height: 10),
-                    SlabButton(label: 'RESTART', icon: FF.art('icon_retry', size: 26), tone: ButtonTone.stone, height: 54, onPressed: onRestart),
+                    SlabButton(
+                      label: 'RESTART',
+                      icon: FF.art('icon_retry', size: 26),
+                      tone: ButtonTone.stone,
+                      height: 54,
+                      onPressed: onRestart,
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
                         Expanded(
                           child: SlabButton(
                             label: progress.musicOn ? 'MUSIC ON' : 'MUSIC OFF',
-                            icon: FFIcon(FFGlyph.music, size: 24, color: progress.musicOn ? null : FF.stone3),
+                            icon: FFIcon(
+                              FFGlyph.music,
+                              size: 24,
+                              color: progress.musicOn ? null : FF.stone3,
+                            ),
                             tone: ButtonTone.stone,
                             height: 50,
                             fontSize: 16,
                             onPressed: () {
                               progress.musicOn = !progress.musicOn;
-                              Sfx.instance.setSwitches(musicOn: progress.musicOn, sfxOn: progress.sfxOn);
+                              Sfx.instance.setSwitches(
+                                musicOn: progress.musicOn,
+                                sfxOn: progress.sfxOn,
+                              );
                             },
                           ),
                         ),
@@ -472,26 +576,43 @@ class PauseOverlay extends StatelessWidget {
                         Expanded(
                           child: SlabButton(
                             label: progress.sfxOn ? 'SOUND ON' : 'SOUND OFF',
-                            icon: FFIcon(progress.sfxOn ? FFGlyph.sound : FFGlyph.soundOff, size: 24),
+                            icon: FFIcon(
+                              progress.sfxOn ? FFGlyph.sound : FFGlyph.soundOff,
+                              size: 24,
+                            ),
                             tone: ButtonTone.stone,
                             height: 50,
                             fontSize: 16,
                             onPressed: () {
                               progress.sfxOn = !progress.sfxOn;
-                              Sfx.instance.setSwitches(musicOn: progress.musicOn, sfxOn: progress.sfxOn);
+                              Sfx.instance.setSwitches(
+                                musicOn: progress.musicOn,
+                                sfxOn: progress.sfxOn,
+                              );
                             },
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
-                    SlabButton(label: quitLabel, icon: FF.art('icon_house', size: 26), tone: ButtonTone.blood, height: 54, onPressed: onQuit),
+                    SlabButton(
+                      label: quitLabel,
+                      icon: FF.art('icon_house', size: 26),
+                      tone: ButtonTone.blood,
+                      height: 54,
+                      onPressed: onQuit,
+                    ),
                   ],
                 ),
               ),
             ),
           ),
-          const Positioned(top: 0, left: 0, right: 0, child: Center(child: _Plate('Paused'))),
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Center(child: _Plate('Paused')),
+          ),
         ],
       ),
     );
@@ -530,8 +651,23 @@ class EndlessOverOverlay extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('YOU REACHED DEPTH', style: FF.text(18, color: FF.boneDim, weight: FontWeight.w700, letterSpacing: 2)),
-                  Text('${result.depth}', style: FF.title(110, color: FF.spiritHi, glow: FF.spirit.withValues(alpha: 0.6))),
+                  Text(
+                    'YOU REACHED DEPTH',
+                    style: FF.text(
+                      18,
+                      color: FF.boneDim,
+                      weight: FontWeight.w700,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  Text(
+                    '${result.depth}',
+                    style: FF.title(
+                      110,
+                      color: FF.spiritHi,
+                      glow: FF.spirit.withValues(alpha: 0.6),
+                    ),
+                  ),
                   if (result.newBestDepth || result.newBestScore)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
@@ -540,7 +676,14 @@ class EndlessOverOverlay extends StatelessWidget {
                         children: [
                           const FFIcon(FFGlyph.crown, size: 30),
                           const SizedBox(width: 6),
-                          Text('NEW PERSONAL BEST!', style: FF.text(22, color: FF.gold, weight: FontWeight.w700)),
+                          Text(
+                            'NEW PERSONAL BEST!',
+                            style: FF.text(
+                              22,
+                              color: FF.gold,
+                              weight: FontWeight.w700,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -549,8 +692,14 @@ class EndlessOverOverlay extends StatelessWidget {
                     spacing: 10,
                     runSpacing: 8,
                     children: [
-                      StatChip(icon: const FFIcon(FFGlyph.flame, size: 22), text: 'SCORE ${formatNumber(result.score)}'),
-                      StatChip(icon: const FFIcon(FFGlyph.soul, size: 22), text: '+${result.souls + wisps} SOULS'),
+                      StatChip(
+                        icon: const FFIcon(FFGlyph.flame, size: 22),
+                        text: 'SCORE ${formatNumber(result.score)}',
+                      ),
+                      StatChip(
+                        icon: const FFIcon(FFGlyph.soul, size: 22),
+                        text: '+${result.souls + wisps} SOULS',
+                      ),
                     ],
                   ),
                   const SizedBox(height: 18),
@@ -581,7 +730,12 @@ class EndlessOverOverlay extends StatelessWidget {
               ),
             ),
           ),
-          const Positioned(top: 0, left: 0, right: 0, child: Center(child: _Plate('The Night Ends'))),
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Center(child: _Plate('The Night Ends')),
+          ),
         ],
       ),
     );
@@ -624,43 +778,97 @@ class DailyEscapeOverlay extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('DAILY NIGHTMARE #${summary.number}', style: FF.text(18, color: FF.bone2, weight: FontWeight.w700, letterSpacing: 2)),
+                  Text(
+                    'DAILY NIGHTMARE #${summary.number}',
+                    style: FF.text(
+                      18,
+                      color: FF.bone2,
+                      weight: FontWeight.w700,
+                      letterSpacing: 2,
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  Text(_mmss(summary.seconds), style: FF.title(96, color: FF.bone, glow: FF.blood.withValues(alpha: 0.6))),
+                  Text(
+                    _mmss(summary.seconds),
+                    style: FF.title(
+                      96,
+                      color: FF.bone,
+                      glow: FF.blood.withValues(alpha: 0.6),
+                    ),
+                  ),
                   Wrap(
                     alignment: WrapAlignment.center,
                     spacing: 10,
                     runSpacing: 8,
                     children: [
-                      StatChip(icon: const FFIcon(FFGlyph.crown, size: 22), text: 'TODAY ${_mmss(summary.bestSeconds)}'),
-                      StatChip(icon: const FFIcon(FFGlyph.flame, size: 22), text: '${summary.streak}-DAY STREAK', color: FF.gold),
-                      StatChip(icon: FF.art('icon_skull', size: 22), text: '${summary.deaths}'),
+                      StatChip(
+                        icon: const FFIcon(FFGlyph.crown, size: 22),
+                        text: 'TODAY ${_mmss(summary.bestSeconds)}',
+                      ),
+                      StatChip(
+                        icon: const FFIcon(FFGlyph.flame, size: 22),
+                        text: '${summary.streak}-DAY STREAK',
+                        color: FF.gold,
+                      ),
+                      StatChip(
+                        icon: FF.art('icon_skull', size: 22),
+                        text: '${summary.deaths}',
+                      ),
                     ],
                   ),
                   if (reward != null && !reward!.isEmpty) ...[
                     const SizedBox(height: 12),
-                    Text("TONIGHT'S PRIZE", style: FF.text(16, color: FF.gold, weight: FontWeight.w700)),
+                    Text(
+                      "TONIGHT'S PRIZE",
+                      style: FF.text(
+                        16,
+                        color: FF.gold,
+                        weight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     _RewardLine(reward: reward!),
                   ],
                   const SizedBox(height: 10),
-                  Text('Come back tomorrow for a new nightmare.', style: FF.text(16, color: FF.bone2)),
+                  Text(
+                    'Come back tomorrow for a new nightmare.',
+                    style: FF.text(16, color: FF.bone2),
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SlabButton(label: 'MENU', icon: FF.art('icon_house', size: 26), tone: ButtonTone.stone, width: 150, height: 56, onPressed: onMenu),
+                      SlabButton(
+                        label: 'MENU',
+                        icon: FF.art('icon_house', size: 26),
+                        tone: ButtonTone.stone,
+                        width: 150,
+                        height: 56,
+                        onPressed: onMenu,
+                      ),
                       const SizedBox(width: 10),
                       _ShareButton(onShare: onShare),
                       const SizedBox(width: 10),
-                      SlabButton(label: 'AGAIN', icon: FF.art('icon_retry', size: 26), tone: ButtonTone.blood, width: 150, height: 56, onPressed: onAgain),
+                      SlabButton(
+                        label: 'AGAIN',
+                        icon: FF.art('icon_retry', size: 26),
+                        tone: ButtonTone.blood,
+                        width: 150,
+                        height: 56,
+                        onPressed: onAgain,
+                      ),
                     ],
                   ),
                 ],
               ),
             ),
           ),
-          const Positioned(top: 0, left: 0, right: 0, child: Center(child: _Plate('Escaped!', color: FF.blood2))),
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Center(child: _Plate('Escaped!', color: FF.blood2)),
+          ),
         ],
       ),
     );

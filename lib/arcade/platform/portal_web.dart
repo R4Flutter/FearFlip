@@ -44,9 +44,11 @@ class WebPortal implements Portal {
         onTimeout: () => 'none'.toJS,
       )).toDart;
       _muted.value = bridge.isMuted().toDart;
-      bridge.onMuteChange(((JSBoolean muted) {
-        _muted.value = muted.toDart;
-      }).toJS);
+      bridge.onMuteChange(
+        ((JSBoolean muted) {
+          _muted.value = muted.toDart;
+        }).toJS,
+      );
     } catch (error) {
       debugPrint('[Portal] init failed: $error');
       _env = 'none';
@@ -88,13 +90,14 @@ class WebPortal implements Portal {
     final bridge = _bridge;
     if (bridge == null) return AdOutcome.unavailable;
     try {
-      final result = (await bridge
-              .requestAd(
-                type.toJS,
-                onStarted == null ? null : (() => onStarted()).toJS,
-              )
-              .toDart)
-          .toDart;
+      final result =
+          (await bridge
+                  .requestAd(
+                    type.toJS,
+                    onStarted == null ? null : (() => onStarted()).toJS,
+                  )
+                  .toDart)
+              .toDart;
       return switch (result) {
         'finished' => AdOutcome.finished,
         'unavailable' => AdOutcome.unavailable,

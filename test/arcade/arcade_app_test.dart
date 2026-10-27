@@ -37,7 +37,11 @@ void main() {
         final rows = RunnerPixels.rows(direction, frame);
         expect(rows.length, RunnerPixels.height);
         for (final row in rows) {
-          expect(row.length, RunnerPixels.width, reason: '$direction $frame "$row"');
+          expect(
+            row.length,
+            RunnerPixels.width,
+            reason: '$direction $frame "$row"',
+          );
         }
       }
     }

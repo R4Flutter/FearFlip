@@ -123,7 +123,12 @@ class _GlyphPainter extends CustomPainter {
   }
 
   void _rrect(Rect r, double radius, Color a, [Color? b]) {
-    _shape(Path()..addRRect(RRect.fromRectAndRadius(r, Radius.circular(radius * _u))), a, b);
+    _shape(
+      Path()
+        ..addRRect(RRect.fromRectAndRadius(r, Radius.circular(radius * _u))),
+      a,
+      b,
+    );
   }
 
   void _circle(Offset c, double r, Color a, [Color? b]) {
@@ -213,7 +218,10 @@ class _GlyphPainter extends CustomPainter {
       ..cubicTo(12.5 * _u, 8 * _u, 12.5 * _u, 5 * _u, 12 * _u, 2 * _u)
       ..close();
     _shape(flame, _spiritHi, _spiritDark);
-    _c.drawOval(_r(8.5, 13, 7, 7.5), Paint()..color = (tint ?? Colors.white).withValues(alpha: 0.7));
+    _c.drawOval(
+      _r(8.5, 13, 7, 7.5),
+      Paint()..color = (tint ?? Colors.white).withValues(alpha: 0.7),
+    );
     _c.drawCircle(_p(10.4, 16.2), 0.95 * _u, Paint()..color = _ink);
     _c.drawCircle(_p(13.6, 16.2), 0.95 * _u, Paint()..color = _ink);
   }
@@ -323,11 +331,13 @@ class _GlyphPainter extends CustomPainter {
   void _calendar() {
     _rrect(_r(3, 4.5, 18, 17), 2, _bone, _bone2);
     final top = Path()
-      ..addRRect(RRect.fromRectAndCorners(
-        _r(3, 4.5, 18, 5.5),
-        topLeft: Radius.circular(2 * _u),
-        topRight: Radius.circular(2 * _u),
-      ));
+      ..addRRect(
+        RRect.fromRectAndCorners(
+          _r(3, 4.5, 18, 5.5),
+          topLeft: Radius.circular(2 * _u),
+          topRight: Radius.circular(2 * _u),
+        ),
+      );
     _shape(top, _blood, _blood2);
     _rrect(_r(6.5, 2, 2.4, 5), 1, _stone);
     _rrect(_r(15.1, 2, 2.4, 5), 1, _stone);
@@ -388,7 +398,11 @@ class _GlyphPainter extends CustomPainter {
     for (var i = 0; i < 3; i++) {
       final a = i * pi / 3;
       final d = Offset(cos(a), sin(a)) * 9.5;
-      _c.drawLine(_p(12 - d.dx, 12 - d.dy), _p(12 + d.dx, 12 + d.dy), _line(_spiritHi, 2.2));
+      _c.drawLine(
+        _p(12 - d.dx, 12 - d.dy),
+        _p(12 + d.dx, 12 + d.dy),
+        _line(_spiritHi, 2.2),
+      );
     }
     _circle(_p(12, 12), 2.4, Colors.white, _spirit);
   }
@@ -448,7 +462,10 @@ class _GlyphPainter extends CustomPainter {
   void _gift() {
     _rrect(_r(3.5, 10, 17, 11.5), 1.5, _blood, _blood2);
     _rrect(_r(2.5, 7, 19, 4.5), 1.5, _blood, _blood2);
-    _c.drawRect(_r(10.6, 7, 2.8, 14.5), _fill(_gold, _amberDark, _r(0, 0, 24, 24)));
+    _c.drawRect(
+      _r(10.6, 7, 2.8, 14.5),
+      _fill(_gold, _amberDark, _r(0, 0, 24, 24)),
+    );
     _c.drawRect(_r(10.6, 7, 2.8, 14.5), _outline..strokeWidth = 1.1 * _u);
     final bow = _line(_ink, 4);
     _c.drawArc(_r(6, 2.5, 6, 5.5), 0, pi * 2, false, bow);
@@ -582,12 +599,24 @@ class _GlyphPainter extends CustomPainter {
     _c.save();
     _c.translate(6.5 * _u, 17.5 * _u);
     _c.rotate(-0.4);
-    _shape(Path()..addOval(Rect.fromCenter(center: Offset.zero, width: 6.5 * _u, height: 4.8 * _u)), _bone, _boneDim);
+    _shape(
+      Path()..addOval(
+        Rect.fromCenter(center: Offset.zero, width: 6.5 * _u, height: 4.8 * _u),
+      ),
+      _bone,
+      _boneDim,
+    );
     _c.restore();
     _c.save();
     _c.translate(15.5 * _u, 15.5 * _u);
     _c.rotate(-0.4);
-    _shape(Path()..addOval(Rect.fromCenter(center: Offset.zero, width: 6.5 * _u, height: 4.8 * _u)), _bone, _boneDim);
+    _shape(
+      Path()..addOval(
+        Rect.fromCenter(center: Offset.zero, width: 6.5 * _u, height: 4.8 * _u),
+      ),
+      _bone,
+      _boneDim,
+    );
     _c.restore();
   }
 

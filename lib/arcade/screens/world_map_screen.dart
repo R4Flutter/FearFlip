@@ -32,15 +32,21 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
         final focus = widget.focusStage ?? progress.nextStage;
         final index = _world ?? Worlds.forStage(focus).index;
         final world = Worlds.all[index];
-        final nightmare = world.twist == WorldTwist.crumbling || world.twist == WorldTwist.rage;
+        final nightmare =
+            world.twist == WorldTwist.crumbling ||
+            world.twist == WorldTwist.rage;
         Widget body({required bool wide}) => Column(
           children: [
             _WorldHeader(
               world: world,
               progress: progress,
               wide: wide,
-              onPrev: index > 0 ? () => setState(() => _world = index - 1) : null,
-              onNext: index < Worlds.all.length - 1 ? () => setState(() => _world = index + 1) : null,
+              onPrev: index > 0
+                  ? () => setState(() => _world = index - 1)
+                  : null,
+              onNext: index < Worlds.all.length - 1
+                  ? () => setState(() => _world = index + 1)
+                  : null,
             ),
             const SizedBox(height: 10),
             Expanded(
@@ -49,7 +55,11 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
                 glow: Color(world.accent),
                 dim: 0.45,
                 padding: EdgeInsets.zero,
-                child: _StageTrail(world: world, progress: progress, columns: wide ? 5 : 4),
+                child: _StageTrail(
+                  world: world,
+                  progress: progress,
+                  columns: wide ? 5 : 4,
+                ),
               ),
             ),
           ],
@@ -107,13 +117,20 @@ class _WorldHeader extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (!unlocked) ...[const FFIcon(FFGlyph.lock, size: 30), const SizedBox(width: 8)],
+                  if (!unlocked) ...[
+                    const FFIcon(FFGlyph.lock, size: 30),
+                    const SizedBox(width: 8),
+                  ],
                   Flexible(
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
                         'World ${world.number}: ${world.name}',
-                        style: FF.title(wide ? 46 : 36, color: accent, glow: accent.withValues(alpha: 0.4)),
+                        style: FF.title(
+                          wide ? 46 : 36,
+                          color: accent,
+                          glow: accent.withValues(alpha: 0.4),
+                        ),
                       ),
                     ),
                   ),
@@ -134,7 +151,10 @@ class _WorldHeader extends StatelessWidget {
         Opacity(
           opacity: onNext == null ? 0.3 : 1,
           child: RoundButton(
-            icon: Transform.flip(flipX: true, child: const FFIcon(FFGlyph.back, size: 24)),
+            icon: Transform.flip(
+              flipX: true,
+              child: const FFIcon(FFGlyph.back, size: 24),
+            ),
             tooltip: 'Next world',
             onPressed: onNext,
           ),
@@ -145,7 +165,11 @@ class _WorldHeader extends StatelessWidget {
 }
 
 class _StageTrail extends StatelessWidget {
-  const _StageTrail({required this.world, required this.progress, required this.columns});
+  const _StageTrail({
+    required this.world,
+    required this.progress,
+    required this.columns,
+  });
 
   final WorldInfo world;
   final ProgressController progress;
@@ -166,7 +190,9 @@ class _StageTrail extends StatelessWidget {
           final colInRow = i % columns;
           final col = row.isEven ? colInRow : columns - 1 - colInRow;
           final wiggle = sin(i * 1.7) * cellH * 0.08;
-          centers.add(Offset((col + 0.5) * cellW, (row + 0.5) * cellH + wiggle));
+          centers.add(
+            Offset((col + 0.5) * cellW, (row + 0.5) * cellH + wiggle),
+          );
         }
         final current = progress.nextStage;
         return Stack(
@@ -176,7 +202,8 @@ class _StageTrail extends StatelessWidget {
               child: CustomPaint(
                 painter: _TrailPainter(
                   centers: centers,
-                  litUpTo: (progress.highestCleared - world.firstStage + 1).clamp(-1, count - 1),
+                  litUpTo: (progress.highestCleared - world.firstStage + 1)
+                      .clamp(-1, count - 1),
                   accent: Color(world.accent),
                 ),
               ),
@@ -201,7 +228,13 @@ class _StageTrail extends StatelessWidget {
                 left: centers[current - world.firstStage].dx - node * 0.42,
                 top: centers[current - world.firstStage].dy - node * 1.32,
                 child: IgnorePointer(
-                  child: RunnerPreview(look: progress.look, size: node * 0.84, walking: false, turning: false, floor: false),
+                  child: RunnerPreview(
+                    look: progress.look,
+                    size: node * 0.84,
+                    walking: false,
+                    turning: false,
+                    floor: false,
+                  ),
                 ),
               ),
           ],
@@ -212,7 +245,11 @@ class _StageTrail extends StatelessWidget {
 }
 
 class _TrailPainter extends CustomPainter {
-  _TrailPainter({required this.centers, required this.litUpTo, required this.accent});
+  _TrailPainter({
+    required this.centers,
+    required this.litUpTo,
+    required this.accent,
+  });
 
   final List<Offset> centers;
   final int litUpTo;
@@ -227,7 +264,11 @@ class _TrailPainter extends CustomPainter {
       final steps = ((b - a).distance / 14).floor();
       for (var s = 1; s < steps; s++) {
         final p = Offset.lerp(a, b, s / steps)!;
-        canvas.drawCircle(p, lit ? 4.2 : 3.4, Paint()..color = const Color(0xFF16151F));
+        canvas.drawCircle(
+          p,
+          lit ? 4.2 : 3.4,
+          Paint()..color = const Color(0xFF16151F),
+        );
         canvas.drawCircle(
           p,
           lit ? 2.8 : 2,
@@ -239,7 +280,9 @@ class _TrailPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TrailPainter old) =>
-      old.litUpTo != litUpTo || old.centers.length != centers.length || old.accent != accent;
+      old.litUpTo != litUpTo ||
+      old.centers.length != centers.length ||
+      old.accent != accent;
 }
 
 class _StageNode extends StatefulWidget {
@@ -263,7 +306,8 @@ class _StageNode extends StatefulWidget {
   State<_StageNode> createState() => _StageNodeState();
 }
 
-class _StageNodeState extends State<_StageNode> with SingleTickerProviderStateMixin {
+class _StageNodeState extends State<_StageNode>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _pulse = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1100),
@@ -311,14 +355,22 @@ class _StageNodeState extends State<_StageNode> with SingleTickerProviderStateMi
           shape: BoxShape.circle,
           gradient: RadialGradient(
             center: const Alignment(-0.3, -0.4),
-            colors: [Color.lerp(face, Colors.white, 0.25)!, face, Color.lerp(face, FF.ink, 0.5)!],
+            colors: [
+              Color.lerp(face, Colors.white, 0.25)!,
+              face,
+              Color.lerp(face, FF.ink, 0.5)!,
+            ],
           ),
           border: Border.all(
             color: gate ? FF.gold : FF.ink,
             width: gate ? 4 : 3,
           ),
           boxShadow: [
-            const BoxShadow(color: Color(0xAA000000), blurRadius: 8, offset: Offset(0, 4)),
+            const BoxShadow(
+              color: Color(0xAA000000),
+              blurRadius: 8,
+              offset: Offset(0, 4),
+            ),
             if (widget.current)
               BoxShadow(
                 color: FF.amber.withValues(alpha: 0.35 + 0.35 * _pulse.value),
@@ -337,7 +389,10 @@ class _StageNodeState extends State<_StageNode> with SingleTickerProviderStateMi
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 FF.art('icon_skull', size: s * 0.38),
-                Text('${widget.stage}', style: FF.text(s * 0.2, weight: FontWeight.w700)),
+                Text(
+                  '${widget.stage}',
+                  style: FF.text(s * 0.2, weight: FontWeight.w700),
+                ),
               ],
             )
           : Text(
@@ -351,7 +406,9 @@ class _StageNodeState extends State<_StageNode> with SingleTickerProviderStateMi
             ),
     );
     return MouseRegion(
-      cursor: widget.unlocked ? SystemMouseCursors.click : SystemMouseCursors.forbidden,
+      cursor: widget.unlocked
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.forbidden,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(

@@ -377,7 +377,10 @@ class MazePainter extends CustomPainter {
       for (final dx in [-px * 3, px * 3]) {
         final at = Offset(devilCenter.dx + dx, eyeY);
         canvas.drawCircle(at, px * 1.8, glow);
-        canvas.drawRect(Rect.fromCenter(center: at, width: px * 2, height: px * 1.6), eye);
+        canvas.drawRect(
+          Rect.fromCenter(center: at, width: px * 2, height: px * 1.6),
+          eye,
+        );
       }
     }
     if (!exitSealed) {
@@ -694,7 +697,7 @@ class MazePainter extends CustomPainter {
       Paint()
         ..color =
             (isFlippedMode ? const Color(0xFF12030A) : const Color(0xFF05060C))
-                .withValues(alpha: _darkness),
+                .withValues(alpha: lightScale < 1 ? 0.93 : _darkness),
     );
     void light(Offset at, double inner, double outer, [double strength = 1]) {
       final core = Color.fromRGBO(0, 0, 0, strength);
@@ -755,17 +758,22 @@ class MazePainter extends CustomPainter {
     canvas.restore();
     // The lantern's own colour, laid softly over its pool of light (only
     // when a lantern is chosen in the shop).
-    if (look != null) canvas.drawCircle(
-      runner,
-      t * _lightOuter * lightScale * 0.8,
-      Paint()
-        ..blendMode = BlendMode.plus
-        ..shader = ui.Gradient.radial(
-          runner,
-          t * _lightOuter * lightScale * 0.8,
-          [_look.light.withValues(alpha: 0.10), _look.light.withValues(alpha: 0)],
-        ),
-    );
+    if (look != null) {
+      canvas.drawCircle(
+        runner,
+        t * _lightOuter * lightScale * 0.8,
+        Paint()
+          ..blendMode = BlendMode.plus
+          ..shader = ui.Gradient.radial(
+            runner,
+            t * _lightOuter * lightScale * 0.8,
+            [
+              _look.light.withValues(alpha: 0.10),
+              _look.light.withValues(alpha: 0),
+            ],
+          ),
+      );
+    }
   }
 
   static const _stoneDust = ColorFilter.mode(
@@ -1473,8 +1481,15 @@ class MazePainter extends CustomPainter {
       final dot = trail[i];
       final age = (time - dot.time).clamp(0.0, 0.8);
       final life = 1 - age / 0.8;
-      final wobble = Offset(sin(dot.time * 37) * t * 0.12, cos(dot.time * 29) * t * 0.08);
-      final at = camera.cellCenter(dot.at).translate(0, t * 0.3 - (1 - life) * t * 0.35) + wobble;
+      final wobble = Offset(
+        sin(dot.time * 37) * t * 0.12,
+        cos(dot.time * 29) * t * 0.08,
+      );
+      final at =
+          camera
+              .cellCenter(dot.at)
+              .translate(0, t * 0.3 - (1 - life) * t * 0.35) +
+          wobble;
       final r = t * 0.06 * (0.6 + life);
       if (style != TrailStyle.bones) {
         canvas.drawCircle(
@@ -1484,7 +1499,11 @@ class MazePainter extends CustomPainter {
             ..color = color.withValues(alpha: 0.25 * life)
             ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 1.5),
         );
-        canvas.drawCircle(at, r, Paint()..color = color.withValues(alpha: 0.9 * life));
+        canvas.drawCircle(
+          at,
+          r,
+          Paint()..color = color.withValues(alpha: 0.9 * life),
+        );
       } else {
         canvas.drawRect(
           Rect.fromCenter(center: at, width: r * 2.4, height: r * 1.3),
@@ -1524,7 +1543,11 @@ class MazePainter extends CustomPainter {
       if (!view.contains(c)) continue;
       final bob = sin(time * 3 + entry.key.x) * t * 0.06;
       canvas.drawOval(
-        Rect.fromCenter(center: c.translate(0, t * 0.3), width: t * 0.6, height: t * 0.18),
+        Rect.fromCenter(
+          center: c.translate(0, t * 0.3),
+          width: t * 0.6,
+          height: t * 0.18,
+        ),
         Paint()..color = const Color(0x66000000),
       );
       canvas.drawCircle(
@@ -1534,7 +1557,12 @@ class MazePainter extends CustomPainter {
           ..color = _gold.withValues(alpha: 0.32 + 0.12 * sin(time * 4))
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, t * 0.18),
       );
-      paintFFGlyph(canvas, boostGlyphFor(entry.value), c.translate(0, bob - t * 0.05), t * 0.62);
+      paintFFGlyph(
+        canvas,
+        boostGlyphFor(entry.value),
+        c.translate(0, bob - t * 0.05),
+        t * 0.62,
+      );
     }
   }
 
@@ -1553,7 +1581,9 @@ class MazePainter extends CustomPainter {
         at,
         t * 0.3,
         Paint()
-          ..color = _spirit.withValues(alpha: 0.28 + 0.1 * sin(time * 5 + phase))
+          ..color = _spirit.withValues(
+            alpha: 0.28 + 0.1 * sin(time * 5 + phase),
+          )
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, t * 0.14),
       );
       paintFFGlyph(canvas, FFGlyph.soul, at, t * 0.42);
@@ -1580,7 +1610,11 @@ class MazePainter extends CustomPainter {
       for (var i = 0; i < 6; i++) {
         final a = i * pi / 3 + p;
         final spot = at + Offset(cos(a), sin(a)) * t * (0.15 + 0.5 * p);
-        canvas.drawCircle(spot, t * 0.05 * (1 - p), Paint()..color = _spiritHi.withValues(alpha: 1 - p));
+        canvas.drawCircle(
+          spot,
+          t * 0.05 * (1 - p),
+          Paint()..color = _spiritHi.withValues(alpha: 1 - p),
+        );
       }
     }
     for (final label in labels) {

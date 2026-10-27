@@ -101,17 +101,25 @@ class _PreviewPainter extends CustomPainter {
         c.translate(0, size.height * 0.18),
         r,
         Paint()
-          ..shader = RadialGradient(
-            colors: [
-              look.light.withValues(alpha: 0.42),
-              look.light.withValues(alpha: 0.12),
-              look.light.withValues(alpha: 0),
-            ],
-            stops: const [0, 0.55, 1],
-          ).createShader(Rect.fromCircle(center: c.translate(0, size.height * 0.18), radius: r)),
+          ..shader =
+              RadialGradient(
+                colors: [
+                  look.light.withValues(alpha: 0.42),
+                  look.light.withValues(alpha: 0.12),
+                  look.light.withValues(alpha: 0),
+                ],
+                stops: const [0, 0.55, 1],
+              ).createShader(
+                Rect.fromCircle(
+                  center: c.translate(0, size.height * 0.18),
+                  radius: r,
+                ),
+              ),
       );
     }
-    final direction = turning ? _order[(t / 2.4).floor() % _order.length] : Direction4.down;
+    final direction = turning
+        ? _order[(t / 2.4).floor() % _order.length]
+        : Direction4.down;
     final frame = walking ? const [1, 0, 2, 0][(t * 7).floor() % 4] : 0;
     final height = size.height * 0.62;
     final feet = c.translate(0, size.height * 0.3);
@@ -147,8 +155,11 @@ class _PreviewPainter extends CustomPainter {
         TrailStyle.bones => FF.bone,
         TrailStyle.none => Colors.transparent,
       };
-      final r = px * (look.trail == TrailStyle.dust ? 1.6 : 1.0) * (1 - life * 0.5);
-      if (look.trail == TrailStyle.wisps || look.trail == TrailStyle.embers || look.trail == TrailStyle.sparkles) {
+      final r =
+          px * (look.trail == TrailStyle.dust ? 1.6 : 1.0) * (1 - life * 0.5);
+      if (look.trail == TrailStyle.wisps ||
+          look.trail == TrailStyle.embers ||
+          look.trail == TrailStyle.sparkles) {
         canvas.drawCircle(
           at,
           r * 2.6,
@@ -158,9 +169,16 @@ class _PreviewPainter extends CustomPainter {
         );
       }
       if (look.trail == TrailStyle.bones) {
-        canvas.drawRect(Rect.fromCenter(center: at, width: r * 2.2, height: r * 1.2), Paint()..color = color.withValues(alpha: alpha));
+        canvas.drawRect(
+          Rect.fromCenter(center: at, width: r * 2.2, height: r * 1.2),
+          Paint()..color = color.withValues(alpha: alpha),
+        );
       } else {
-        canvas.drawCircle(at, r, Paint()..color = color.withValues(alpha: alpha));
+        canvas.drawCircle(
+          at,
+          r,
+          Paint()..color = color.withValues(alpha: alpha),
+        );
       }
     }
   }

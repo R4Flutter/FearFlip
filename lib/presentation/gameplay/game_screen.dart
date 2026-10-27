@@ -125,11 +125,15 @@ class _GameScreenState extends State<GameScreen>
   final MazeShiftManager _mazeShiftManager = MazeShiftManager();
   final TrapPlacementEngine _trapPlacementEngine = const TrapPlacementEngine();
   final TrapStateController _trapStateController = TrapStateController();
+
   /// World 2 (the Bone Crypt) packs in more cracked floors.
   TrapDifficultyScaler get _trapDifficultyScaler =>
       _twist == WorldTwist.crumbling
       ? const TrapDifficultyScaler(
-          config: TrapBalanceConfig(trapDensityMultiplier: 1.5, maxTrapCount: 12),
+          config: TrapBalanceConfig(
+            trapDensityMultiplier: 1.5,
+            maxTrapCount: 12,
+          ),
         )
       : const TrapDifficultyScaler();
   final TrapAnalytics _trapAnalytics = TrapAnalytics();
@@ -1355,10 +1359,7 @@ class _GameScreenState extends State<GameScreen>
         // World 5: short sprints while far behind (never when close).
         final rage = _raging && euclideanDist > 4 ? 1.45 : 1.0;
         final devilStepsPerSecond = (baseDevilSpeed * distanceFactor * rage)
-            .clamp(
-          0.2,
-          4.0,
-        );
+            .clamp(0.2, 4.0);
         final stepInterval = 1.0 / devilStepsPerSecond;
         while (_devilMoveAccumulator >= stepInterval) {
           _devilMoveAccumulator -= stepInterval;
@@ -2594,9 +2595,7 @@ class _GameScreenState extends State<GameScreen>
                   RunPausedDialog(
                     stage: _stage,
                     stageLabel: _daily == null ? 'STAGE' : 'DAILY',
-                    stageValue: _daily == null
-                        ? null
-                        : '#${_daily!.number}',
+                    stageValue: _daily == null ? null : '#${_daily!.number}',
                     checkpoint: _checkpoint,
                     nextCheckpoint: _nextMilestoneStage(),
                     checkpointText: _daily == null
@@ -2940,64 +2939,64 @@ class _GameScreenState extends State<GameScreen>
           return Transform.translate(
             offset: _arcade ? _shakeOffset : Offset.zero,
             child: GlitchEffectOverlay(
-            controller: _glitchEffectController,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CustomPaint(
-                  key: _gameSurfaceSizeKey,
-                  painter: MazePainter(
-                    maze: _maze,
-                    playerCellPosition: _playerController.renderPosition,
-                    direction: _playerController.direction,
-                    currentFrame: _playerController.currentFrame,
-                    isMoving: _playerController.isMoving,
-                    pulse: pulse,
-                    time: _stageElapsedSeconds,
-                    art: _art,
-                    devilCell: _devilCell,
-                    safeZones: _safeZones,
-                    playerSafe: _playerSafe,
-                    isFlippedMode: _controlsInverted,
-                    trapTiles: trapTiles,
-                    trapHiddenCueLevel: _trapStageConfig.hiddenCueLevel,
-                    hidePlayer: _trapDeathInProgress,
-                    effects: List<MazeFx>.unmodifiable(_fx),
-                    keyBoxes: _keyHunt.boxes,
-                    keysFound: _keyHunt.keysFound,
-                    keysRequired: _keyHunt.keysRequired,
-                    boxPointer: _nearestBox?.cell,
-                    keyFlashAt: _keyFlashAt,
-                    sealedBumpAt: _sealedBumpAt,
-                    look: _arcade ? _run.session.look : null,
-                    trail: _arcade ? List<TrailDot>.of(_a.trail) : const [],
-                    wisps: _arcade ? Set<Point<int>>.of(_a.wisps) : const {},
-                    pickups: _arcade
-                        ? Map<Point<int>, String>.fromEntries(
-                            _a.pickups.entries.map(
-                              (e) => MapEntry(e.key, e.value.name),
-                            ),
-                          )
-                        : const {},
-                    devilFrozen: _arcade && _devilFrozen,
-                    devilRaging: _arcade && _raging,
-                    seerPath: _arcade && _seerActive ? _a.seerPath : const [],
-                    shielded: _arcade && _a.shield > 0,
-                    lightScale: _twist == WorldTwist.blackout ? 0.62 : 1,
-                    labels: _arcade
-                        ? List<FloatingLabel>.of(_a.labels)
-                        : const [],
-                  ),
-                ),
-                if (_trapDeathInProgress)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: CustomPaint(painter: _trapDeathSequence.painter),
+              controller: _glitchEffectController,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CustomPaint(
+                    key: _gameSurfaceSizeKey,
+                    painter: MazePainter(
+                      maze: _maze,
+                      playerCellPosition: _playerController.renderPosition,
+                      direction: _playerController.direction,
+                      currentFrame: _playerController.currentFrame,
+                      isMoving: _playerController.isMoving,
+                      pulse: pulse,
+                      time: _stageElapsedSeconds,
+                      art: _art,
+                      devilCell: _devilCell,
+                      safeZones: _safeZones,
+                      playerSafe: _playerSafe,
+                      isFlippedMode: _controlsInverted,
+                      trapTiles: trapTiles,
+                      trapHiddenCueLevel: _trapStageConfig.hiddenCueLevel,
+                      hidePlayer: _trapDeathInProgress,
+                      effects: List<MazeFx>.unmodifiable(_fx),
+                      keyBoxes: _keyHunt.boxes,
+                      keysFound: _keyHunt.keysFound,
+                      keysRequired: _keyHunt.keysRequired,
+                      boxPointer: _nearestBox?.cell,
+                      keyFlashAt: _keyFlashAt,
+                      sealedBumpAt: _sealedBumpAt,
+                      look: _arcade ? _run.session.look : null,
+                      trail: _arcade ? List<TrailDot>.of(_a.trail) : const [],
+                      wisps: _arcade ? Set<Point<int>>.of(_a.wisps) : const {},
+                      pickups: _arcade
+                          ? Map<Point<int>, String>.fromEntries(
+                              _a.pickups.entries.map(
+                                (e) => MapEntry(e.key, e.value.name),
+                              ),
+                            )
+                          : const {},
+                      devilFrozen: _arcade && _devilFrozen,
+                      devilRaging: _arcade && _raging,
+                      seerPath: _arcade && _seerActive ? _a.seerPath : const [],
+                      shielded: _arcade && _a.shield > 0,
+                      lightScale: _twist == WorldTwist.blackout ? 0.62 : 1,
+                      labels: _arcade
+                          ? List<FloatingLabel>.of(_a.labels)
+                          : const [],
                     ),
                   ),
-              ],
+                  if (_trapDeathInProgress)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: CustomPaint(painter: _trapDeathSequence.painter),
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
           );
         },
       ),

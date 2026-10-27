@@ -59,7 +59,10 @@ class Sfx {
       final player = _players[_next];
       _next = (_next + 1) % _players.length;
       await player.stop();
-      await player.play(AssetSource('audio/ui/${sound.name}.mp3'), volume: volume);
+      await player.play(
+        AssetSource('audio/ui/${sound.name}.mp3'),
+        volume: volume,
+      );
     } catch (error) {
       if (kDebugMode) debugPrint('[Sfx] ${sound.name}: $error');
     }

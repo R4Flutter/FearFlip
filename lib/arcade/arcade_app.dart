@@ -47,7 +47,10 @@ class _ArcadeAppState extends State<ArcadeApp> with WidgetsBindingObserver {
     }
     await _progress.load();
     await _arcade.loadDaily();
-    Sfx.instance.setSwitches(musicOn: _progress.musicOn, sfxOn: _progress.sfxOn);
+    Sfx.instance.setSwitches(
+      musicOn: _progress.musicOn,
+      sfxOn: _progress.sfxOn,
+    );
     Sfx.instance.setPortalMuted(_portal.portalMuted.value);
     _portal.portalMuted.addListener(_onPortalMute);
     if (!mounted) return;
@@ -59,7 +62,8 @@ class _ArcadeAppState extends State<ArcadeApp> with WidgetsBindingObserver {
     });
   }
 
-  void _onPortalMute() => Sfx.instance.setPortalMuted(_portal.portalMuted.value);
+  void _onPortalMute() =>
+      Sfx.instance.setPortalMuted(_portal.portalMuted.value);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -98,7 +102,11 @@ class _ArcadeAppState extends State<ArcadeApp> with WidgetsBindingObserver {
         fontFamily: FF.bodyFont,
         scaffoldBackgroundColor: FF.void_,
         canvasColor: FF.void_,
-        colorScheme: const ColorScheme.dark(primary: FF.amber, secondary: FF.spirit, surface: FF.slate),
+        colorScheme: const ColorScheme.dark(
+          primary: FF.amber,
+          secondary: FF.spirit,
+          surface: FF.slate,
+        ),
         tooltipTheme: TooltipThemeData(
           decoration: BoxDecoration(
             color: FF.bone,
@@ -146,23 +154,30 @@ class _ToastHost extends StatelessWidget {
           child: Material(
             type: MaterialType.transparency,
             child: ValueListenableBuilder<ToastMessage?>(
-            valueListenable: arcade.toast,
-            builder: (context, message, _) => AnimatedSwitcher(
-              duration: const Duration(milliseconds: 280),
-              transitionBuilder: (child, animation) => SlideTransition(
-                position: Tween<Offset>(begin: const Offset(0, -1.2), end: Offset.zero).animate(
-                  CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+              valueListenable: arcade.toast,
+              builder: (context, message, _) => AnimatedSwitcher(
+                duration: const Duration(milliseconds: 280),
+                transitionBuilder: (child, animation) => SlideTransition(
+                  position:
+                      Tween<Offset>(
+                        begin: const Offset(0, -1.2),
+                        end: Offset.zero,
+                      ).animate(
+                        CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOutBack,
+                        ),
+                      ),
+                  child: FadeTransition(opacity: animation, child: child),
                 ),
-                child: FadeTransition(opacity: animation, child: child),
+                child: message == null
+                    ? const SizedBox(key: ValueKey('none'), height: 0)
+                    : Padding(
+                        key: ValueKey(message),
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Center(child: _Toast(message: message)),
+                      ),
               ),
-              child: message == null
-                  ? const SizedBox(key: ValueKey('none'), height: 0)
-                  : Padding(
-                      key: ValueKey(message),
-                      padding: const EdgeInsets.only(top: 10),
-                      child: Center(child: _Toast(message: message)),
-                    ),
-            ),
             ),
           ),
         ),
@@ -198,9 +213,20 @@ class _Toast extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(message.title, style: FF.boxText(18, color: message.kind == ToastKind.warning ? FF.blood2 : FF.slate)),
+                  Text(
+                    message.title,
+                    style: FF.boxText(
+                      18,
+                      color: message.kind == ToastKind.warning
+                          ? FF.blood2
+                          : FF.slate,
+                    ),
+                  ),
                   if (message.subtitle != null)
-                    Text(message.subtitle!, style: FF.boxText(14, color: FF.leatherDark)),
+                    Text(
+                      message.subtitle!,
+                      style: FF.boxText(14, color: FF.leatherDark),
+                    ),
                 ],
               ),
             ),

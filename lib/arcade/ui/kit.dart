@@ -240,7 +240,11 @@ class BoneBox extends StatelessWidget {
         borderRadius: BorderRadius.circular(9),
         border: Border.all(color: FF.ink, width: 3),
         boxShadow: const [
-          BoxShadow(color: Color(0x99000000), blurRadius: 10, offset: Offset(0, 5)),
+          BoxShadow(
+            color: Color(0x99000000),
+            blurRadius: 10,
+            offset: Offset(0, 5),
+          ),
         ],
       ),
       child: Container(
@@ -301,7 +305,14 @@ class Slot extends StatelessWidget {
 enum ButtonTone { amber, blood, spirit, stone, bone, gold }
 
 class _Tone {
-  const _Tone(this.top, this.mid, this.bottom, this.edge, this.label, this.labelShadow);
+  const _Tone(
+    this.top,
+    this.mid,
+    this.bottom,
+    this.edge,
+    this.label,
+    this.labelShadow,
+  );
 
   final Color top;
   final Color mid;
@@ -312,12 +323,54 @@ class _Tone {
 }
 
 const Map<ButtonTone, _Tone> _tones = {
-  ButtonTone.amber: _Tone(FF.gold, FF.amber, FF.amberDark, FF.rust, FF.ink, Color(0x66FFF3C4)),
-  ButtonTone.gold: _Tone(Color(0xFFFFF3C4), FF.gold, FF.amber, FF.amberDark, FF.ink, Color(0x88FFFFFF)),
-  ButtonTone.blood: _Tone(FF.blood, FF.blood3, FF.blood2, FF.bloodDeep, FF.bone, FF.ink),
-  ButtonTone.spirit: _Tone(FF.spiritHi, FF.spirit, Color(0xFF6A94C0), Color(0xFF3B5E86), FF.ink, Color(0x88FFFFFF)),
-  ButtonTone.stone: _Tone(FF.stone3, FF.stone2, FF.stone, FF.slate, FF.bone, FF.ink),
-  ButtonTone.bone: _Tone(FF.bone, FF.bone2, FF.boneDim, FF.leather, FF.ink, Color(0x88FFFFFF)),
+  ButtonTone.amber: _Tone(
+    FF.gold,
+    FF.amber,
+    FF.amberDark,
+    FF.rust,
+    FF.ink,
+    Color(0x66FFF3C4),
+  ),
+  ButtonTone.gold: _Tone(
+    Color(0xFFFFF3C4),
+    FF.gold,
+    FF.amber,
+    FF.amberDark,
+    FF.ink,
+    Color(0x88FFFFFF),
+  ),
+  ButtonTone.blood: _Tone(
+    FF.blood,
+    FF.blood3,
+    FF.blood2,
+    FF.bloodDeep,
+    FF.bone,
+    FF.ink,
+  ),
+  ButtonTone.spirit: _Tone(
+    FF.spiritHi,
+    FF.spirit,
+    Color(0xFF6A94C0),
+    Color(0xFF3B5E86),
+    FF.ink,
+    Color(0x88FFFFFF),
+  ),
+  ButtonTone.stone: _Tone(
+    FF.stone3,
+    FF.stone2,
+    FF.stone,
+    FF.slate,
+    FF.bone,
+    FF.ink,
+  ),
+  ButtonTone.bone: _Tone(
+    FF.bone,
+    FF.bone2,
+    FF.boneDim,
+    FF.leather,
+    FF.ink,
+    Color(0x88FFFFFF),
+  ),
 };
 
 /// A raised slab button: lit from the top, a dark edge underneath that sinks
@@ -415,10 +468,12 @@ class _SlabButtonState extends State<SlabButton>
             fontFamily: FF.bodyFont,
             fontSize: fontSize * FF.bodyScale,
             fontWeight: FontWeight.w700,
-                    color: enabled ? tone.label : FF.stoneLight,
+            color: enabled ? tone.label : FF.stoneLight,
             letterSpacing: 1.2,
             height: 1,
-            shadows: [Shadow(color: tone.labelShadow, offset: const Offset(0, 1.5))],
+            shadows: [
+              Shadow(color: tone.labelShadow, offset: const Offset(0, 1.5)),
+            ],
           ),
         ),
         if (widget.sublabel != null) ...[
@@ -431,7 +486,9 @@ class _SlabButtonState extends State<SlabButton>
               fontFamily: FF.bodyFont,
               fontSize: fontSize * 0.5 * FF.bodyScale,
               fontWeight: FontWeight.w600,
-              color: (enabled ? tone.label : FF.stoneLight).withValues(alpha: 0.8),
+              color: (enabled ? tone.label : FF.stoneLight).withValues(
+                alpha: 0.8,
+              ),
               letterSpacing: 0.8,
               height: 1,
             ),
@@ -463,7 +520,10 @@ class _SlabButtonState extends State<SlabButton>
       foregroundDecoration: BoxDecoration(
         borderRadius: BorderRadius.circular(9),
         border: Border(
-          top: BorderSide(color: Colors.white.withValues(alpha: 0.45), width: 2),
+          top: BorderSide(
+            color: Colors.white.withValues(alpha: 0.45),
+            width: 2,
+          ),
         ),
       ),
       padding: EdgeInsets.symmetric(horizontal: widget.height * 0.32),
@@ -475,7 +535,9 @@ class _SlabButtonState extends State<SlabButton>
             widget.icon!,
             SizedBox(width: widget.height * 0.16),
           ],
-          Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: label)),
+          Flexible(
+            child: FittedBox(fit: BoxFit.scaleDown, child: label),
+          ),
           if (widget.trailing != null) ...[
             SizedBox(width: widget.height * 0.16),
             widget.trailing!,
@@ -598,7 +660,11 @@ class _RoundButtonState extends State<RoundButton> {
               ),
               border: Border.all(color: FF.ink, width: 2.5),
               boxShadow: const [
-                BoxShadow(color: Color(0x99000000), blurRadius: 6, offset: Offset(0, 3)),
+                BoxShadow(
+                  color: Color(0x99000000),
+                  blurRadius: 6,
+                  offset: Offset(0, 3),
+                ),
               ],
             ),
             alignment: Alignment.center,
@@ -612,7 +678,11 @@ class _RoundButtonState extends State<RoundButton> {
             clipBehavior: Clip.none,
             children: [
               button,
-              Positioned(right: -3, top: -3, child: BadgeDot(count: widget.badge)),
+              Positioned(
+                right: -3,
+                top: -3,
+                child: BadgeDot(count: widget.badge),
+              ),
             ],
           )
         : button;
@@ -633,7 +703,8 @@ class BadgeDot extends StatefulWidget {
   State<BadgeDot> createState() => _BadgeDotState();
 }
 
-class _BadgeDotState extends State<BadgeDot> with SingleTickerProviderStateMixin {
+class _BadgeDotState extends State<BadgeDot>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 900),
@@ -649,22 +720,32 @@ class _BadgeDotState extends State<BadgeDot> with SingleTickerProviderStateMixin
   Widget build(BuildContext context) {
     return IgnorePointer(
       child: ScaleTransition(
-        scale: Tween<double>(begin: 0.9, end: 1.1).animate(
-          CurvedAnimation(parent: _c, curve: Curves.easeInOut),
-        ),
+        scale: Tween<double>(
+          begin: 0.9,
+          end: 1.1,
+        ).animate(CurvedAnimation(parent: _c, curve: Curves.easeInOut)),
         child: Container(
-          constraints: BoxConstraints(minWidth: widget.size, minHeight: widget.size),
+          constraints: BoxConstraints(
+            minWidth: widget.size,
+            minHeight: widget.size,
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 4),
           decoration: BoxDecoration(
             color: FF.blood,
             borderRadius: BorderRadius.circular(widget.size),
             border: Border.all(color: FF.ink, width: 2),
-            boxShadow: const [BoxShadow(color: Color(0x88E03A32), blurRadius: 8)],
+            boxShadow: const [
+              BoxShadow(color: Color(0x88E03A32), blurRadius: 8),
+            ],
           ),
           alignment: Alignment.center,
           child: Text(
             widget.count > 1 ? '${widget.count}' : '!',
-            style: FF.text(widget.size * 0.62, weight: FontWeight.w700, outline: false),
+            style: FF.text(
+              widget.size * 0.62,
+              weight: FontWeight.w700,
+              outline: false,
+            ),
           ),
         ),
       ),
@@ -706,7 +787,12 @@ String formatNumber(int n) {
 
 /// The wallet pill: a soul wisp and the count.
 class SoulCounter extends StatelessWidget {
-  const SoulCounter({required this.souls, this.scale = 1, this.onTap, super.key});
+  const SoulCounter({
+    required this.souls,
+    this.scale = 1,
+    this.onTap,
+    super.key,
+  });
 
   final int souls;
   final double scale;
@@ -721,14 +807,19 @@ class SoulCounter extends StatelessWidget {
         color: FF.ink.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(40),
         border: Border.all(color: FF.spirit.withValues(alpha: 0.7), width: 2),
-        boxShadow: [BoxShadow(color: FF.spirit.withValues(alpha: 0.18), blurRadius: 12)],
+        boxShadow: [
+          BoxShadow(color: FF.spirit.withValues(alpha: 0.18), blurRadius: 12),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           FFIcon(FFGlyph.soul, size: 30 * scale),
           SizedBox(width: 6 * scale),
-          RollingNumber(value: souls, style: FF.text(19 * scale, weight: FontWeight.w700)),
+          RollingNumber(
+            value: souls,
+            style: FF.text(19 * scale, weight: FontWeight.w700),
+          ),
           if (onTap != null) ...[
             SizedBox(width: 8 * scale),
             FFIcon(FFGlyph.plus, size: 18 * scale),
@@ -780,7 +871,10 @@ class StatChip extends StatelessWidget {
         children: [
           icon,
           SizedBox(width: 6 * scale),
-          Text(text, style: FF.text(15 * scale, color: color, weight: FontWeight.w700)),
+          Text(
+            text,
+            style: FF.text(15 * scale, color: color, weight: FontWeight.w700),
+          ),
         ],
       ),
     );
@@ -789,7 +883,12 @@ class StatChip extends StatelessWidget {
 
 /// Three stars, [earned] of them lit.
 class StarRow extends StatelessWidget {
-  const StarRow({required this.earned, this.size = 18, this.gap = 2, super.key});
+  const StarRow({
+    required this.earned,
+    this.size = 18,
+    this.gap = 2,
+    super.key,
+  });
 
   final int earned;
   final double size;
@@ -846,7 +945,11 @@ class BoneBar extends StatelessWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Color.lerp(color, Colors.white, 0.4)!, color, Color.lerp(color, FF.ink, 0.35)!],
+                    colors: [
+                      Color.lerp(color, Colors.white, 0.4)!,
+                      color,
+                      Color.lerp(color, FF.ink, 0.35)!,
+                    ],
                   ),
                 ),
               ),
@@ -903,7 +1006,9 @@ class _DungeonBackdropState extends State<DungeonBackdrop>
           decoration: BoxDecoration(
             color: FF.void_,
             image: DecorationImage(
-              image: FF.texture(widget.nightmare ? FF.bloodFloorTex : FF.floorTex),
+              image: FF.texture(
+                widget.nightmare ? FF.bloodFloorTex : FF.floorTex,
+              ),
               repeat: ImageRepeat.repeat,
               scale: 1.5,
               colorFilter: ColorFilter.mode(
@@ -978,7 +1083,11 @@ class _AtmospherePainter extends CustomPainter {
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
         );
       }
-      canvas.drawCircle(Offset(x, y), r, Paint()..color = color.withValues(alpha: a));
+      canvas.drawCircle(
+        Offset(x, y),
+        r,
+        Paint()..color = color.withValues(alpha: a),
+      );
     }
     // Vignette.
     final rect = Offset.zero & size;
@@ -1050,7 +1159,14 @@ class _FearFlipLogoState extends State<FearFlipLogo>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text('Fear', style: FF.title(s, color: FF.bone, glow: FF.amber.withValues(alpha: 0.45))),
+              Text(
+                'Fear',
+                style: FF.title(
+                  s,
+                  color: FF.bone,
+                  glow: FF.amber.withValues(alpha: 0.45),
+                ),
+              ),
               SizedBox(width: s * 0.12),
               Transform(
                 alignment: Alignment.center,
@@ -1059,7 +1175,11 @@ class _FearFlipLogoState extends State<FearFlipLogo>
                   ..rotateX(angle),
                 child: Text(
                   'Flip',
-                  style: FF.title(s, color: FF.blood, glow: FF.blood.withValues(alpha: 0.7)),
+                  style: FF.title(
+                    s,
+                    color: FF.blood,
+                    glow: FF.blood.withValues(alpha: 0.7),
+                  ),
                 ),
               ),
             ],
@@ -1090,8 +1210,10 @@ class DesignCanvas extends StatelessWidget {
   Widget build(BuildContext context) {
     final useWide = isWide(context);
     final size = useWide ? wideSize : tallSize;
+    // Tight constraints, so the canvas scales up on big screens (fullscreen)
+    // as well as down on small ones.
     return SafeArea(
-      child: Center(
+      child: SizedBox.expand(
         child: FittedBox(
           fit: BoxFit.contain,
           child: SizedBox(
@@ -1103,6 +1225,17 @@ class DesignCanvas extends StatelessWidget {
       ),
     );
   }
+}
+
+/// How much bigger than the design size the screen is (1 or more): dialogs
+/// and result panels grow with it so they match the menus on big screens.
+double designUpscaleOf(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  final design = DesignCanvas.isWide(context)
+      ? DesignCanvas.wideSize
+      : DesignCanvas.tallSize;
+  final s = min(size.width / design.width, size.height / design.height);
+  return s < 1 ? 1 : s;
 }
 
 /// A screen with the backdrop, a top bar (back, title, souls) and a body,
@@ -1151,7 +1284,9 @@ class MenuPage extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: FF.title(
                     wide ? 58 : 46,
-                    glow: (nightmare ? FF.blood : FF.amber).withValues(alpha: 0.35),
+                    glow: (nightmare ? FF.blood : FF.amber).withValues(
+                      alpha: 0.35,
+                    ),
                   ),
                 ),
               ),
@@ -1187,11 +1322,17 @@ Route<T> fadeRoute<T>(Widget page) => PageRouteBuilder<T>(
   reverseTransitionDuration: const Duration(milliseconds: 200),
   pageBuilder: (_, _, _) => page,
   transitionsBuilder: (_, animation, _, child) {
-    final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+    );
     return FadeTransition(
       opacity: curved,
       child: SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(curved),
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.04),
+          end: Offset.zero,
+        ).animate(curved),
         child: child,
       ),
     );
@@ -1214,15 +1355,24 @@ Future<T?> showFFDialog<T>(
       child: Center(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Material(type: MaterialType.transparency, child: builder(context)),
+          child: Material(
+            type: MaterialType.transparency,
+            child: builder(context),
+          ),
         ),
       ),
     ),
     transitionBuilder: (_, animation, _, child) {
-      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutBack);
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutBack,
+      );
       return FadeTransition(
         opacity: animation,
-        child: ScaleTransition(scale: Tween<double>(begin: 0.85, end: 1).animate(curved), child: child),
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.85, end: 1).animate(curved),
+          child: child,
+        ),
       );
     },
   );

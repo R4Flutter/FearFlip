@@ -18,7 +18,9 @@ import 'world_map_screen.dart';
 export 'dialogs.dart' show showLoginCalendar, showRewardDialog;
 
 void openMap(BuildContext context, {int? focusStage}) {
-  Navigator.of(context).push(fadeRoute<void>(WorldMapScreen(focusStage: focusStage)));
+  Navigator.of(
+    context,
+  ).push(fadeRoute<void>(WorldMapScreen(focusStage: focusStage)));
 }
 
 void openShop(BuildContext context, {ShopCategory? tab}) {

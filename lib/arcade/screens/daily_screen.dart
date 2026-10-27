@@ -51,7 +51,16 @@ class _DailyScreenState extends State<DailyScreen> {
           body: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(width: 330, child: Column(children: [login, const SizedBox(height: 14), Expanded(child: chests)])),
+              SizedBox(
+                width: 330,
+                child: Column(
+                  children: [
+                    login,
+                    const SizedBox(height: 14),
+                    Expanded(child: chests),
+                  ],
+                ),
+              ),
               const SizedBox(width: 16),
               Expanded(child: missions),
             ],
@@ -86,8 +95,16 @@ class _PanelTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        if (glyph != null) ...[FFIcon(glyph!, size: 34), const SizedBox(width: 10)],
-        Expanded(child: Text(text, style: FF.title(34, glow: FF.amber.withValues(alpha: 0.3)))),
+        if (glyph != null) ...[
+          FFIcon(glyph!, size: 34),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          child: Text(
+            text,
+            style: FF.title(34, glow: FF.amber.withValues(alpha: 0.3)),
+          ),
+        ),
       ],
     );
   }
@@ -118,12 +135,17 @@ class _LoginPanel extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: d <= progress.loginClaimedDays
                           ? FF.amber
-                          : (ready && d == progress.loginNextDay ? FF.blood3 : FF.slate),
+                          : (ready && d == progress.loginNextDay
+                                ? FF.blood3
+                                : FF.slate),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(color: FF.ink, width: 2),
                     ),
                     alignment: Alignment.center,
-                    child: Text('$d', style: FF.text(14, weight: FontWeight.w700)),
+                    child: Text(
+                      '$d',
+                      style: FF.text(14, weight: FontWeight.w700),
+                    ),
                   ),
                 ),
               ],
@@ -131,7 +153,9 @@ class _LoginPanel extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           SlabButton(
-            label: ready ? 'CLAIM DAY ${progress.loginNextDay}' : 'NEXT IN ${_hms(progress.untilTomorrow)}',
+            label: ready
+                ? 'CLAIM DAY ${progress.loginNextDay}'
+                : 'NEXT IN ${_hms(progress.untilTomorrow)}',
             tone: ready ? ButtonTone.amber : ButtonTone.stone,
             pulse: ready,
             height: 52,
@@ -156,7 +180,10 @@ class _MissionsPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const _PanelTitle("Tonight's Missions", glyph: FFGlyph.scroll),
-          Text('New missions in ${_hms(progress.untilTomorrow)}', style: FF.text(15, color: FF.stoneLight)),
+          Text(
+            'New missions in ${_hms(progress.untilTomorrow)}',
+            style: FF.text(15, color: FF.stoneLight),
+          ),
           const SizedBox(height: 10),
           for (var i = 0; i < missions.length; i++) ...[
             _MissionRow(index: i, mission: missions[i]),
@@ -173,7 +200,10 @@ class _MissionsPanel extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('ALL THREE DONE', style: FF.text(18, weight: FontWeight.w700)),
+                      Text(
+                        'ALL THREE DONE',
+                        style: FF.text(18, weight: FontWeight.w700),
+                      ),
                       Text(
                         progress.missionsBonusClaimed
                             ? 'Bonus claimed. See you tomorrow!'
@@ -185,7 +215,9 @@ class _MissionsPanel extends StatelessWidget {
                 ),
                 SlabButton(
                   label: progress.missionsBonusClaimed ? 'DONE' : 'OPEN',
-                  tone: progress.missionsBonusReady ? ButtonTone.gold : ButtonTone.stone,
+                  tone: progress.missionsBonusReady
+                      ? ButtonTone.gold
+                      : ButtonTone.stone,
                   height: 48,
                   width: 120,
                   pulse: progress.missionsBonusReady,
@@ -194,7 +226,9 @@ class _MissionsPanel extends StatelessWidget {
                       ? () async {
                           final reward = progress.claimMissionsBonus();
                           await showChestOpening(context, reward);
-                          if (context.mounted) ArcadeScope.of(context).announceAchievements();
+                          if (context.mounted) {
+                            ArcadeScope.of(context).announceAchievements();
+                          }
                         }
                       : null,
                 ),
@@ -221,7 +255,10 @@ class _MissionRow extends StatelessWidget {
       highlight: mission.claimable ? FF.amber : null,
       child: Row(
         children: [
-          FFIcon(mission.claimed ? FFGlyph.check : _glyphFor(mission.kind), size: 40),
+          FFIcon(
+            mission.claimed ? FFGlyph.check : _glyphFor(mission.kind),
+            size: 40,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -229,7 +266,11 @@ class _MissionRow extends StatelessWidget {
               children: [
                 Text(
                   mission.title,
-                  style: FF.text(18, weight: FontWeight.w700, color: mission.claimed ? FF.stone3 : FF.bone),
+                  style: FF.text(
+                    18,
+                    weight: FontWeight.w700,
+                    color: mission.claimed ? FF.stone3 : FF.bone,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Row(
@@ -243,7 +284,10 @@ class _MissionRow extends StatelessWidget {
                     ),
                     const SizedBox(width: 10),
                     const FFIcon(FFGlyph.soul, size: 22),
-                    Text('${mission.reward}', style: FF.text(16, weight: FontWeight.w700)),
+                    Text(
+                      '${mission.reward}',
+                      style: FF.text(16, weight: FontWeight.w700),
+                    ),
                   ],
                 ),
               ],
@@ -277,7 +321,11 @@ class _MissionRow extends StatelessWidget {
               child: Text(
                 mission.claimed ? 'CLAIMED' : 'IN PROGRESS',
                 textAlign: TextAlign.center,
-                style: FF.text(15, color: mission.claimed ? FF.amber : FF.stoneLight, weight: FontWeight.w700),
+                style: FF.text(
+                  15,
+                  color: mission.claimed ? FF.amber : FF.stoneLight,
+                  weight: FontWeight.w700,
+                ),
               ),
             ),
         ],
@@ -285,13 +333,23 @@ class _MissionRow extends StatelessWidget {
     );
   }
 
-  Future<void> _claim(BuildContext context, ProgressController progress, {required bool doubled}) async {
+  Future<void> _claim(
+    BuildContext context,
+    ProgressController progress, {
+    required bool doubled,
+  }) async {
     final arcade = ArcadeScope.of(context);
     if (doubled && !await arcade.watchRewarded()) return;
     final reward = progress.claimMission(index, doubled: doubled);
     if (reward.isEmpty) return;
     Sfx.instance.play(Sound.coins);
-    arcade.showToast(ToastMessage('+${reward.souls} souls', subtitle: mission.title, kind: ToastKind.reward));
+    arcade.showToast(
+      ToastMessage(
+        '+${reward.souls} souls',
+        subtitle: mission.title,
+        kind: ToastKind.reward,
+      ),
+    );
     arcade.announceAchievements();
   }
 
@@ -334,15 +392,23 @@ class _ChestPanel extends StatelessWidget {
                 tween: Tween(begin: 0, end: 1),
                 duration: const Duration(milliseconds: 1600),
                 builder: (context, v, child) => Transform.rotate(
-                  angle: free ? 0.06 * (v < 0.5 ? v : 1 - v) * (v * 40 % 2 > 1 ? 1 : -1) : 0,
+                  angle: free
+                      ? 0.06 * (v < 0.5 ? v : 1 - v) * (v * 40 % 2 > 1 ? 1 : -1)
+                      : 0,
                   child: child,
                 ),
-                child: FFIcon(FFGlyph.chest, size: 96, color: free || adLeft > 0 ? null : FF.stone2),
+                child: FFIcon(
+                  FFGlyph.chest,
+                  size: 96,
+                  color: free || adLeft > 0 ? null : FF.stone2,
+                ),
               ),
             ),
           ),
           SlabButton(
-            label: free ? 'OPEN FREE CHEST' : 'FREE CHEST IN ${_hms(progress.untilTomorrow)}',
+            label: free
+                ? 'OPEN FREE CHEST'
+                : 'FREE CHEST IN ${_hms(progress.untilTomorrow)}',
             tone: free ? ButtonTone.gold : ButtonTone.stone,
             pulse: free,
             height: 52,
@@ -358,7 +424,9 @@ class _ChestPanel extends StatelessWidget {
           const SizedBox(height: 10),
           SlabButton(
             label: adLeft > 0 ? 'BONUS CHEST' : 'NO BONUS CHESTS LEFT',
-            sublabel: adLeft > 0 ? 'WATCH A VIDEO · $adLeft LEFT TODAY' : 'BACK TOMORROW',
+            sublabel: adLeft > 0
+                ? 'WATCH A VIDEO · $adLeft LEFT TODAY'
+                : 'BACK TOMORROW',
             icon: adLeft > 0 ? FF.art('icon_film', size: 28) : null,
             tone: adLeft > 0 ? ButtonTone.bone : ButtonTone.stone,
             height: 56,

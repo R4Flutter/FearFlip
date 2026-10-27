@@ -45,7 +45,10 @@ class AchievementsScreen extends StatelessWidget {
           ),
           onBack: () => Navigator.of(context).pop(),
           body: StonePanel(padding: const EdgeInsets.all(10), child: grid(2)),
-          tallBody: StonePanel(padding: const EdgeInsets.all(8), child: grid(1)),
+          tallBody: StonePanel(
+            padding: const EdgeInsets.all(8),
+            child: grid(1),
+          ),
         );
       },
     );
@@ -64,7 +67,9 @@ class _AchievementTile extends StatelessWidget {
     final value = progress.metricValue(achievement);
     final claimable = progress.canClaimAchievement(achievement);
     final claimed = progress.isClaimed(achievement);
-    final item = achievement.itemId == null ? null : ShopCatalog.byId(achievement.itemId!);
+    final item = achievement.itemId == null
+        ? null
+        : ShopCatalog.byId(achievement.itemId!);
     return Slot(
       highlight: claimable ? FF.gold : null,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -80,22 +85,41 @@ class _AchievementTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(achievement.title, maxLines: 1, style: FF.text(19, weight: FontWeight.w700, color: claimed ? FF.gold : FF.bone)),
-                Text(achievement.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: FF.text(14, color: FF.bone2)),
+                Text(
+                  achievement.title,
+                  maxLines: 1,
+                  style: FF.text(
+                    19,
+                    weight: FontWeight.w700,
+                    color: claimed ? FF.gold : FF.bone,
+                  ),
+                ),
+                Text(
+                  achievement.text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: FF.text(14, color: FF.bone2),
+                ),
                 const SizedBox(height: 5),
                 Row(
                   children: [
                     Expanded(
                       child: BoneBar(
-                        value: achievement.target == 0 ? 1 : value / achievement.target,
+                        value: achievement.target == 0
+                            ? 1
+                            : value / achievement.target,
                         height: 16,
                         color: claimed ? FF.gold : FF.amber,
-                        label: '${value > achievement.target ? achievement.target : value}/${achievement.target}',
+                        label:
+                            '${value > achievement.target ? achievement.target : value}/${achievement.target}',
                       ),
                     ),
                     const SizedBox(width: 8),
                     const FFIcon(FFGlyph.soul, size: 20),
-                    Text('${achievement.souls}', style: FF.text(15, weight: FontWeight.w700)),
+                    Text(
+                      '${achievement.souls}',
+                      style: FF.text(15, weight: FontWeight.w700),
+                    ),
                     if (item != null) ...[
                       const SizedBox(width: 6),
                       const FFIcon(FFGlyph.crown, size: 20),
@@ -117,7 +141,11 @@ class _AchievementTile extends StatelessWidget {
               sound: null,
               onPressed: () async {
                 final reward = progress.claimAchievement(achievement);
-                await showRewardDialog(context, reward: reward, title: achievement.title);
+                await showRewardDialog(
+                  context,
+                  reward: reward,
+                  title: achievement.title,
+                );
                 arcade.announceAchievements();
               },
             )

@@ -153,47 +153,52 @@ class GameHud extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IgnorePointer(
-                child: TimeBar(
-                  fraction: fraction,
-                  panic: isPanic,
-                  width: 132 * uiScale,
-                  child: Text(
-                    remainingSeconds.toString().padLeft(2, '0'),
-                    style: NightHud.number(
-                      15 * uiScale,
-                      color: isPanic ? NightHud.blood : NightHud.bone,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IgnorePointer(
+                    child: TimeBar(
+                      fraction: fraction,
+                      panic: isPanic,
+                      width: 132 * uiScale,
+                      child: Text(
+                        remainingSeconds.toString().padLeft(2, '0'),
+                        style: NightHud.number(
+                          15 * uiScale,
+                          color: isPanic ? NightHud.blood : NightHud.bone,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-              SizedBox(width: 6 * uiScale),
-              Tooltip(
-                message: isPaused ? 'Resume run' : 'Pause run',
-                child: GestureDetector(
-                  key: pauseKey,
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onPauseTap,
-                  child: NightHud.art(
-                    isPaused ? 'button_pressed' : 'button',
-                    width: 42 * uiScale,
-                    fallback: Icon(
-                      isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                      color: NightHud.bone,
+                  SizedBox(width: 6 * uiScale),
+                  Tooltip(
+                    message: isPaused ? 'Resume run' : 'Pause run',
+                    child: GestureDetector(
+                      key: pauseKey,
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onPauseTap,
+                      child: NightHud.art(
+                        isPaused ? 'button_pressed' : 'button',
+                        width: 42 * uiScale,
+                        fallback: Icon(
+                          isPaused
+                              ? Icons.play_arrow_rounded
+                              : Icons.pause_rounded,
+                          color: NightHud.bone,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
-          if (starsNow != null)
-            Padding(
-              padding: EdgeInsets.only(top: 4 * uiScale, right: 48 * uiScale),
-              child: _StarsNow(stars: starsNow!, scale: uiScale),
-            ),
+              if (starsNow != null)
+                Padding(
+                  padding: EdgeInsets.only(
+                    top: 4 * uiScale,
+                    right: 48 * uiScale,
+                  ),
+                  child: _StarsNow(stars: starsNow!, scale: uiScale),
+                ),
             ],
           ),
         ),
@@ -510,7 +515,6 @@ class _KeySlotsState extends State<_KeySlots>
   }
 }
 
-
 /// The wisps found this run.
 class _SoulPill extends StatelessWidget {
   const _SoulPill({required this.souls, required this.scale});
@@ -525,13 +529,20 @@ class _SoulPill extends StatelessWidget {
       tween: Tween(begin: 1.35, end: 1),
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOut,
-      builder: (context, v, child) => Transform.scale(scale: souls == 0 ? 1 : v, alignment: Alignment.centerLeft, child: child),
+      builder: (context, v, child) => Transform.scale(
+        scale: souls == 0 ? 1 : v,
+        alignment: Alignment.centerLeft,
+        child: child,
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           FFIcon(FFGlyph.soul, size: 26 * scale),
           const SizedBox(width: 4),
-          Text('$souls', style: NightHud.number(17 * scale, color: NightHud.spirit)),
+          Text(
+            '$souls',
+            style: NightHud.number(17 * scale, color: NightHud.spirit),
+          ),
         ],
       ),
     );
@@ -555,7 +566,10 @@ class _StarsNow extends StatelessWidget {
             AnimatedScale(
               scale: i < stars ? 1 : 0.8,
               duration: const Duration(milliseconds: 300),
-              child: FFIcon(i < stars ? FFGlyph.star : FFGlyph.starEmpty, size: 20 * scale),
+              child: FFIcon(
+                i < stars ? FFGlyph.star : FFGlyph.starEmpty,
+                size: 20 * scale,
+              ),
             ),
         ],
       ),
@@ -594,18 +608,24 @@ class FlipDial extends StatelessWidget {
             width: size,
             height: size,
             child: CustomPaint(
-              painter: _DialPainter(progress: progress, soon: soon, flipped: flipped),
+              painter: _DialPainter(
+                progress: progress,
+                soon: soon,
+                flipped: flipped,
+              ),
             ),
           ),
           if (!compact) SizedBox(width: 6 * scale),
           if (!compact)
-          Text(
-            soon ? 'FLIP!' : (flipped ? 'FLIPPED' : 'NORMAL'),
-            style: NightHud.number(
-              15 * scale,
-              color: soon ? NightHud.blood : (flipped ? NightHud.blood : NightHud.boneDim),
+            Text(
+              soon ? 'FLIP!' : (flipped ? 'FLIPPED' : 'NORMAL'),
+              style: NightHud.number(
+                15 * scale,
+                color: soon
+                    ? NightHud.blood
+                    : (flipped ? NightHud.blood : NightHud.boneDim),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -613,7 +633,11 @@ class FlipDial extends StatelessWidget {
 }
 
 class _DialPainter extends CustomPainter {
-  _DialPainter({required this.progress, required this.soon, required this.flipped});
+  _DialPainter({
+    required this.progress,
+    required this.soon,
+    required this.flipped,
+  });
 
   final double progress;
   final bool soon;
@@ -623,18 +647,29 @@ class _DialPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
     final r = size.width / 2 - 3;
-    canvas.drawCircle(c, r + 2, Paint()..color = NightHud.ink.withValues(alpha: 0.8));
+    canvas.drawCircle(
+      c,
+      r + 2,
+      Paint()..color = NightHud.ink.withValues(alpha: 0.8),
+    );
     canvas.drawCircle(
       c,
       r - 3,
-      Paint()..color = flipped ? const Color(0xFF4D0E15) : const Color(0xFF3B4660),
+      Paint()
+        ..color = flipped ? const Color(0xFF4D0E15) : const Color(0xFF3B4660),
     );
     final ring = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4
       ..strokeCap = StrokeCap.round
       ..color = soon ? NightHud.blood : NightHud.amber;
-    canvas.drawArc(Rect.fromCircle(center: c, radius: r), -pi / 2, 2 * pi * progress, false, ring);
+    canvas.drawArc(
+      Rect.fromCircle(center: c, radius: r),
+      -pi / 2,
+      2 * pi * progress,
+      false,
+      ring,
+    );
     // Two curved arrows: the flip symbol.
     final arrow = Paint()
       ..style = PaintingStyle.stroke
@@ -642,18 +677,37 @@ class _DialPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..color = NightHud.bone;
     final a = r * 0.48;
-    canvas.drawArc(Rect.fromCircle(center: c, radius: a), -pi * 0.9, pi * 0.75, false, arrow);
-    canvas.drawArc(Rect.fromCircle(center: c, radius: a), pi * 0.1, pi * 0.75, false, arrow);
+    canvas.drawArc(
+      Rect.fromCircle(center: c, radius: a),
+      -pi * 0.9,
+      pi * 0.75,
+      false,
+      arrow,
+    );
+    canvas.drawArc(
+      Rect.fromCircle(center: c, radius: a),
+      pi * 0.1,
+      pi * 0.75,
+      false,
+      arrow,
+    );
     void head(double angle) {
       final p = c + Offset(cos(angle), sin(angle)) * a;
       final dir = Offset(-sin(angle), cos(angle));
       final path = Path()
         ..moveTo(p.dx + dir.dx * 4, p.dy + dir.dy * 4)
-        ..lineTo(p.dx - dir.dx * 1 + cos(angle) * 4, p.dy - dir.dy * 1 + sin(angle) * 4)
-        ..lineTo(p.dx - dir.dx * 1 - cos(angle) * 4, p.dy - dir.dy * 1 - sin(angle) * 4)
+        ..lineTo(
+          p.dx - dir.dx * 1 + cos(angle) * 4,
+          p.dy - dir.dy * 1 + sin(angle) * 4,
+        )
+        ..lineTo(
+          p.dx - dir.dx * 1 - cos(angle) * 4,
+          p.dy - dir.dy * 1 - sin(angle) * 4,
+        )
         ..close();
       canvas.drawPath(path, Paint()..color = NightHud.bone);
     }
+
     head(-pi * 0.15);
     head(pi * 0.85);
   }
