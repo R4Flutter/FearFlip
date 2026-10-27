@@ -6,14 +6,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fearflipgame/presentation/gameplay/maze_art.dart';
 
-/// The real asset bundle, minus [missing].
+/// The real asset bundle, minus [missing]; remembers every key asked for.
 class _HolesBundle extends CachingAssetBundle {
   _HolesBundle(this.missing);
 
   final Set<String> missing;
+  final List<String> asked = [];
 
   @override
   Future<ByteData> load(String key) {
+    asked.add(key);
     if (missing.contains(key)) {
       throw FlutterError('missing $key');
     }
@@ -64,6 +66,30 @@ void main() {
     expect(art.torch, isNull);
     expect(art.start, isNotNull);
     expect(art.wakeTiles, isNotNull);
+    expect(art.complete, isFalse);
+  });
+
+  testWidgets('sheets that are not in the build are never fetched', (
+    tester,
+  ) async {
+    final bundle = _HolesBundle({});
+    final art = (await tester.runAsync(() => MazeArt.load(bundle: bundle)))!;
+    addTearDown(art.dispose);
+
+    // The chest sheet isn't delivered yet: asking for it would be a 404 on
+    // the web.
+    expect(bundle.asked, isNot(contains('assets/images/2d/objects/chest.png')));
+    expect(art.chest, isNull);
+    expect(art.complete, isTrue);
+  });
+
+  testWidgets('every maze shares one copy of the art', (tester) async {
+    final first = (await tester.runAsync(MazeArt.shared))!;
+    final second = (await tester.runAsync(MazeArt.shared))!;
+
+    expect(second, same(first));
+    expect(MazeArt.ready, same(first));
+    expect(first.wakeTiles, isNotNull);
   });
 
   testWidgets('frames wrap and loop over time', (tester) async {

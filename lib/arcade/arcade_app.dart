@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 
+import '../presentation/gameplay/maze_art.dart';
 import '../services/audio_manager.dart';
 import 'arcade_controller.dart';
 import 'platform/portal.dart';
@@ -59,6 +60,8 @@ class _ArcadeAppState extends State<ArcadeApp> with WidgetsBindingObserver {
       _portal.finishLoading();
       unawaited(AudioManager.instance.preload());
       unawaited(AudioManager.instance.setMenuThemeActive(true));
+      // The maze art loads while the player is on the dashboard.
+      unawaited(MazeArt.shared());
     });
   }
 

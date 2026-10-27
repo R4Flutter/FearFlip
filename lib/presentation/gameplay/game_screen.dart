@@ -333,7 +333,12 @@ class _GameScreenState extends State<GameScreen>
     }
     _startCountdown();
     _startStageLoop();
-    unawaited(_loadArt());
+    final art = MazeArt.ready;
+    if (art != null) {
+      _art = art;
+    } else {
+      unawaited(_loadArt());
+    }
     if (widget.isActive) {
       _lockOrientation(playing: true);
     }
@@ -405,7 +410,6 @@ class _GameScreenState extends State<GameScreen>
     if (_arcade) {
       _run.arcade.portal.gameplayStop();
     }
-    _art.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _clearKeyboardMovement(stopPlayer: false);
     _keyboardFocusNode.dispose();
@@ -2467,13 +2471,10 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  /// The session's shared art (never disposed here: every maze uses it).
   Future<void> _loadArt() async {
-    final art = await MazeArt.load();
-    if (!mounted) {
-      art.dispose();
-      return;
-    }
-    _art.dispose();
+    final art = await MazeArt.shared();
+    if (!mounted) return;
     _art = art;
     _markGameSurfaceDirty();
   }

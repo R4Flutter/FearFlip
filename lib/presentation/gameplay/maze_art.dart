@@ -36,10 +36,10 @@ class SpriteStrip {
 /// missing or broken file leaves its slot null and the painter keeps drawing
 /// the stand-in it has today.
 class MazeArt {
-  MazeArt._(this._strips);
+  MazeArt._(this._strips, {this.complete = true});
 
   /// An empty set, for before [load] finishes.
-  const MazeArt.none() : _strips = const {};
+  const MazeArt.none() : _strips = const {}, complete = false;
 
   static const _dir = 'assets/images/2d';
 
@@ -71,6 +71,9 @@ class MazeArt {
 
   final Map<String, SpriteStrip> _strips;
 
+  /// Every strip that is in the build loaded.
+  final bool complete;
+
   SpriteStrip? get wakeTiles => _strips['tiles/wake_tiles.png'];
   SpriteStrip? get nightmareTiles => _strips['tiles/nightmare_tiles.png'];
   SpriteStrip? get start => _strips['objects/start.png'];
@@ -92,15 +95,56 @@ class MazeArt {
   SpriteStrip? get dust => _strips['fx/dust.png'];
   SpriteStrip? get boneArrow => _strips['ui/bone_arrow.png'];
 
+  static Future<MazeArt>? _shared;
+  static MazeArt? _ready;
+
+  /// The session's one decoded copy, once [shared] has finished loading it.
+  static MazeArt? get ready => _ready;
+
+  /// One decoded copy shared by every maze for the whole session (never
+  /// disposed), so a stage opens with its art instead of the stand-in. The
+  /// dashboard starts it early; if a file fails to load (a network hiccup on
+  /// the web) the next call tries again.
+  static Future<MazeArt> shared() {
+    return _shared ??= load().then((art) {
+      if (art.complete) {
+        _ready = art;
+      } else {
+        _shared = null;
+      }
+      return art;
+    });
+  }
+
   static Future<MazeArt> load({AssetBundle? bundle}) async {
     final source = bundle ?? rootBundle;
+    final files = await _inBuild(source);
     final loaded = await Future.wait(
-      _files.entries.map((e) => _strip(source, e.key, e.value)),
+      files.entries.map((e) => _strip(source, e.key, e.value)),
     );
-    return MazeArt._({
+    final strips = {
       for (final s in loaded)
         if (s != null) s.key: s.value,
-    });
+    };
+    return MazeArt._(strips, complete: strips.length == files.length);
+  }
+
+  /// The [_files] the build contains. Sheets that aren't delivered yet are
+  /// left out, so the web build never asks the server for them (a 404 in the
+  /// console). If the manifest can't be read, every file is tried.
+  static Future<Map<String, int>> _inBuild(AssetBundle bundle) async {
+    try {
+      final listed = (await AssetManifest.loadFromAssetBundle(
+        bundle,
+      )).listAssets().toSet();
+      return {
+        for (final e in _files.entries)
+          if (listed.contains('$_dir/${e.key}')) e.key: e.value,
+      };
+    } catch (error) {
+      debugPrint('[MazeArt] asset manifest not read: $error');
+      return _files;
+    }
   }
 
   static Future<MapEntry<String, SpriteStrip>?> _strip(

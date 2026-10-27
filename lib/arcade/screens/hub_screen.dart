@@ -231,7 +231,7 @@ class _ModeCard extends StatelessWidget {
                           Flexible(
                             child: Text(
                               line,
-                              maxLines: 2,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: FF.text(15, color: FF.bone2),
                             ),
@@ -406,9 +406,10 @@ List<Widget> _modeCards(
 }) {
   final daily = arcade.todaysDaily;
   final streak = arcade.dailyStreakDays;
+  // Kept to one line: the card has room for about 30 characters.
   final dailyLine = arcade.dailyEscapedToday
-      ? 'Escaped! Best ${_mmss(arcade.dailyBestToday ?? 0)} · next in ${_countdown(progress.untilTomorrow)}'
-      : '#${daily.number} · one maze for all · ${streak > 0 ? '$streak-day streak' : 'new every day'}';
+      ? 'Best ${_mmss(arcade.dailyBestToday ?? 0)} · next in ${_countdown(progress.untilTomorrow)}'
+      : '#${daily.number} · ${streak > 0 ? '$streak-day streak' : 'same maze for all'}';
   final cards = <Widget>[
     _ModeCard(
       glyph: FFGlyph.map,
