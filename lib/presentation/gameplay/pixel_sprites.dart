@@ -116,61 +116,155 @@ abstract final class RunnerPixels {
   };
 }
 
-/// The Devil: too tall, too thin, horns and a grin; it faces the player.
+/// The Devil: too tall, too thin, horns and a grin. It faces the way it
+/// walks, with a walk cycle like the runner's: frame 0 stands (from the side,
+/// the legs passing), 1 and 2 are the two steps. Facing right is facing left
+/// mirrored.
+///
+/// Legend: `.` clear, `o` outline, `D`/`d` body, `R` eyes, `W` teeth and
+/// claws, `H`/`h` horns.
 abstract final class DevilPixels {
   static const int width = 16;
   static const int height = 22;
 
-  static const List<List<String>> frames = [
+  static const List<String> _frontHead = [
+    '..o..........o..',
+    '.oHo........oHo.',
+    '.ohho......ohho.',
+    '..ohho....ohho..',
+    '...ohooooooho...',
+    '...oDDDDDDDDo...',
+    '..oDDDDDDDDDDo..',
+    '..oDRRDDDDRRDo..',
+    '..oDdRDDDDRdDo..',
+    '..oDDDDDDDDDDo..',
+    '..oDWoWoWoWoDo..',
+    '...oDWWWWWWDo...',
+    '...ooDDDDDDoo...',
+  ];
+
+  static const List<String> _backHead = [
+    '..o..........o..',
+    '.oHo........oHo.',
+    '.ohho......ohho.',
+    '..ohho....ohho..',
+    '...ohooooooho...',
+    '...oDDDDDDDDo...',
+    '..oDDDDDDDDDDo..',
+    '..oDDDDDDDDDDo..',
+    '..oDDDDDDDDDDo..',
+    '..odDDDDDDDDdo..',
+    '..oddDDDDDDddo..',
+    '...oddddddddo...',
+    '...ooDDDDDDoo...',
+  ];
+
+  static const List<String> _sideHead = [
+    '.o..........o...',
+    'oHo........oHo..',
+    'ohho......ohho..',
+    '.ohho....ohho...',
+    '..ohooooooho....',
+    '..oDDDDDDDDo....',
+    '.oDDDDDDDDDDo...',
+    '.oRRDDDDDDDDo...',
+    '.odRDDDDDDDDo...',
+    '.oDDDDDDDDDdo...',
+    'oWoWoWDDDDDdo...',
+    '.oWWWWDDDDdo....',
+    '..ooDDDDDDoo....',
+  ];
+
+  static const List<String> _frontStand = [
+    '..oDDdDDDDdDDo..',
+    '.oDDdDDDDDDdDDo.',
+    '.oDo.oDDDDo.oDo.',
+    '.oDo.oDDDDo.oDo.',
+    '.oWo.oDddDo.oWo.',
+    '..o..oDooDo..o..',
+    '.....oDooDo.....',
+    '....oDDooDDo....',
+    '....oooooooo....',
+  ];
+
+  /// The left foot lifts; the left arm swings back, the right one forward.
+  static const List<String> _frontStep = [
+    '..oDDdDDDDdDDo..',
+    '.oDDdDDDDDDdDDo.',
+    '.oDo.oDDDDo.oDo.',
+    '.oWo.oDDDDo.oDo.',
+    '..o..oDddDo.oDo.',
+    '.....oDooDo.oWo.',
+    '....oDDooDo..o..',
+    '....oooooDDo....',
+    '........oooo....',
+  ];
+
+  /// Shoulders and spine from behind (the rest of the body is the front's).
+  static const List<String> _backTorso = [
+    '..oDDDDddDDDDo..',
+    '.oDDDDDddDDDDDo.',
+  ];
+
+  /// From the side: hunched, one long arm reaching ahead, claws out.
+  static const List<String> _sideTorso = [
+    '...oDDDDDDo.....',
+    '..ooDDDDDDdo....',
+    '.oDDoDDDDDdo....',
+    'oDDo.oDDDDdo....',
+    'oWWo.oDDDddo....',
+  ];
+
+  /// Passing, then a stride on each leg (the far leg is the darker one).
+  static const List<List<String>> _sideLegs = [
     [
-      '..o..........o..',
-      '.oHo........oHo.',
-      '.ohho......ohho.',
-      '..ohho....ohho..',
-      '...ohooooooho...',
-      '...oDDDDDDDDo...',
-      '..oDDDDDDDDDDo..',
-      '..oDRRDDDDRRDo..',
-      '..oDdRDDDDRdDo..',
-      '..oDDDDDDDDDDo..',
-      '..oDWoWoWoWoDo..',
-      '...oDWWWWWWDo...',
-      '...ooDDDDDDoo...',
-      '..oDDdDDDDdDDo..',
-      '.oDDdDDDDDDdDDo.',
-      '.oDo.oDDDDo.oDo.',
-      '.oDo.oDDDDo.oDo.',
-      '.oWo.oDddDo.oWo.',
-      '..o..oDooDo..o..',
-      '.....oDooDo.....',
-      '.....oDo.oDo....',
-      '.....ooo.ooo....',
+      '.....oDDDDo.....',
+      '.....oDDDo......',
+      '....oDDDDo......',
+      '....ooooo.......',
     ],
     [
-      '..o..........o..',
-      '.oHo........oHo.',
-      '.ohho......ohho.',
-      '..ohho....ohho..',
-      '...ohooooooho...',
-      '...oDDDDDDDDo...',
-      '..oDDDDDDDDDDo..',
-      '..oDRRDDDDRRDo..',
-      '..oDdRDDDDRdDo..',
-      '..oDDDDDDDDDDo..',
-      '..oDWoWoWoWoDo..',
-      '...oDWWWWWWDo...',
-      '...ooDDDDDDoo...',
-      '..oDDdDDDDdDDo..',
-      '.oDDdDDDDDDdDDo.',
-      'oDo..oDDDDo..oDo',
-      'oDo..oDDDDo..oDo',
-      'oWo..oDddDo..oWo',
-      '.o...oDooDo...o.',
-      '.....oDooDo.....',
-      '....oDo.oDo.....',
-      '....ooo.ooo.....',
+      '.....oDDDDo.....',
+      '....oDDoddo.....',
+      '...oDDo.oddo....',
+      '...oooo.oooo....',
+    ],
+    [
+      '.....oDDDDo.....',
+      '....oddoDDo.....',
+      '...oddo.oDDo....',
+      '...oooo.oooo....',
     ],
   ];
+
+  static List<String> _mirror(List<String> rows) => [
+    for (final r in rows) r.split('').reversed.join(),
+  ];
+
+  /// The rows for [facing] and walk [frame] (0 stand, 1–2 steps).
+  static List<String> rows(Direction4 facing, int frame) {
+    final f = frame.clamp(0, 2);
+    final front = switch (f) {
+      0 => _frontStand,
+      1 => _frontStep,
+      _ => _mirror(_frontStep),
+    };
+    return switch (facing) {
+      Direction4.down => [..._frontHead, ...front],
+      Direction4.up => [..._backHead, ..._backTorso, ...front.skip(2)],
+      Direction4.left => [..._sideHead, ..._sideTorso, ..._sideLegs[f]],
+      Direction4.right => _mirror(rows(Direction4.left, f)),
+    };
+  }
+
+  /// The middle of each eye, in sprite pixels: two from the front, one from
+  /// the side, none from behind.
+  static List<Offset> eyes(Direction4 facing) => switch (facing) {
+    Direction4.down => const [Offset(5, 8), Offset(11, 8)],
+    Direction4.up => const [],
+    Direction4.left => const [Offset(3, 8)],
+    Direction4.right => const [Offset(width - 3, 8)],
+  };
 
   static Color? colorFor(String ch, {bool frozen = false}) => switch (ch) {
     'o' => const Color(0xFF0A0A0F),
@@ -231,11 +325,12 @@ class PixelSpriteCache {
     );
   }
 
-  ui.Image devil(int frame, {bool frozen = false}) => _render(
-    'd${frame}_$frozen',
-    DevilPixels.frames[frame % DevilPixels.frames.length],
-    (ch) => DevilPixels.colorFor(ch, frozen: frozen),
-  );
+  ui.Image devil(Direction4 facing, int frame, {bool frozen = false}) =>
+      _render(
+        'd${facing.name}${frame}_$frozen',
+        DevilPixels.rows(facing, frame),
+        (ch) => DevilPixels.colorFor(ch, frozen: frozen),
+      );
 }
 
 /// Draws the runner with its lantern. [feet] is where the sprite stands;
@@ -335,26 +430,35 @@ void _paintLantern(
   );
 }
 
-/// Draws the Devil standing on [feet], [height] tall.
-void paintDevil(
+/// Draws the Devil standing on [feet], [height] tall, facing [facing]; it
+/// walks while [moving]. Returns where its eyes are on the canvas, so their
+/// glow can be drawn again above the dark.
+List<Offset> paintDevil(
   Canvas canvas, {
   required Offset feet,
   required double height,
   required double time,
+  Direction4 facing = Direction4.down,
+  bool moving = false,
   bool frozen = false,
   bool raging = false,
 }) {
-  final frame = (time * (raging ? 6 : 2.5)).floor() % 2;
-  final image = PixelSpriteCache.instance.devil(frame, frozen: frozen);
+  final walking = moving && !frozen;
+  // Raging, it sprints: a faster cadence and a shake.
+  final cadence = raging ? 12.0 : 7.0;
+  final frame = walking ? const [1, 0, 2, 0][(time * cadence).floor() % 4] : 0;
+  final image = PixelSpriteCache.instance.devil(facing, frame, frozen: frozen);
   final scale = height / DevilPixels.height;
   final width = DevilPixels.width * scale;
+  // Walking, the body rises as the legs pass; standing, it breathes.
+  final bob = walking
+      ? (frame == 0 ? -scale : 0.0)
+      : frozen
+      ? 0.0
+      : sin(time * 2.4) * scale * 0.5;
   final jitter = raging ? sin(time * 70) * scale * 0.6 : 0.0;
-  final dst = Rect.fromLTWH(
-    feet.dx - width / 2 + jitter,
-    feet.dy - height,
-    width,
-    height,
-  );
+  final left = feet.dx - width / 2 + jitter;
+  final top = feet.dy - height + bob;
   canvas.drawOval(
     Rect.fromCenter(center: feet, width: width * 0.7, height: scale * 3),
     Paint()
@@ -365,9 +469,13 @@ void paintDevil(
   canvas.drawImageRect(
     image,
     Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-    dst,
+    Rect.fromLTWH(left, top, width, height),
     Paint()
       ..filterQuality = FilterQuality.none
       ..isAntiAlias = false,
   );
+  return [
+    for (final eye in DevilPixels.eyes(facing))
+      Offset(left + eye.dx * scale, top + eye.dy * scale),
+  ];
 }

@@ -31,6 +31,7 @@ import '../../services/audio_manager.dart';
 import '../../services/error_reporter.dart';
 import '../../services/game_audio_event.dart';
 import 'glitch_effect_controller.dart';
+import 'devil_motion.dart';
 import 'maze_art.dart';
 import 'maze_camera.dart';
 import 'maze_generator.dart';
@@ -233,6 +234,9 @@ class _GameScreenState extends State<GameScreen>
   double _nextFlipAtSeconds = 0;
   bool _controlsInverted = false;
   Point<int>? _devilCell;
+
+  /// Glides the drawn Devil between the cells it steps to.
+  final DevilMotion _devilMotion = DevilMotion();
   bool _devilSpawned = false;
   double _devilMoveAccumulator = 0;
   Point<int>? _lastPlayerCell;
@@ -1323,6 +1327,7 @@ class _GameScreenState extends State<GameScreen>
     if (_canSpawnDevilNow()) {
       _devilSpawned = true;
       _devilCell = _spawnDevilCell();
+      _devilMotion.place(_devilCell);
       _addSmoke(_devilCell!);
       _onArcadeDevilSpawned();
     }
@@ -1368,6 +1373,7 @@ class _GameScreenState extends State<GameScreen>
         while (_devilMoveAccumulator >= stepInterval) {
           _devilMoveAccumulator -= stepInterval;
           _devilCell = _nextDevilStep(_devilCell!, _playerController.position);
+          _devilMotion.step(_devilCell!, _stageElapsedSeconds, stepInterval);
         }
       } else {
         _devilMoveAccumulator = 0;
@@ -1466,6 +1472,8 @@ class _GameScreenState extends State<GameScreen>
       return;
     }
     _roundResolved = true;
+    // It lunges the rest of the way onto the runner.
+    _devilMotion.place(_devilCell);
     _isTimeUpHandling = true;
     _isPaused = false;
     _countdownTimer?.cancel();
@@ -2956,6 +2964,11 @@ class _GameScreenState extends State<GameScreen>
                       time: _stageElapsedSeconds,
                       art: _art,
                       devilCell: _devilCell,
+                      devilPosition: _devilMotion.positionAt(
+                        _stageElapsedSeconds,
+                      ),
+                      devilFacing: _devilMotion.facing,
+                      devilMoving: _devilMotion.movingAt(_stageElapsedSeconds),
                       safeZones: _safeZones,
                       playerSafe: _playerSafe,
                       isFlippedMode: _controlsInverted,

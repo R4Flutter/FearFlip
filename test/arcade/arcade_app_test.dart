@@ -45,11 +45,45 @@ void main() {
         }
       }
     }
-    for (final frame in DevilPixels.frames) {
-      expect(frame.length, DevilPixels.height);
-      for (final row in frame) {
-        expect(row.length, DevilPixels.width, reason: row);
+    for (final facing in Direction4.values) {
+      for (var frame = 0; frame < 3; frame++) {
+        final rows = DevilPixels.rows(facing, frame);
+        expect(rows.length, DevilPixels.height);
+        for (final row in rows) {
+          expect(
+            row.length,
+            DevilPixels.width,
+            reason: '$facing $frame "$row"',
+          );
+        }
       }
     }
+  });
+
+  test('the Devil walks: its frames differ, and its eyes are where '
+      'the sprite draws them', () {
+    for (final facing in Direction4.values) {
+      final frames = [
+        for (var f = 0; f < 3; f++) DevilPixels.rows(facing, f).join(),
+      ];
+      expect(frames.toSet().length, 3, reason: '$facing');
+      final rows = DevilPixels.rows(facing, 0);
+      for (final eye in DevilPixels.eyes(facing)) {
+        // The glow sits on the eye pixels just up-left of its centre.
+        expect(
+          rows[eye.dy.toInt() - 1][eye.dx.toInt() - 1],
+          'R',
+          reason: '$facing $eye',
+        );
+      }
+    }
+    // Facing right is facing left in a mirror.
+    expect(
+      DevilPixels.rows(Direction4.right, 1),
+      DevilPixels.rows(
+        Direction4.left,
+        1,
+      ).map((r) => r.split('').reversed.join()).toList(),
+    );
   });
 }

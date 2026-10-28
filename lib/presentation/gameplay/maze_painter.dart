@@ -120,6 +120,9 @@ class MazePainter extends CustomPainter {
     this.time = 0,
     this.art = const MazeArt.none(),
     this.devilCell,
+    this.devilPosition,
+    this.devilFacing = Direction4.down,
+    this.devilMoving = false,
     this.safeZones = const <Point<int>, double>{},
     this.playerSafe = false,
     this.isFlippedMode = false,
@@ -156,6 +159,14 @@ class MazePainter extends CustomPainter {
   /// The delivered sheets; whatever is missing falls back to the stand-ins.
   final MazeArt art;
   final Point<int>? devilCell;
+
+  /// Where the Devil is drawn, in cells, while it glides between cells
+  /// (devil_motion.dart); [devilCell] when null.
+  final Offset? devilPosition;
+
+  /// The way the Devil walks, and whether it is walking.
+  final Direction4 devilFacing;
+  final bool devilMoving;
   final Map<Point<int>, double> safeZones;
   final bool playerSafe;
   final bool isFlippedMode;
@@ -325,7 +336,7 @@ class MazePainter extends CustomPainter {
       paintRunner(
         canvas,
         feet: playerCenter.translate(0, cellSize * 0.42),
-        height: cellSize * 1.12,
+        height: cellSize * runnerHeightCells,
         look: _look,
         direction: direction,
         walkFrame: isMoving ? const [1, 0, 2, 0][(time * 9).floor() % 4] : 0,
@@ -342,17 +353,16 @@ class MazePainter extends CustomPainter {
     }
 
     final devil = devilCell;
-    final devilCenter = devil == null
-        ? null
-        : camera
-              .cellCenter(_offsetOf(devil))
-              .translate(0, sin(time * 3.4) * cellSize * 0.07);
-    if (devilCenter != null) {
-      paintDevil(
+    final devilAt = devil == null ? null : devilPosition ?? _offsetOf(devil);
+    var devilEyes = const <Offset>[];
+    if (devilAt != null) {
+      devilEyes = paintDevil(
         canvas,
-        feet: devilCenter.translate(0, cellSize * 0.45),
-        height: cellSize * 1.45,
+        feet: camera.cellCenter(devilAt).translate(0, cellSize * 0.45),
+        height: cellSize * devilHeightCells,
         time: time,
+        facing: devilFacing,
+        moving: devilMoving,
         frozen: devilFrozen,
         raging: devilRaging,
       );
@@ -363,19 +373,14 @@ class MazePainter extends CustomPainter {
 
     // Above the dark: the Devil's eyes (seen before its body), the exit's
     // sparkles and the ghost wisps glow on their own.
-    if (devilCenter != null) {
-      // The sprite's eyes (rows 7–8 of 22, columns 4–5 and 10–11 of 16).
-      final h = cellSize * 1.45;
-      final px = h / 22;
-      final top = devilCenter.dy + cellSize * 0.45 - h;
-      final eyeY = top + px * 8;
+    if (devilEyes.isNotEmpty) {
+      final px = cellSize * devilHeightCells / DevilPixels.height;
       final eyeColor = devilFrozen ? _spirit : _danger;
       final glow = Paint()
         ..color = eyeColor.withValues(alpha: 0.55)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, px * 1.6);
       final eye = Paint()..color = eyeColor;
-      for (final dx in [-px * 3, px * 3]) {
-        final at = Offset(devilCenter.dx + dx, eyeY);
+      for (final at in devilEyes) {
         canvas.drawCircle(at, px * 1.8, glow);
         canvas.drawRect(
           Rect.fromCenter(center: at, width: px * 2, height: px * 1.6),
@@ -425,20 +430,19 @@ class MazePainter extends CustomPainter {
         cellSize,
       );
     }
-    if (devil != null &&
-        (_offsetOf(devil) - playerCellPosition).distance <= _devilWarnCells) {
-      _drawPointer(
-        canvas,
-        size,
-        camera.cellCenter(_offsetOf(devil)),
-        _danger,
-        cellSize,
-      );
+    if (devilAt != null &&
+        (devilAt - playerCellPosition).distance <= _devilWarnCells) {
+      _drawPointer(canvas, size, camera.cellCenter(devilAt), _danger, cellSize);
     }
   }
 
   /// How near (in cells) the Devil must be before its off-screen arrow shows.
   static const double _devilWarnCells = 8;
+
+  /// How tall the runner and the Devil stand, in cells: the runner fits
+  /// inside a corridor, the Devil towers over it.
+  static const double runnerHeightCells = 0.84;
+  static const double devilHeightCells = 1.2;
 
   /// The gold flash when a key is found.
   static const double _keyFlashSeconds = 0.3;
@@ -1643,6 +1647,9 @@ class MazePainter extends CustomPainter {
         oldDelegate.isMoving != isMoving ||
         oldDelegate.art != art ||
         oldDelegate.devilCell != devilCell ||
+        oldDelegate.devilPosition != devilPosition ||
+        oldDelegate.devilFacing != devilFacing ||
+        oldDelegate.devilMoving != devilMoving ||
         oldDelegate.playerSafe != playerSafe ||
         oldDelegate.isFlippedMode != isFlippedMode ||
         oldDelegate.safeZones != safeZones ||

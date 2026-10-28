@@ -93,7 +93,7 @@ def cover(background, size, out):
     unit = min(W, H)
     tall = H > W * 1.2
     runner = draw_sprite(sprite_rows('_downHead') + sprite_rows('_legs')[:2], RUNNER, max(4, int(unit / 70)))
-    devil = draw_sprite(sprite_rows('static const List<List<String>> frames')[:22], DEVIL, max(5, int(unit / 52)))
+    devil = draw_sprite(sprite_rows('_frontHead') + sprite_rows('_frontStand'), DEVIL, max(5, int(unit / 52)))
 
     if tall:
         runner_at = (int(W * 0.28 - runner.width / 2), int(H * 0.62))
